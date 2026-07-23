@@ -1,0 +1,57 @@
+name: APK 빌드
+
+# main 에 푸시하거나 Actions 탭에서 직접 실행하면 APK 가 나온다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Java 21 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Node 20 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 의존성 설치
+        run: npm install
+
+      - name: 안드로이드 프로젝트 생성 + 네이티브 주입
+        run: |
+          npx cap add android
+          node scripts/apply-native.js
+
+      - name: 주입 결과 확인
+        run: |
+          echo "--- AndroidManifest 권한/서비스 ---"
+          grep -E "uses-permission|RecorderService" android/app/src/main/AndroidManifest.xml
+          echo "--- MainActivity ---"
+          cat android/app/src/main/java/com/handong/meetnote/MainActivity.java
+
+      - name: Gradle 빌드
+        run: |
+          chmod +x android/gradlew
+          cd android && ./gradlew assembleDebug --stacktrace
+
+      - name: APK 이름 정리
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             out/meetnote-${{ github.run_number }}.apk
+
+      - name: APK 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: meetnote-apk
+          path: out/*.apk
+          retention-days: 30
