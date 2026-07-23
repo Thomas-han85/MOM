@@ -1,0 +1,11 @@
+{
+  "appId": "com.handong.meetnote",
+  "appName": "대역",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
