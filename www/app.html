@@ -380,7 +380,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.26-1";
+const APP_VERSION = "2026.07.26-2";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -737,6 +737,38 @@ function ttsStop(){
 if("speechSynthesis" in window){
   speechSynthesis.getVoices();
   speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+}
+
+/* =====================================================================
+   회의록 번역 — 완성된 회의록을 다른 언어로 옮긴다.
+   회의는 한국어로 진행하고, 끝난 뒤 베트남어로 직원에게 공유하는 흐름.
+   마크다운 구조와 절 이름을 유지해야 받는 쪽에서도 같은 문서로 읽힌다.
+   ===================================================================== */
+const DOC_LANG = {
+  Korean:      { label:"한국어",     heads:"결정사항 / 미결사항 / 투두리스트 / 일반요약" },
+  Vietnamese:  { label:"Tiếng Việt", heads:"Quyết định / Vấn đề tồn đọng / Việc cần làm / Tóm tắt chung" },
+  English:     { label:"English",    heads:"Decisions / Open Issues / Action Items / Summary" }
+};
+async function translateDoc(text, target){
+  const t = DOC_LANG[target] || DOC_LANG.Vietnamese;
+  const sys = [
+    "You translate meeting minutes for a construction and business company operating in Vietnam.",
+    "Translate the entire document into "+target+".",
+    "Preserve the markdown structure exactly: same heading levels, same order of sections,",
+    "same bullet and table layout. Translate the section headings too — use these renderings: "+t.heads+".",
+    "Names of people, companies, projects and places stay as written. Numbers, dates and dimensions must survive exactly.",
+    "In action-item lines keep the three-part shape (owner — task — due date). Translate '미지정' as the target language's word for 'not assigned'.",
+    "Output ONLY the translated document. No preamble, no notes.",
+    CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : ""
+  ].filter(Boolean).join("\n");
+  const r = await fetch("https://api.openai.com/v1/chat/completions",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
+    body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:4000,
+      messages:[{role:"system",content:sys},{role:"user",content:text}] })
+  });
+  if(!r.ok) throw new Error("회의록 번역 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+  return ((await r.json()).choices?.[0]?.message?.content||"").trim();
 }
 
 async function makeMinutes(note, fullText){
@@ -1299,7 +1331,27 @@ async function renderDetail(){
   const doneAll = cs.length && cs.every(c=>c.status==="done"||c.status==="failed");
   let doc = "";
   if(n.summary){
-    doc = statBar(n.summary)+'<div class="doc">'+md(n.summary)+'</div>'+
+    // 번역본이 있으면 언어 탭을 띄우고, 고른 언어의 본문을 보여준다.
+    const langs = ["__src__", ...Object.keys(n.i18n||{})];
+    const cur = (n.viewLang && (n.viewLang==="__src__" || (n.i18n||{})[n.viewLang])) ? n.viewLang : "__src__";
+    const body = cur==="__src__" ? n.summary : n.i18n[cur];
+    let tabs = "";
+    if(langs.length > 1){
+      tabs = '<div class="tabs" style="border-top:0">' + langs.map(L=>{
+        const nm = L==="__src__" ? "원문" : (DOC_LANG[L]?DOC_LANG[L].label:L);
+        return '<button data-lang="'+L+'"'+(L===cur?' class="on"':'')+'>'+nm+'</button>';
+      }).join("") + '</div>';
+    }
+    doc = tabs + statBar(body)+'<div class="doc">'+md(body)+'</div>'+
+      '<div style="padding:0 18px 6px">'+
+        '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
+        '다른 언어로 회의록 만들기 · 직원 공유용</label>'+
+        '<div class="chiprow">'+
+          Object.keys(DOC_LANG).map(L=>'<button class="linkbtn" data-tr="'+L+'" '+
+            'style="padding:7px 12px;border:1px solid var(--rule);border-radius:999px">'+
+            DOC_LANG[L].label+((n.i18n||{})[L]?" ✓":"")+'</button>').join("")+
+        '</div>'+
+      '</div>'+
       '<button class="bigbtn ghost" id="regen">회의록 다시 만들기</button>';
   } else {
     doc = '<div class="empty"><strong>회의록이 아직 없다</strong>'+
@@ -1319,6 +1371,29 @@ async function renderDetail(){
   $("pane-doc").innerHTML = doc;
   const dbf = $("d-brief-file");
   if(dbf) dbf.onclick = ()=>{ briefTarget = "d-brief"; $("briefin").click(); };
+  // 언어 탭 전환
+  $("pane-doc").querySelectorAll("[data-lang]").forEach(b=> b.onclick = async ()=>{
+    n.viewLang = b.dataset.lang; await put("notes", n); renderDetail();
+  });
+  // 다른 언어로 번역. 이미 있으면 다시 만들지 묻는다.
+  $("pane-doc").querySelectorAll("[data-tr]").forEach(b=> b.onclick = async ()=>{
+    const L = b.dataset.tr;
+    if(!CFG.oai){ toast("OpenAI 키가 없다."); return; }
+    if((n.i18n||{})[L] && !confirm(DOC_LANG[L].label+" 회의록이 이미 있다. 다시 만들까?")){
+      n.viewLang = L; await put("notes", n); renderDetail(); return;
+    }
+    const old = b.textContent; b.disabled = true; b.textContent = "번역 중…";
+    try{
+      const out = await translateDoc(n.summary, L);
+      n.i18n = Object.assign({}, n.i18n); n.i18n[L] = out;
+      n.viewLang = L;
+      await put("notes", n);
+      toast(DOC_LANG[L].label+" 회의록을 만들었다.");
+      renderDetail();
+    }catch(e){
+      b.disabled=false; b.textContent=old; toast(e.message||"번역 실패");
+    }
+  });
   const g = $("gen") || $("regen");
   if(g) g.onclick = async () => {
     const bf = $("d-brief");
@@ -1337,6 +1412,8 @@ async function genMinutes(n, cs, btn){
   try{
     const raw = await makeMinutes(n, full);
     n.summary = absorbCarry(n, raw);
+    // 본문이 새로 만들어졌으므로 옛 번역본은 버린다. 안 그러면 서로 다른 회의록이 공유된다.
+    n.i18n = {}; n.viewLang = "__src__";
     await put("notes", n);
     if(n.seriesId){
       const s = findSeries(n.seriesId);
@@ -1416,7 +1493,8 @@ async function exportBackup(){
   }));
   const payload = {
     kind: "meetnote-backup", version: 1, at: Date.now(),
-    settings: { stt:CFG.stt, doc:CFG.doc, chunk:CFG.chunk, gloss:CFG.gloss,
+    settings: { stt:CFG.stt, doc:CFG.doc, trans:CFG.trans, vision:CFG.vision,
+                chunk:CFG.chunk, gloss:CFG.gloss, tts:CFG.tts, ttsRate:CFG.ttsRate,
                 people:CFG.people, series:CFG.series },   // 키는 담지 않는다
     notes, chunks
   };
@@ -1468,8 +1546,12 @@ async function importBackup(file){
 async function exportNote(){
   const n = await get("notes", openId);
   const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
-  let t = "# "+n.title+"\n"+dayLabel(n.created)+" · "+Math.round(n.duration/60000)+"분\n\n";
-  if(n.summary) t += n.summary+"\n\n---\n\n";
+  // 지금 화면에서 보고 있는 언어를 그대로 내보낸다. 번역본을 보다가 공유를 누르면 번역본이 나간다.
+  const vl = n.viewLang && n.viewLang !== "__src__" ? n.viewLang : null;
+  const doc = vl && (n.i18n||{})[vl] ? n.i18n[vl] : n.summary;
+  const suffix = vl ? " ("+(DOC_LANG[vl]?DOC_LANG[vl].label:vl)+")" : "";
+  let t = "# "+n.title+suffix+"\n"+dayLabel(n.created)+" · "+Math.round(n.duration/60000)+"분\n\n";
+  if(doc) t += doc+"\n\n---\n\n";
   t += "## 전사 원본\n\n";
   for(const c of cs){
     if(c.status!=="done"||!c.text) continue;
@@ -1477,7 +1559,7 @@ async function exportNote(){
     if(c.trans) t += "> "+c.trans+"\n";
     t += "\n";
   }
-  const file = new File([t], n.title.replace(/[\/\\:*?"<>|]/g,"_")+".md", {type:"text/markdown"});
+  const file = new File([t], (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_")+".md", {type:"text/markdown"});
   if(navigator.canShare && navigator.canShare({files:[file]})){
     try{ await navigator.share({ files:[file], title:n.title }); return; }catch(e){ if(e.name==="AbortError") return; }
   }
