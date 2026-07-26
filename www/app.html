@@ -269,11 +269,19 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       </select></div>
     <p class="hint">기본값은 전부 mini 다. 시간당 약 $0.22.
       특정 단계 결과가 아쉬우면 그 항목만 위 등급으로 올리면 된다.</p>
-    <div class="field"><label for="s-chunk">청크 길이 · 길수록 번역 품질이 올라가고 자막은 늦게 뜬다</label>
+    <div class="field"><label for="s-chunk">청크 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 번역이 정확해진다</label>
       <select id="s-chunk">
-        <option value="20000">20초</option><option value="30000" selected>30초</option>
-        <option value="45000">45초</option><option value="60000">60초</option>
+        <option value="10000">10초 · 대화용 · 문장이 자주 잘린다</option>
+        <option value="15000">15초 · 대화용</option>
+        <option value="20000">20초 · 회의 중 균형점</option>
+        <option value="30000" selected>30초 · 회의록 품질 우선</option>
+        <option value="45000">45초</option>
+        <option value="60000">60초</option>
       </select></div>
+    <p class="hint">자막이 뜨기까지 걸리는 시간은 여기 고른 값에 3~8초를 더한 정도다.
+      끼어들어 대응해야 하는 회의라면 15~20초, 듣고 나중에 정리하는 회의라면 30초 이상이 낫다.
+      10초는 문장 중간이 자주 잘려 번역이 조각날 수 있다. 어느 쪽이든 회의록 품질은
+      전사 원문 전체를 쓰기 때문에 거의 차이가 없다.</p>
     <div class="field"><label for="s-tts">번역 읽어주기 (TTS)</label>
       <select id="s-tts">
         <option value="0">끄기</option>
@@ -380,7 +388,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.26-2";
+const APP_VERSION = "2026.07.26-3";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -714,6 +722,8 @@ let ttsQueue = [], ttsBusy = false;
 function speakTrans(text, target){
   if(CFG.tts!=="1" || !text || !("speechSynthesis" in window)) return;
   ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR" });
+  // 처리가 밀리면 읽기가 한없이 뒤처진다. 밀린 것은 버리고 최근 것만 읽는다.
+  if(ttsQueue.length > 2) ttsQueue = ttsQueue.slice(-2);
   ttsPump();
 }
 function ttsPump(){
