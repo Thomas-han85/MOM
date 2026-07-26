@@ -1,0 +1,1840 @@
+<!DOCTYPE html>
+<!-- MEETNOTE_APP -->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F7F6F3">
+<title>대역 · 회의 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F7F6F3;
+  --card:#FFFFFF;
+  --ink:#1C1B19;
+  --ink-soft:#55524C;
+  --muted:#8B877E;
+  --rule:#DFDCD4;
+  --accent:#1F4E46;
+  --accent-soft:#E4EDEA;
+  --warn:#8A4B22;
+  --danger:#A32D24;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --serif:"Noto Serif KR","Noto Serif",Georgia,serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.5;overscroll-behavior-y:none}
+button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
+
+/* ---------- chrome ---------- */
+.topbar{position:sticky;top:0;z-index:20;background:var(--paper);
+  padding:calc(env(safe-area-inset-top) + 14px) 18px 12px;
+  display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--rule)}
+.topbar h1{margin:0;font-size:19px;font-weight:600;letter-spacing:-.01em;flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .sub{display:block;font-size:12px;font-weight:400;color:var(--muted);letter-spacing:0}
+.iconbtn{width:38px;height:38px;flex:0 0 38px;display:flex;align-items:center;justify-content:center;
+  border-radius:10px;color:var(--ink-soft)}
+.iconbtn:active{background:var(--rule)}
+.iconbtn svg{width:21px;height:21px;stroke:currentColor;stroke-width:1.7;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+
+.view{display:none;padding-bottom:150px}
+.view.on{display:block}
+
+/* ---------- note list ---------- */
+.daygroup{padding:22px 18px 4px;font-size:12px;color:var(--muted);letter-spacing:.06em}
+.note{display:block;width:100%;text-align:left;padding:14px 18px;border-bottom:1px solid var(--rule)}
+.note:active{background:#EFEDE8}
+.note b{display:block;font-weight:600;font-size:16px;letter-spacing:-.01em;margin-bottom:4px}
+.note span{font-size:13px;color:var(--muted)}
+.note .badge{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:20px;
+  background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600}
+.note .badge.off{background:#F0E7DE;color:var(--warn)}
+
+.empty{padding:70px 34px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
+.empty strong{display:block;color:var(--ink);font-size:16px;font-weight:600;margin-bottom:8px}
+
+/* ---------- status strip ---------- */
+.strip{margin:0;padding:9px 18px;font-size:12.5px;display:flex;align-items:center;gap:8px;
+  background:var(--accent-soft);color:var(--accent);border-bottom:1px solid var(--rule)}
+.strip.warn{background:#F5EBE1;color:var(--warn)}
+.strip button{margin-left:auto;font-size:12.5px;font-weight:600;text-decoration:underline}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 7px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.dot.live{animation:pulse 1.4s infinite}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:22px;padding:0 18px;border-bottom:1px solid var(--rule);
+  position:sticky;top:0;background:var(--paper);z-index:10}
+.tabs button{padding:13px 0;font-size:15px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+
+.langbar{display:flex;align-items:center;gap:8px;padding:12px 18px;flex-wrap:wrap}
+.chip{padding:6px 13px;border-radius:20px;border:1px solid var(--rule);font-size:13px;color:var(--ink-soft);background:var(--card)}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:600}
+
+/* ---------- SIGNATURE: parallel text ---------- */
+.script{padding:4px 18px 40px}
+.seg{display:grid;grid-template-columns:34px 1fr;gap:0 12px;padding:14px 0;border-top:1px solid var(--rule)}
+.seg:first-child{border-top:none}
+.seg .gutter{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:3px;
+  display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.seg .mark{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--muted)}
+.seg.done .mark{background:var(--accent);border-color:var(--accent)}
+.seg.sent .mark{border-color:var(--accent);animation:pulse 1.2s infinite}
+.seg.failed .mark{background:var(--danger);border-color:var(--danger)}
+.seg .body{border-left:1px solid var(--rule);padding-left:14px;min-width:0}
+.seg .orig{font-family:var(--serif);font-size:16.5px;line-height:1.75;color:var(--ink);
+  word-break:break-word;white-space:pre-wrap}
+.seg .trans{font-family:var(--serif);font-size:15.5px;line-height:1.7;color:var(--ink-soft);
+  margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule);word-break:break-word;white-space:pre-wrap}
+.seg .pending{color:var(--muted);font-size:13.5px;font-family:var(--sans);font-style:italic}
+.seg .errline{color:var(--danger);font-size:12.5px;font-family:var(--sans)}
+.seg .errline button{text-decoration:underline;font-weight:600}
+
+/* ---------- document tab ---------- */
+.doc{padding:18px 18px 40px;font-family:var(--serif);font-size:16px;line-height:1.8}
+.doc h2{font-size:18px;font-weight:600;margin:26px 0 10px;letter-spacing:-.01em;
+  padding-left:12px;border-left:3px solid var(--rule)}
+.doc h2.sec-decide{border-left-color:var(--accent)}
+.doc h2.sec-open{border-left-color:var(--warn)}
+.doc h2.sec-todo{border-left-color:var(--ink)}
+.doc h2.sec-carry{border-left-color:var(--muted)}
+.doc h2.sec-agenda{border-left-color:var(--muted)}
+.doc h2.sec-check{border-left-color:var(--danger)}
+.statbar{display:flex;flex-wrap:wrap;gap:7px;padding:16px 18px 0}
+.stat{font-family:var(--sans);font-size:12.5px;font-weight:600;padding:4px 11px;
+  border-radius:20px;background:#EFEDE8;color:var(--ink-soft)}
+.stat.decide{background:var(--accent-soft);color:var(--accent)}
+.stat.open{background:#F5EBE1;color:var(--warn)}
+.stat.todo{background:#E8E6E1;color:var(--ink)}
+.stat.warn{background:var(--danger);color:#fff}
+.doc h2:first-child{margin-top:4px}
+.doc ul{margin:0;padding-left:20px}
+.doc li{margin-bottom:7px}
+.doc p{margin:0 0 12px}
+
+.bigbtn{display:block;width:calc(100% - 36px);margin:18px;padding:15px;border-radius:12px;
+  background:var(--ink);color:var(--paper);font-weight:600;text-align:center}
+.bigbtn:disabled{opacity:.45}
+.bigbtn.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--rule)}
+
+/* ---------- sheet ---------- */
+.scrim{position:fixed;inset:0;background:rgba(28,27,25,.4);z-index:40;display:none}
+.scrim.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--card);
+  border-radius:20px 20px 0 0;padding:8px 18px calc(env(safe-area-inset-bottom) + 20px);
+  transform:translateY(102%);transition:transform .26s cubic-bezier(.32,.72,0,1);
+  max-height:88vh;overflow-y:auto;box-shadow:0 -8px 30px rgba(28,27,25,.14)}
+.sheet.on{transform:translateY(0)}
+@media (prefers-reduced-motion:reduce){.sheet{transition:none}}
+.grab{width:38px;height:4px;border-radius:4px;background:var(--rule);margin:8px auto 16px}
+.segctl{display:flex;background:#EFEDE8;border-radius:11px;padding:3px;margin-bottom:16px}
+.segctl button{flex:1;padding:9px 4px;border-radius:9px;font-size:13px;color:var(--ink-soft);white-space:nowrap}
+.segctl button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.09)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.field input,.field textarea,.field select{width:100%;padding:11px 13px;border:1px solid var(--rule);
+  border-radius:10px;background:var(--paper)}
+.field textarea{min-height:76px;resize:vertical;line-height:1.5}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.6;margin:-4px 0 14px}
+.recbtn{width:100%;padding:16px;border-radius:14px;background:var(--accent);color:#fff;
+  font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center;gap:9px}
+.recbtn.stop{background:var(--danger)}
+.recrow{display:flex;gap:10px}
+.linkbtn{float:right;font-size:12.5px;color:var(--accent);font-weight:600;text-decoration:underline}
+.recbtn.hold{background:#EFEDE8;color:var(--ink);flex:0 0 38%}
+.recbtn.hold.on{background:var(--warn);color:#fff}
+.timer.paused{color:var(--warn)}
+.recbtn.mark{background:var(--accent-soft);color:var(--accent);margin-bottom:10px}
+.recbtn.mark:active{background:var(--accent);color:#fff}
+.sechead{font-size:15px;font-weight:600;margin:26px 0 8px;letter-spacing:-.01em}
+.chiprow{display:flex;flex-wrap:wrap;gap:7px}
+.chiprow .chip{cursor:pointer}
+.chiprow .none{color:var(--muted);font-size:13px}
+.pcard{border:1px solid var(--rule);border-radius:12px;padding:12px 13px;margin-bottom:10px;background:var(--card)}
+.pcard .row{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.pcard b{font-size:15px}
+.pcard em{font-style:normal;font-size:12.5px;color:var(--muted)}
+.pcard .kill{margin-left:auto;color:var(--danger);font-size:12.5px;text-decoration:underline}
+.pcard input{width:100%;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;
+  background:var(--paper);margin-bottom:6px;font-size:14px}
+.scard{border:1px solid var(--rule);border-radius:12px;padding:12px 13px;margin-bottom:10px;background:var(--card)}
+.scard .row{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.scard b{font-size:15px}
+.scard em{font-style:normal;font-size:12px;color:var(--muted)}
+.scard .kill{margin-left:auto;color:var(--danger);font-size:12.5px;text-decoration:underline}
+.scard label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+.scard textarea{width:100%;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;
+  background:var(--paper);font-size:13.5px;line-height:1.5;min-height:52px;resize:vertical}
+.speaker{display:inline-block;font-family:var(--sans);font-size:12px;font-weight:600;
+  color:var(--accent);background:var(--accent-soft);padding:1px 8px;border-radius:20px;margin-bottom:5px}
+.timer{text-align:center;font-size:34px;font-variant-numeric:tabular-nums;font-weight:600;
+  letter-spacing:-.02em;margin:6px 0 16px}
+
+/* ---------- fab ---------- */
+.fab{position:fixed;right:18px;bottom:calc(env(safe-area-inset-bottom) + 22px);z-index:30;
+  width:58px;height:58px;border-radius:50%;background:var(--ink);color:var(--paper);
+  display:flex;align-items:center;justify-content:center;box-shadow:0 5px 18px rgba(28,27,25,.28)}
+.fab svg{width:24px;height:24px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---------- toast ---------- */
+.toast{position:fixed;left:18px;right:18px;bottom:calc(env(safe-area-inset-bottom) + 92px);z-index:60;
+  background:var(--ink);color:var(--paper);padding:13px 16px;border-radius:11px;font-size:14px;
+  opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;line-height:1.5}
+.toast.on{opacity:1;transform:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<!-- ============ LIST ============ -->
+<div class="view on" id="v-list">
+  <div class="topbar">
+    <h1>대역<span class="sub">회의 기록 · 이중언어</span></h1>
+    <button class="iconbtn" id="btn-settings" aria-label="설정">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
+  <div id="net-strip"></div>
+  <div id="list"></div>
+</div>
+
+<!-- ============ DETAIL ============ -->
+<div class="view" id="v-detail">
+  <div class="topbar">
+    <button class="iconbtn" id="btn-back" aria-label="뒤로">
+      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1 id="d-title">—<span class="sub" id="d-meta"></span></h1>
+    <button class="iconbtn" id="btn-share" aria-label="내보내기">
+      <svg viewBox="0 0 24 24"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
+    </button>
+    <button class="iconbtn" id="btn-del" aria-label="삭제">
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+    </button>
+  </div>
+  <div class="tabs">
+    <button id="tab-doc" class="on">문서</button>
+    <button id="tab-raw">원본</button>
+  </div>
+  <div id="d-strip"></div>
+  <div id="pane-doc"></div>
+  <div id="pane-raw" style="display:none"></div>
+</div>
+
+<!-- ============ SETTINGS ============ -->
+<div class="view" id="v-settings">
+  <div class="topbar">
+    <button class="iconbtn" id="btn-back2" aria-label="뒤로">
+      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <h1>설정</h1>
+  </div>
+  <div style="padding:18px">
+    <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 번역에 사용</label>
+      <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
+    <div class="field"><label for="s-ant">Anthropic API 키 (선택) · 회의록을 claude 로 만들 때만 필요</label>
+      <input id="s-ant" type="password" autocomplete="off" placeholder="sk-ant-..."></div>
+    <p class="hint">키는 이 기기에만 저장돼. 서버로 보내지 않아.</p>
+
+    <div class="field"><label for="s-stt">전사</label>
+      <select id="s-stt">
+        <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분</option>
+        <option value="gpt-4o-transcribe">gpt-4o-transcribe · 정확도 우선 · $0.006/분</option>
+        <option value="whisper-1">whisper-1 · $0.006/분</option>
+      </select></div>
+    <div class="field"><label for="s-trans">번역</label>
+      <select id="s-trans">
+        <option value="gpt-4o-mini">gpt-4o-mini</option>
+        <option value="gpt-4o">gpt-4o · 정확도 우선</option>
+      </select></div>
+    <div class="field"><label for="s-doc">회의록</label>
+      <select id="s-doc">
+        <option value="gpt-4o-mini">gpt-4o-mini</option>
+        <option value="gpt-4o">gpt-4o · 정확도 우선</option>
+        <option value="claude-sonnet-5">claude-sonnet-5 · Anthropic 키 필요</option>
+        <option value="claude-opus-4-8">claude-opus-4-8 · Anthropic 키 필요</option>
+      </select></div>
+    <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
+      <select id="s-vision">
+        <option value="gpt-4o-mini">gpt-4o-mini</option>
+        <option value="gpt-4o">gpt-4o · 손글씨나 흐린 사진에 강함</option>
+      </select></div>
+    <p class="hint">기본값은 전부 mini 다. 시간당 약 $0.22.
+      특정 단계 결과가 아쉬우면 그 항목만 위 등급으로 올리면 된다.</p>
+    <div class="field"><label for="s-chunk">청크 길이 · 길수록 번역 품질이 올라가고 자막은 늦게 뜬다</label>
+      <select id="s-chunk">
+        <option value="20000">20초</option><option value="30000" selected>30초</option>
+        <option value="45000">45초</option><option value="60000">60초</option>
+      </select></div>
+    <div class="field"><label for="s-tts">번역 읽어주기 (TTS)</label>
+      <select id="s-tts">
+        <option value="0">끄기</option>
+        <option value="1">켜기 · 기기 내장 음성 · 무료</option>
+      </select></div>
+    <div class="field"><label for="s-ttsrate">읽기 속도</label>
+      <select id="s-ttsrate">
+        <option value="0.8">0.8배 · 천천히</option>
+        <option value="1">1배</option>
+        <option value="1.2">1.2배</option>
+        <option value="1.5">1.5배</option>
+      </select></div>
+    <p class="hint">번역이 나올 때마다 소리로 읽는다. 청크 길이만큼 늦게 읽으므로 동시통역이
+      아니라 지연 통역이다. 회의장 스피커로 틀면 실제 발화와 겹치니 이어폰을 권한다.</p>
+    <h2 class="sechead">참석자</h2>
+    <p class="hint">회의록에서 발언을 사람별로 붙일 때 쓴다. 말투와 자주 쓰는 단어가
+      구체적일수록 정확해진다.</p>
+    <div id="people-list"></div>
+    <button class="bigbtn ghost" id="p-add" style="width:100%;margin:0 0 22px">참석자 추가</button>
+
+    <h2 class="sechead">회의 시리즈</h2>
+    <p class="hint">정기회의는 시리즈로 묶는다. 참석자와 고유명사가 누적되고,
+      지난 회의의 미결 사항이 다음 회의록으로 넘어간다.</p>
+    <div id="series-list"></div>
+
+    <div class="field"><label for="s-gloss">용어집 · 번역할 때 이 표기를 강제한다</label>
+      <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
+    <button class="bigbtn" id="s-save">설정 저장</button>
+
+    <h2 class="sechead">업데이트</h2>
+    <p class="hint" id="up-state">확인 중…</p>
+    <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
+    <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 22px">설치된 버전으로 되돌리기</button>
+
+    <h2 class="sechead">백업</h2>
+    <p class="hint">기기 사이에 자료를 옮길 때 쓴다. 폰에서 내보내고 컴퓨터에서 가져오면
+      회의록이 합쳐진다. 오디오는 빠지고 글자만 담긴다.</p>
+    <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
+    <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 22px">백업 가져오기</button>
+    <input type="file" id="backupin" accept=".json,application/json" style="display:none">
+    <p class="hint" style="margin-top:22px"><span id="envnote"></span></p>
+  </div>
+</div>
+
+<button class="fab" id="fab" aria-label="새 기록">
+  <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>
+</button>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <div class="segctl">
+    <button data-mode="live" class="on">실시간</button>
+    <button data-mode="offline">오프라인</button>
+    <button data-mode="file">음성파일</button>
+    <button data-mode="text">텍스트</button>
+  </div>
+
+  <div id="rec-ui">
+    <div class="field"><label for="r-series">회의 시리즈</label>
+      <select id="r-series"></select></div>
+    <p class="hint" id="series-hint"></p>
+    <div class="field"><label for="r-title">제목</label>
+      <input id="r-title" placeholder="자동 생성됨"></div>
+    <div class="field" id="text-field" style="display:none">
+      <label for="r-text">회의록 · 메모 원문
+        <button type="button" id="text-file" class="linkbtn">파일에서 불러오기</button>
+      </label>
+      <textarea id="r-text" style="min-height:150px" placeholder="이미 있는 회의록이나 메모를 붙여넣어라.&#10;PDF · Word · 엑셀 · 사진도 불러올 수 있다.&#10;정해진 형식으로 다시 정리해 준다."></textarea>
+    </div>
+    <div class="field">
+      <label for="r-brief">사전 자료 (선택)
+        <button type="button" id="brief-file" class="linkbtn">파일에서 불러오기</button>
+      </label>
+      <textarea id="r-brief" placeholder="안건, 지난 회의록, 참고 문서를 붙여넣거나 파일에서 불러와라.&#10;여기 나온 고유명사가 전사 정확도를 크게 올린다."></textarea>
+    </div>
+    <p class="hint">PDF · Word · 엑셀 · 텍스트 · 사진을 읽는다. 스캔된 PDF 와 종이 회의록,
+      화이트보드 사진도 읽는다. 읽은 뒤 내용을 직접 고칠 수 있다.</p>
+    <input type="file" id="briefin" accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.xlsm,.xls,image/*" style="display:none">
+    <div class="field"><label for="r-ctx">대화 상황 · 주제 (선택)</label>
+      <textarea id="r-ctx" placeholder="현장 주간회의. 공정 진척과 하자 처리 논의."></textarea></div>
+    <div class="field"><label>오늘 참석자</label>
+      <div id="r-people" class="chiprow"></div></div>
+    <div class="field"><label for="r-target">번역 대상 언어</label>
+      <select id="r-target">
+        <option value="Korean">한국어</option>
+        <option value="Vietnamese">Tiếng Việt</option>
+        <option value="English">English</option>
+        <option value="">번역 안 함</option>
+      </select></div>
+    <p class="hint" id="mode-hint"></p>
+    <div class="timer" id="timer" style="display:none">00:00</div>
+    <button class="recbtn mark" id="btn-mark" style="display:none">지금 중요</button>
+    <div class="recrow">
+      <button class="recbtn hold" id="btn-pause" style="display:none">일시정지</button>
+      <button class="recbtn" id="btn-rec"><span class="dot"></span> 녹음 시작</button>
+    </div>
+    <input type="file" id="filein" accept="audio/*,video/*" style="display:none">
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
+const APP_VERSION = "2026.07.26-1";
+/* =====================================================================
+   대역 (MeetNote) v1
+   설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
+   전사는 별도 큐 워커가 처리한다. 오프라인은 예외가 아니라
+   "큐가 안 빠지는 상태"일 뿐이다. 파일 업로드도 같은 큐를 탄다.
+   ===================================================================== */
+
+/* ---------- 설정 저장 (localStorage 불가 환경 대비 폴백) ---------- */
+const mem = {};
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } }
+};
+const DEFAULTS = { oai:"", ant:"",
+                   stt:"gpt-4o-mini-transcribe",   // 전사
+                   doc:"gpt-4o-mini",              // 회의록
+                   trans:"gpt-4o-mini",            // 번역
+                   vision:"gpt-4o-mini",           // 사진·스캔 읽기
+                   chunk:"30000", gloss:"", people:[], series:[],
+                   tts:"0", ttsRate:"1" };              // 번역 읽어주기
+let CFG = Object.assign({}, DEFAULTS);
+try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
+if(!Array.isArray(CFG.people)) CFG.people = [];
+if(!CFG.trans)  CFG.trans  = "gpt-4o-mini";
+if(!CFG.vision) CFG.vision = "gpt-4o-mini";
+if(!Array.isArray(CFG.series)) CFG.series = [];
+const saveCfg = () => store.set("meetnote_cfg", JSON.stringify(CFG));
+
+/* ---------- IndexedDB ---------- */
+let db;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r = indexedDB.open("meetnote", 1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      const n = d.createObjectStore("notes",{keyPath:"id"});
+      n.createIndex("created","created");
+      const c = d.createObjectStore("chunks",{keyPath:"id"});
+      c.createIndex("note","noteId");
+      c.createIndex("status","status");
+    };
+    r.onsuccess = e => { db = e.target.result; res(db); };
+    r.onerror = () => rej(r.error);
+  });
+}
+const tx = (s,m) => db.transaction(s,m).objectStore(s);
+const put = (s,v) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").put(v); q.onsuccess=()=>res(v); q.onerror=()=>rej(q.error); });
+const get = (s,k) => new Promise((res,rej)=>{ const q=tx(s,"readonly").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); });
+const del = (s,k) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").delete(k); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); });
+const all = (s) => new Promise((res,rej)=>{ const q=tx(s,"readonly").getAll(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); });
+const byIndex = (s,i,v) => new Promise((res,rej)=>{
+  const q = tx(s,"readonly").index(i).getAll(v); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error);
+});
+
+/* ---------- 유틸 ---------- */
+const $ = id => document.getElementById(id);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const pad = n => String(n).padStart(2,"0");
+const mmss = ms => { const s=Math.floor(ms/1000); return pad(Math.floor(s/60))+":"+pad(s%60); };
+const esc = s => (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function toast(msg,ms=2800){ const t=$("toast"); t.textContent=msg; t.classList.add("on");
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),ms); }
+function dayLabel(ts){ const d=new Date(ts); return d.getFullYear()+"년 "+pad(d.getMonth()+1)+"월 "+pad(d.getDate())+"일"; }
+function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d.getMinutes()); }
+
+/* =====================================================================
+   API
+   ===================================================================== */
+async function sttChunk(blob, prevTail, ctxHint, terms){
+  if(!CFG.oai) throw new Error("OpenAI 키가 없다. 설정에서 입력할 것.");
+  const fd = new FormData();
+  const ext = (blob.type.includes("wav")?"wav":blob.type.includes("mp4")||blob.type.includes("mp4a")?"mp4":"webm");
+  fd.append("file", blob, "seg."+ext);
+  fd.append("model", CFG.stt);
+  fd.append("response_format","json");
+  // 앞 청크의 꼬리를 프롬프트로 넘겨 문장 연결과 고유명사 표기를 안정시킨다
+  // 시리즈에 누적된 고유명사를 앞에 둔다. 회의를 거듭할수록 인식률이 올라가는 지점.
+  const uniq = terms && terms.length
+    ? Array.from(new Map(terms.map(t=>[String(t).toLowerCase(), t])).values()) : [];
+  const termLine = uniq.length ? uniq.join(", ") + "." : "";
+  const prompt = [termLine, ctxHint||"", prevTail||""].filter(Boolean).join(" ").slice(-880);
+  if(prompt) fd.append("prompt", prompt);
+  const r = await fetch("https://api.openai.com/v1/audio/transcriptions",{
+    method:"POST", headers:{ Authorization:"Bearer "+CFG.oai }, body:fd
+  });
+  if(!r.ok) throw new Error("전사 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+  return ((await r.json()).text||"").trim();
+}
+
+/* =====================================================================
+   사전 자료 파일 읽기
+   파일 종류마다 방법이 다르다. 서버가 없으므로 브라우저와 API 로만 해결한다.
+
+     txt/md/csv/json  → 그냥 읽는다
+     이미지            → OpenAI 비전으로 글자를 옮긴다. 종이 회의록, 화이트보드, 스캔본
+     pdf              → Anthropic 문서 입력으로 읽는다. 스캔된 PDF 도 읽힌다
+     docx             → mammoth 를 그때 불러와 읽는다
+     hwp              → 못 읽는다. PDF 로 내보내거나 사진을 찍어야 한다
+   ===================================================================== */
+
+const b64of = file => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(String(r.result).split(",")[1]);
+  r.onerror = () => rej(new Error("파일을 읽지 못했다"));
+  r.readAsDataURL(file);
+});
+
+const textOf = file => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(String(r.result));
+  r.onerror = () => rej(new Error("파일을 읽지 못했다"));
+  r.readAsText(file);
+});
+
+/* CDN 이 하나 죽어도 다음 것으로 넘어간다. */
+function loadOne(src){
+  return new Promise((res, rej) => {
+    if (document.querySelector('script[data-lib="' + src + '"]')) return res();
+    const s = document.createElement("script");
+    s.src = src; s.dataset.lib = src;
+    s.onload = () => res();
+    s.onerror = () => { s.remove(); rej(new Error("load fail")); };
+    document.head.appendChild(s);
+  });
+}
+async function loadLib(srcs, globalName){
+  if (window[globalName]) return window[globalName];
+  for (const src of srcs) {
+    try { await loadOne(src); if (window[globalName]) return window[globalName]; }
+    catch (e) { /* 다음 후보로 */ }
+  }
+  throw new Error("라이브러리를 불러오지 못했다. 인터넷 연결을 확인할 것.");
+}
+
+const LIB = {
+  pdf:  ["https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+         "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"],
+  pdfw: ["https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+         "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js"],
+  xlsx: ["https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
+         "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"],
+  docx: ["https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js",
+         "https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"]
+};
+
+/** 이미지 한 장의 글자를 옮겨 적는다. 사진 파일과 PDF 렌더링 결과가 함께 쓴다. */
+async function ocrBase64(b64, mime){
+  if(!CFG.oai) throw new Error("OpenAI 키가 필요하다.");
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + CFG.oai },
+    body: JSON.stringify({
+      model: CFG.vision, max_tokens: 4000, temperature: 0,
+      messages: [{ role: "user", content: [
+        { type: "text", text:
+          "이 이미지에 적힌 글자를 그대로 옮겨 적어라. 한국어, 베트남어, 영어가 섞여 있을 수 있다. " +
+          "표는 표 형태를 유지해라. 설명이나 감상을 붙이지 마라. 읽을 수 없는 글자는 [?] 로 표시해라." },
+        { type: "image_url", image_url: { url: "data:" + (mime || "image/jpeg") + ";base64," + b64 } }
+      ] }]
+    })
+  });
+  if(!r.ok) throw new Error("이미지를 읽지 못했다 (" + r.status + ")");
+  return ((await r.json()).choices?.[0]?.message?.content || "").trim();
+}
+
+async function ocrImage(file){
+  return await ocrBase64(await b64of(file), file.type || "image/jpeg");
+}
+
+/**
+ * PDF 를 읽는다. 두 단계다.
+ *   1) 텍스트 레이어가 있으면 그냥 뽑는다. 공짜고 즉시 끝난다. 대부분의 문서가 여기서 끝난다.
+ *   2) 스캔본이라 글자가 없으면 페이지를 이미지로 렌더링해 비전으로 읽는다.
+ */
+async function readPdf(file){
+  const pdfjsLib = await loadLib(LIB.pdf, "pdfjsLib");
+  for(const w of LIB.pdfw){ pdfjsLib.GlobalWorkerOptions.workerSrc = w; break; }
+
+  const doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const total = doc.numPages;
+  const scan = Math.min(total, 80);
+
+  const texts = [];
+  let thin = 0;
+  for(let i = 1; i <= scan; i++){
+    const pg = await doc.getPage(i);
+    const tc = await pg.getTextContent();
+    const t = tc.items.map(x => x.str).join(" ").replace(/\s+/g, " ").trim();
+    if(t.length < 40) thin++;
+    texts.push(t);
+  }
+
+  // 글자가 거의 없으면 스캔본으로 보고 이미지로 읽는다.
+  if(thin > scan * 0.6){
+    const cap = Math.min(total, 15);
+    toast("스캔된 PDF 다. " + cap + "쪽을 이미지로 읽는다. 시간이 걸린다.");
+    const out = [];
+    for(let i = 1; i <= cap; i++){
+      const pg = await doc.getPage(i);
+      const vp = pg.getViewport({ scale: 2 });
+      const cv = document.createElement("canvas");
+      cv.width = vp.width; cv.height = vp.height;
+      await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+      const b64 = cv.toDataURL("image/jpeg", 0.85).split(",")[1];
+      try { out.push(await ocrBase64(b64, "image/jpeg")); }
+      catch(e) { out.push("[" + i + "쪽을 읽지 못했다]"); }
+    }
+    if(total > cap) out.push("\n[" + (total - cap) + "쪽이 더 있으나 읽지 않았다]");
+    return out.join("\n\n").trim();
+  }
+
+  let body = texts.filter(Boolean).join("\n\n").trim();
+  if(total > scan) body += "\n\n[" + (total - scan) + "쪽이 더 있으나 읽지 않았다]";
+  return body;
+}
+
+/** Word 문서를 읽는다. */
+async function readDocx(file){
+  const mammoth = await loadLib(LIB.docx, "mammoth");
+  const out = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+  return (out.value || "").trim();
+}
+
+/** 엑셀을 읽는다. 시트마다 표를 그대로 옮긴다. */
+async function readXlsx(file){
+  const XLSX = await loadLib(LIB.xlsx, "XLSX");
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const parts = [];
+  for(const name of wb.SheetNames){
+    const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false }).trim();
+    if(csv) parts.push("## 시트: " + name + "\n" + csv);
+  }
+  if(!parts.length) throw new Error("엑셀에 내용이 없다.");
+  return parts.join("\n\n").slice(0, 40000);
+}
+
+/** 파일 하나를 텍스트로 만든다. */
+async function fileToText(file){
+  const name = (file.name || "").toLowerCase();
+  const type = file.type || "";
+
+  if (type.startsWith("image/"))                      return await ocrImage(file);
+  if (type === "application/pdf" || name.endsWith(".pdf")) return await readPdf(file);
+  if (name.endsWith(".docx"))                         return await readDocx(file);
+  if (/\.(xlsx|xlsm|xls)$/.test(name) || type.indexOf("spreadsheet") >= 0
+      || type.indexOf("ms-excel") >= 0)               return await readXlsx(file);
+  if (/\.(txt|md|csv|json|log)$/.test(name) || type.startsWith("text/"))
+                                                      return await textOf(file);
+  if (name.endsWith(".hwp") || name.endsWith(".hwpx"))
+    throw new Error("한글 파일은 읽을 수 없다. PDF 로 내보내거나 화면을 사진으로 찍어 올려라.");
+  if (name.endsWith(".doc"))
+    throw new Error("구형 .doc 는 읽을 수 없다. .docx 나 PDF 로 저장해서 올려라.");
+  throw new Error("읽을 수 없는 형식이다. PDF, Word, 엑셀, 텍스트, 사진만 된다.");
+}
+
+/** 사전 자료 칸에 파일 내용을 붙인다. */
+async function loadBriefFile(file, targetId){
+  const box = $(targetId);
+  if(!box) return;
+  const btn = $(targetId === "d-brief" ? "d-brief-file"
+              : targetId === "r-text"  ? "text-file" : "brief-file");
+  if(btn) btn.textContent = "읽는 중…";
+  toast("파일을 읽는 중이다. 잠시 기다려라.");
+  try{
+    const text = await fileToText(file);
+    if(!text){ toast("파일에서 글자를 찾지 못했다."); return; }
+    box.value = (box.value.trim() ? box.value.trim() + "\n\n---\n\n" : "") + text;
+    toast(file.name + " 를 읽었다. 내용을 확인하고 고칠 수 있다.");
+  }catch(e){
+    toast(e.message || "파일을 읽지 못했다.");
+  }finally{
+    if(btn) btn.textContent = "파일에서 불러오기";
+  }
+}
+
+/** 사전 자료에서 고유명사만 뽑는다. 전사 프롬프트는 길이가 짧아 전문을 넣을 수 없다. */
+async function extractTerms(brief){
+  if(!brief || !CFG.oai || !navigator.onLine) return [];
+  try{
+    const r = await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
+      body: JSON.stringify({ model:"gpt-4o-mini", temperature:0, max_tokens:700,
+        messages:[
+          { role:"system", content:
+            "Extract proper nouns and domain terms from the text: project names, people, "+
+            "companies, place names, product or drawing codes, and construction jargon. "+
+            "Keep the original script and spelling. Exclude common words. "+
+            "Reply with a JSON array of strings only. No prose, no code fences." },
+          { role:"user", content: brief.slice(0, 12000) }
+        ] })
+    });
+    if(!r.ok) return [];
+    const raw = ((await r.json()).choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr)
+      ? arr.map(x=>String(x).trim()).filter(x=>x && x.length<40).slice(0,60)
+      : [];
+  }catch(e){ return []; }
+}
+
+async function translateChunk(text, target, prevPair, ctxHint){
+  if(!text) return "";
+  const sys = [
+    "You are a simultaneous interpreter for on-site construction and business meetings in Vietnam.",
+    "Translate the user's transcript segment into "+target+".",
+    "Rules: output ONLY the translation. No preamble, no notes, no quotes.",
+    "Keep speaker register and technical precision. Numbers, dates, dimensions and proper nouns must survive exactly.",
+    "If a segment starts mid-sentence, translate it as a fragment. Do not invent a beginning.",
+    ctxHint ? "Meeting context: "+ctxHint : "",
+    prevPair ? "Preceding segment (for continuity, do NOT re-translate it):\n"+prevPair : "",
+    CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : ""
+  ].filter(Boolean).join("\n\n");
+  const r = await fetch("https://api.openai.com/v1/chat/completions",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
+    body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:1600,
+      messages:[{role:"system",content:sys},{role:"user",content:text}] })
+  });
+  if(!r.ok) throw new Error("번역 실패 "+r.status);
+  return ((await r.json()).choices?.[0]?.message?.content||"").trim();
+}
+
+/* =====================================================================
+   TTS — 번역 청크를 기기 내장 음성으로 읽어준다.
+   청크가 읽는 도중에 또 도착할 수 있으므로 큐로 순서를 지킨다.
+   비용 0. 품질이 아쉬우면 나중에 OpenAI TTS 로 승격한다.
+   ===================================================================== */
+const TTS_LANG = { Korean:"ko-KR", Vietnamese:"vi-VN", English:"en-US" };
+let ttsQueue = [], ttsBusy = false;
+function speakTrans(text, target){
+  if(CFG.tts!=="1" || !text || !("speechSynthesis" in window)) return;
+  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR" });
+  ttsPump();
+}
+function ttsPump(){
+  if(ttsBusy || !ttsQueue.length) return;
+  const j = ttsQueue.shift(); ttsBusy = true;
+  const u = new SpeechSynthesisUtterance(j.text);
+  u.lang = j.lang;
+  u.rate = parseFloat(CFG.ttsRate) || 1;
+  // 언어가 맞는 음성을 고른다. 온디바이스(localService) 우선.
+  const vs = speechSynthesis.getVoices()
+    .filter(v => v.lang && v.lang.toLowerCase().startsWith(j.lang.slice(0,2).toLowerCase()));
+  if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
+  u.onend = u.onerror = () => { ttsBusy=false; ttsPump(); };
+  try{ speechSynthesis.speak(u); }catch(e){ ttsBusy=false; }
+}
+function ttsStop(){
+  ttsQueue.length = 0; ttsBusy = false;
+  try{ speechSynthesis.cancel(); }catch(e){}
+}
+/* 일부 기기는 음성 목록을 늦게 채운다. 미리 한 번 불러 캐시를 데운다. */
+if("speechSynthesis" in window){
+  speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+}
+
+async function makeMinutes(note, fullText){
+  const people = attendeeBlock(note);
+  const marks = (note.marks||[]).map(m=>mmss(m)).join(", ");
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const carry = ser && ser.carry ? ser.carry : "";
+  const brief = (note.brief || "").slice(0, 12000);
+  const prompt =
+`아래는 회의 녹음을 전사한 원문이다. 이것을 회의록으로 정리해라.
+
+${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${people ? `참석자
+${people}
+
+전사문에는 화자 표시가 없다. 위 프로필의 역할, 언어, 말투, 자주 쓰는 말을 근거로
+각 발언이 누구의 것인지 추정해서 이름을 붙여라.
+다만 근거가 약하면 억지로 붙이지 말고 "발언자 불명"이라고 써라.
+잘못된 이름을 붙이는 것이 이름을 안 붙이는 것보다 나쁘다.
+
+` : ""}${brief ? `사전 자료 (안건 · 지난 회의록 · 참고 문서)
+"""
+${brief}
+"""
+
+이 자료는 참고용이다. 여기 적힌 내용을 이번 회의에서 실제로 오간 말인 것처럼
+회의록 본문에 옮겨 적지 마라. 회의록은 어디까지나 전사문에 근거해야 한다.
+자료에 안건이나 확인 예정 항목이 있으면, 회의록 맨 앞에 "## 안건 처리 현황" 절을 두고
+항목별로 이번 회의에서 다뤄졌는지 결과를 적어라. 다뤄지지 않은 항목은 "미논의" 라고 명시해라.
+
+` : ""}${carry ? `지난 회의에서 넘어온 미결 사항
+${carry}
+
+이 항목들이 이번 회의에서 다뤄졌는지 확인하고, 아래 "지난 회의 후속" 에 결과를 적어라.
+언급되지 않은 항목은 "이번 회의에서 언급 없음" 이라고 명시해라. 넘어가지 마라.
+
+` : ""}${marks ? `발언자가 회의 중 중요하다고 표시한 시점: ${marks}
+이 시점 전후의 내용은 요약과 액션 아이템에 반드시 반영해라.
+
+` : ""}
+출력 형식은 마크다운. 아래 네 개 절을 이 순서대로 반드시 모두 포함한다.
+내용이 없는 절도 생략하지 말고 "없음" 이라고 쓴다. 절 이름을 바꾸지 마라.
+${carry ? `
+맨 앞에 "## 지난 회의 후속" 을 하나 더 둔다.
+지난 미결 사항을 항목별로 나열하고 이번 회의에서 어떻게 됐는지 결과를 붙인다.
+이번에 언급되지 않은 항목은 "이번 회의에서 언급 없음" 이라고 명시한다.
+` : ""}
+## 결정사항
+이번 회의에서 확정된 것만. 합의됐고 더 논의할 필요가 없는 것.
+아직 논의 중이거나 조건부인 것은 여기 넣지 말고 미결사항으로 보낸다.
+- 결정 내용 (결정한 사람 / 근거가 있으면 함께)
+
+## 미결사항
+결론이 나지 않았거나 보류된 것. 다음 회의로 넘어갈 것.
+항목마다 왜 안 끝났는지, 무엇이 있어야 결론이 나는지를 함께 적는다.
+- 사안 — 막힌 이유 — 결론에 필요한 것
+
+## 투두리스트
+실제로 사람이 움직여야 하는 일만. 담당자와 기한을 반드시 세 칸 다 채운다.
+- 담당자 — 할 일 — 기한
+누가 할지 정해지지 않았으면 담당자에 "미지정", 기한이 안 나왔으면 "미지정" 이라고 쓴다.
+빈칸으로 두거나 항목 자체를 빼지 마라. 미지정이 몇 개인지 보이는 것이 이 절의 목적이다.
+근거 없이 사람 이름이나 날짜를 지어내지 마라.
+
+## 일반요약
+회의 전체를 3~6문장으로. 그 뒤에 주제별 소제목을 달고 오간 이야기를 항목으로 정리한다.
+결정사항과 투두는 위에서 이미 다뤘으므로 여기서는 배경과 논의 과정을 담는다.
+
+## 확인 필요
+전사가 불명확하거나 정보가 빠져 사람이 직접 확인해야 하는 지점. 없으면 이 절은 생략한다.
+
+전사문에 없는 내용을 지어내지 마라. 전사 오류로 보이는 부분은 추정하지 말고 확인 필요에 적어라.
+
+---전사문---
+${fullText}${ser ? `
+
+---
+
+회의록 본문이 끝난 뒤, 아래 블록을 정확히 이 형태로 덧붙여라.
+사람이 읽는 문서가 아니라 다음 회의로 넘길 데이터다. 설명을 붙이지 마라.
+
+---CARRY---
+{"carry":"위 미결사항 절의 항목과 투두리스트 중 아직 안 끝난 것을 합쳐 다음 회의에서 확인할 목록으로. 한 줄에 하나씩, 최대 8줄. 없으면 빈 문자열","terms":["이번 회의에 나온 고유명사만. 프로젝트명, 사람 이름, 회사명, 지명, 현장 전문용어. 일반 단어는 넣지 마라"]}` : ""}`;
+  // 모델 이름으로 제공자를 정한다. claude 를 골랐는데 키가 없으면 OpenAI 로 넘어간다.
+  if(CFG.doc.indexOf("claude") === 0 && CFG.ant){
+    const r = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "x-api-key":CFG.ant,
+        "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
+      body: JSON.stringify({ model:CFG.doc, max_tokens:4000,
+        messages:[{role:"user",content:prompt}] })
+    });
+    if(!r.ok) throw new Error("회의록 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+    const d = await r.json();
+    return (d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+  }
+  const r = await fetch("https://api.openai.com/v1/chat/completions",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
+    body: JSON.stringify({ model: CFG.doc.indexOf("claude")===0 ? "gpt-4o-mini" : CFG.doc,
+      max_tokens:4000, temperature:0.3,
+      messages:[{role:"user",content:prompt}] })
+  });
+  if(!r.ok) throw new Error("회의록 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+  return ((await r.json()).choices?.[0]?.message?.content||"").trim();
+}
+
+/* =====================================================================
+   큐 워커 — 온라인일 때만 pending 청크를 seq 순서로 처리
+   ===================================================================== */
+let working = false;
+async function drain(){
+  if(working || !navigator.onLine || !CFG.oai) return;
+  working = true;
+  try{
+    for(;;){
+      const pend = (await all("chunks"))
+        .filter(c => c.status==="pending")
+        .sort((a,b)=> a.noteId===b.noteId ? a.seq-b.seq : a.created-b.created);
+      if(!pend.length) break;
+      const c = pend[0];
+      const note = await get("notes", c.noteId);
+      if(!note){ await del("chunks", c.id); continue; }
+
+      c.status = "sent"; await put("chunks", c); renderIfOpen(c.noteId); paintStrips();
+      try{
+        const sibs = (await byIndex("chunks","note",c.noteId)).sort((a,b)=>a.seq-b.seq);
+        const prev = sibs.filter(s=>s.seq < c.seq && s.text).pop();
+        const tail = prev ? prev.text.slice(-400) : "";
+
+        const ser = note.seriesId ? findSeries(note.seriesId) : null;
+        const terms = [...(note.terms||[]), ...((ser && ser.terms) || [])];
+        c.text = await sttChunk(c.blob, tail, note.ctx, terms);
+        if(note.target && c.text){
+          const pair = prev && prev.text ? prev.text.slice(-260) : "";
+          c.trans = await translateChunk(c.text, note.target, pair, note.ctx);
+          // 녹음이 진행 중인 그 회의의 번역만 읽어준다. 파일 가져오기·재전사는 읽지 않는다.
+          if(recording && activeNote && activeNote.id===c.noteId)
+            speakTrans(c.trans, note.target);
+        }
+        c.status = "done"; c.error = "";
+        c.blob = c.keepAudio ? c.blob : null;   // 전사 끝난 오디오는 버려 용량 절약
+      }catch(err){
+        c.retry = (c.retry||0) + 1;
+        c.error = err.message;
+        c.status = c.retry >= 3 ? "failed" : "pending";
+        if(c.status==="pending"){ await put("chunks",c); renderIfOpen(c.noteId); paintStrips();
+          working=false; setTimeout(drain, 2500*c.retry); return; }
+      }
+      await put("chunks", c);
+      renderIfOpen(c.noteId); paintStrips(); refreshList();
+    }
+  } finally { working = false; paintStrips(); }
+}
+setInterval(drain, 4000);
+addEventListener("online", ()=>{ paintStrips(); drain(); });
+addEventListener("offline", paintStrips);
+
+async function retryChunk(id){
+  const c = await get("chunks", id);
+  if(!c) return;
+  if(!c.blob){ toast("오디오가 지워져서 다시 시도할 수 없다."); return; }
+  c.status="pending"; c.retry=0; c.error="";
+  await put("chunks", c); renderIfOpen(c.noteId); drain();
+}
+
+/* =====================================================================
+   녹음 — CHUNK_MS마다 레코더를 재시작해 청크를 독립 파일로 만든다
+   ===================================================================== */
+let stream=null, rec=null, recTimer=null, tickTimer=null;
+let recording=false, paused=false, seq=0, activeNote=null, mode="live";
+let startedAt=0, pausedTotal=0, pauseAt=0, webOffset=0;
+const elapsed = () => Date.now()-startedAt-pausedTotal-(paused?Date.now()-pauseAt:0);
+
+/* --- 네이티브(APK) 여부. 있으면 Foreground Service 로 녹음해 화면이 꺼져도 이어진다 --- */
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform
+  && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins
+  && window.Capacitor.Plugins.Recorder);
+const Native = NATIVE ? window.Capacitor.Plugins.Recorder : null;
+let nativeSub = null, nativeErrSub = null;
+
+function b64ToBlob(b64, type){
+  const bin = atob(b64), len = bin.length, buf = new Uint8Array(len);
+  for(let i=0;i<len;i++) buf[i] = bin.charCodeAt(i);
+  return new Blob([buf], {type});
+}
+
+function dropSubs(){
+  if(nativeSub){ nativeSub.remove(); nativeSub=null; }
+  if(nativeErrSub){ nativeErrSub.remove(); nativeErrSub=null; }
+}
+
+/* 일시정지. 네이티브는 서비스가 마이크를 놓고 진행 중이던 청크를 즉시 닫는다.
+   웹은 MediaRecorder.pause() 를 쓰되, 청크 회전 타이머도 함께 멈춘다. */
+async function togglePause(){
+  if(!recording) return;
+  const btn = $("btn-pause");
+  if(!paused){
+    paused = true; pauseAt = Date.now();
+    ttsStop();
+    if(NATIVE){ try{ await Native.pause(); }catch(e){ toast(e.message||"일시정지 실패"); } }
+    else {
+      clearTimeout(recTimer);
+      if(rec && rec.state==="recording"){ try{ rec.pause(); }catch(e){} }
+    }
+    btn.textContent = "이어서 녹음"; btn.classList.add("on");
+    $("timer").classList.add("paused");
+  } else {
+    paused = false; pausedTotal += Date.now()-pauseAt; pauseAt = 0;
+    if(NATIVE){ try{ await Native.resume(); }catch(e){ toast(e.message||"재개 실패"); } }
+    else {
+      if(rec && rec.state==="paused"){
+        try{ rec.resume(); }catch(e){}
+        recTimer = setTimeout(()=>{ if(rec && rec.state==="recording") rec.stop(); }, +CFG.chunk);
+      }
+    }
+    btn.textContent = "일시정지"; btn.classList.remove("on");
+    $("timer").classList.remove("paused");
+  }
+}
+
+/**
+ * 이미 있는 회의록·메모를 정해진 형식으로 다시 정리한다.
+ * 녹음 없이 텍스트만 넣지만, 아래로 흐르는 경로는 전사된 회의와 완전히 같다.
+ * 구간 하나를 "전사 완료" 상태로 만들어 넣으면 나머지가 그대로 동작한다.
+ */
+async function createTextNote(){
+  const src = $("r-text").value.trim();
+  if(!src){ toast("정리할 내용을 넣어라."); return; }
+
+  const title = $("r-title").value.trim();
+  const note = {
+    id: uid(),
+    title: title || "정리 " + timeLabel(Date.now()),
+    created: Date.now(),
+    duration: 0,
+    ctx: $("r-ctx").value.trim(),
+    target: $("r-target").value,
+    summary: "",
+    mode: "text",
+    attendees: pickedAttendees(),
+    marks: [],
+    seriesId: $("r-series").value || "",
+    brief: $("r-brief").value.trim(),
+    terms: []
+  };
+  await put("notes", note);
+
+  await put("chunks", {
+    id: uid(), noteId: note.id, seq: 0, blob: null, status: "done",
+    offsetMs: 0, text: src, trans: "", error: "", retry: 0,
+    created: Date.now(), keepAudio: false
+  });
+
+  // 번역 대상이 지정돼 있으면 원문 옆에 번역도 붙인다.
+  if(note.target && navigator.onLine && CFG.oai){
+    (async ()=>{
+      try{
+        const cs = await byIndex("chunks","note",note.id);
+        const c = cs[0];
+        c.trans = await translateChunk(src.slice(0, 12000), note.target, "", note.ctx);
+        await put("chunks", c);
+        renderIfOpen(note.id);
+      }catch(e){ /* 번역 실패해도 정리는 진행된다 */ }
+    })();
+  }
+
+  if(note.brief) primeTerms(note.id, note.brief);
+
+  closeSheet();
+  $("r-text").value = "";
+  openNote(note.id);
+  refreshList();
+  toast("이제 문서 탭에서 회의록 만들기를 누르면 된다.");
+}
+
+/** 회의 중 중요한 순간을 찍어 둔다. 회의록 작성 때 이 구간이 우선 반영된다. */
+async function markMoment(){
+  if(!recording || !activeNote) return;
+  const at = elapsed();
+  activeNote.marks = activeNote.marks || [];
+  activeNote.marks.push(at);
+  await put("notes", activeNote);
+  toast("중요 표시 " + mmss(at));
+}
+
+function pickMime(){
+  const opts = ["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg;codecs=opus"];
+  for(const m of opts) if(window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return "";
+}
+
+async function startRecording(){
+  if(!NATIVE){
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({ audio:{
+        echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+    }catch(e){ toast("마이크를 쓸 수 없다. 브라우저 권한을 확인할 것."); return; }
+  }
+
+  const title = $("r-title").value.trim();
+  activeNote = { id:uid(), title: title || "기록 " + timeLabel(Date.now()),
+    created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
+    target:$("r-target").value, summary:"", mode,
+    attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
+    brief: $("r-brief").value.trim(), terms: [] };
+  await put("notes", activeNote);
+  primeTerms(activeNote.id, activeNote.brief);
+
+  seq=0; recording=true; paused=false; startedAt=Date.now();
+  pausedTotal=0; pauseAt=0; webOffset=0;
+  $("btn-pause").style.display=""; $("btn-pause").classList.remove("on");
+  $("btn-pause").textContent="일시정지";
+  $("btn-mark").style.display="";
+  $("btn-rec").innerHTML = '<span class="dot live"></span> 녹음 종료';
+  $("btn-rec").classList.add("stop");
+  $("timer").style.display="block";
+  tickTimer = setInterval(()=>{ $("timer").textContent = mmss(elapsed()); }, 500);
+
+  if(NATIVE){
+    const noteId = activeNote.id;
+    const status = (mode==="offline") ? "held" : "pending";
+    nativeSub = await Native.addListener("chunk", async ev => {
+      await saveChunk(noteId, ev.seq, b64ToBlob(ev.data, "audio/wav"), status, ev.offsetMs);
+    });
+    nativeErrSub = await Native.addListener("recError", ev => toast(ev.message));
+    try{
+      await Native.start({
+        chunkMs: +CFG.chunk,
+        minChunkMs: Math.round(+CFG.chunk * 0.5),
+        maxChunkMs: Math.round(+CFG.chunk * 1.5),
+        silenceHoldMs: 700
+      });
+    }catch(e){
+      toast(e.message || "녹음을 시작할 수 없다.");
+      recording = false; clearInterval(tickTimer);
+      dropSubs();
+      $("btn-rec").innerHTML = '<span class="dot"></span> 녹음 시작';
+      $("btn-rec").classList.remove("stop");
+      $("timer").style.display = "none";
+      return;
+    }
+  } else {
+    nextSegment();
+  }
+  refreshList();
+}
+
+function nextSegment(){
+  const mime = pickMime();
+  rec = mime ? new MediaRecorder(stream,{mimeType:mime}) : new MediaRecorder(stream);
+  const parts = [];
+  rec.ondataavailable = e => { if(e.data && e.data.size) parts.push(e.data); };
+  rec.onstop = async () => {
+    if(parts.length){
+      const blob = new Blob(parts, { type: rec.mimeType || "audio/webm" });
+      await saveChunk(activeNote.id, seq++, blob, mode==="offline" ? "held" : "pending", webOffset);
+      webOffset += +CFG.chunk;
+    }
+    if(recording){ if(!paused) nextSegment(); } else finishRecording();
+  };
+  rec.start();
+  recTimer = setTimeout(()=>{ if(rec && rec.state==="recording") rec.stop(); }, +CFG.chunk);
+}
+
+async function saveChunk(noteId, s, blob, status, offsetMs){
+  await put("chunks", { id:uid(), noteId, seq:s, blob, status,
+    offsetMs: (offsetMs==null ? s*(+CFG.chunk) : offsetMs),
+    text:"", trans:"", error:"", retry:0, created:Date.now(), keepAudio:false });
+  renderIfOpen(noteId); paintStrips();
+  if(status==="pending") drain();
+}
+
+async function stopRecording(){
+  if(paused){ pausedTotal += Date.now()-pauseAt; paused=false; pauseAt=0; }
+  recording = false;
+  ttsStop();   // 회의가 끝나면 읽던 것도 멈춘다
+  clearTimeout(recTimer); clearInterval(tickTimer);
+  $("timer").classList.remove("paused");
+  if(NATIVE){
+    try{ await Native.stop(); }catch(e){}
+    // 마지막 청크 이벤트가 도착할 여유를 준다
+    setTimeout(()=>{ dropSubs(); finishRecording(); }, 700);
+    return;
+  }
+  if(rec && rec.state==="recording") rec.stop(); else finishRecording();
+}
+
+async function finishRecording(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  if(activeNote){
+    activeNote.duration = Math.max(0, Date.now()-startedAt-pausedTotal);
+    await put("notes", activeNote);
+  }
+  $("btn-rec").innerHTML = '<span class="dot"></span> 녹음 시작';
+  $("btn-rec").classList.remove("stop");
+  $("btn-pause").style.display="none"; $("btn-pause").classList.remove("on");
+  $("btn-mark").style.display="none";
+  $("timer").style.display="none"; $("timer").textContent="00:00";
+  closeSheet();
+  if(activeNote) openNote(activeNote.id);
+  if(mode==="offline") toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
+  activeNote = null;
+  refreshList();
+}
+
+/* =====================================================================
+   파일 가져오기 — 디코드 후 16kHz 모노 WAV 청크로 잘라 같은 큐에 넣는다
+   ===================================================================== */
+function encodeWAV(samples, rate){
+  const buf = new ArrayBuffer(44 + samples.length*2), v = new DataView(buf);
+  const w = (o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  w(0,"RIFF"); v.setUint32(4, 36+samples.length*2, true); w(8,"WAVE"); w(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  w(36,"data"); v.setUint32(40, samples.length*2, true);
+  let o=44;
+  for(let i=0;i<samples.length;i++){
+    const x = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(o, x<0 ? x*0x8000 : x*0x7FFF, true); o+=2;
+  }
+  return new Blob([buf], {type:"audio/wav"});
+}
+
+async function importFile(file){
+  toast("오디오를 읽는 중…");
+  let decoded;
+  try{
+    const ac = new (window.AudioContext||window.webkitAudioContext)();
+    decoded = await ac.decodeAudioData(await file.arrayBuffer());
+    ac.close();
+  }catch(e){ toast("이 파일은 읽을 수 없다. m4a, mp3, wav로 변환해 볼 것."); return; }
+
+  const RATE = 16000;
+  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration*RATE), RATE);
+  const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+  const data = (await off.startRendering()).getChannelData(0);
+
+  const note = { id:uid(), title: file.name.replace(/\.[^.]+$/,""), created: Date.now(),
+    duration: decoded.duration*1000, ctx:$("r-ctx").value.trim(),
+    target:$("r-target").value, summary:"", mode:"file",
+    attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
+    brief: $("r-brief").value.trim(), terms: [] };
+  await put("notes", note);
+  primeTerms(note.id, note.brief);
+
+  const per = Math.floor(RATE * (+CFG.chunk)/1000);   // 청크 길이는 설정을 따른다
+  let s = 0;
+  for(let i=0; i<data.length; i+=per){
+    await saveChunk(note.id, s, encodeWAV(data.subarray(i, Math.min(i+per, data.length)), RATE),
+                    "pending", Math.round(i/RATE*1000));
+    s++;
+  }
+  closeSheet(); openNote(note.id); refreshList();
+  toast(s + "개 구간으로 나눴다. 순서대로 전사한다.");
+}
+
+/* =====================================================================
+   화면
+   ===================================================================== */
+let openId = null, curTab = "doc";
+
+function show(v){ ["v-list","v-detail","v-settings"].forEach(x=>$(x).classList.toggle("on", x===v)); }
+
+async function refreshList(){
+  const notes = (await all("notes")).sort((a,b)=>b.created-a.created);
+  const chunks = await all("chunks");
+  const box = $("list");
+  if(!notes.length){
+    box.innerHTML = '<div class="empty"><strong>아직 기록이 없다</strong>'+
+      '아래 버튼으로 회의를 녹음하거나, 이미 있는 녹음 파일을 불러와 전사할 수 있다.</div>';
+    return;
+  }
+  let html = "", day = "";
+  for(const n of notes){
+    const d = dayLabel(n.created);
+    if(d !== day){ html += '<div class="daygroup">'+d+'</div>'; day = d; }
+    const mine = chunks.filter(c=>c.noteId===n.id);
+    const left = mine.filter(c=>c.status==="pending"||c.status==="sent").length;
+    const held = mine.filter(c=>c.status==="held").length;
+    const bad  = mine.filter(c=>c.status==="failed").length;
+    let badge = "";
+    if(held) badge = '<span class="badge off">전사 대기 '+held+'</span>';
+    else if(left) badge = '<span class="badge">전사 중 '+left+'</span>';
+    else if(bad) badge = '<span class="badge off">실패 '+bad+'</span>';
+    html += '<button class="note" data-id="'+n.id+'"><b>'+esc(n.title)+'</b>'+
+      '<span>'+timeLabel(n.created)+' · '+
+      (n.mode==="text" ? "텍스트" : Math.max(1,Math.round(n.duration/60000))+"분")+
+      (n.seriesId && findSeries(n.seriesId) ? ' · '+esc(findSeries(n.seriesId).name) : '')+
+      '</span>'+badge+'</button>';
+  }
+  box.innerHTML = html;
+  box.querySelectorAll(".note").forEach(b=>b.onclick=()=>openNote(b.dataset.id));
+}
+
+function paintStrips(){
+  const s = $("net-strip");
+  if(!navigator.onLine){
+    s.innerHTML = '<div class="strip warn"><span class="dot"></span>오프라인 — 연결되면 남은 구간을 자동으로 전사한다</div>';
+  } else if(working){
+    s.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중</div>';
+  } else s.innerHTML = "";
+}
+
+async function openNote(id){
+  openId = id; show("v-detail"); curTab = "doc";
+  $("tab-doc").classList.add("on"); $("tab-raw").classList.remove("on");
+  $("pane-doc").style.display=""; $("pane-raw").style.display="none";
+  await renderDetail();
+  scrollTo(0,0);
+}
+
+function renderIfOpen(id){ if(openId===id) renderDetail(); }
+
+async function renderDetail(){
+  const n = await get("notes", openId); if(!n) return;
+  const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
+  $("d-title").firstChild.nodeValue = n.title;
+  $("d-meta").textContent = dayLabel(n.created).replace(/년 |월 /g,".").replace("일","")+
+    " · "+Math.max(1,Math.round(n.duration/60000))+"분"+(n.target?" · "+n.target:"");
+
+  const held = cs.filter(c=>c.status==="held").length;
+  const left = cs.filter(c=>c.status==="pending"||c.status==="sent").length;
+  const strip = $("d-strip");
+  if(held) strip.innerHTML = '<div class="strip warn"><span class="dot"></span>전사 대기 '+held+
+    '개<button id="go-now">지금 전사</button></div>';
+  else if(left) strip.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중 · 남은 구간 '+left+'</div>';
+  else strip.innerHTML = "";
+  const gn = $("go-now");
+  if(gn) gn.onclick = async ()=>{
+    for(const c of cs) if(c.status==="held"){ c.status="pending"; await put("chunks",c); }
+    renderDetail(); drain();
+  };
+
+  /* --- 원본 탭: 대역 조판 --- */
+  let raw = '<div class="script">';
+  if(!cs.length) raw += '<div class="empty">구간이 없다.</div>';
+  for(const c of cs){
+    raw += '<div class="seg '+c.status+'"><div class="gutter"><span class="mark"></span>'+
+      mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+'</div><div class="body">';
+    if(c.status==="done"){
+      raw += '<div class="orig">'+esc(c.text||"(무음)")+'</div>';
+      if(c.trans) raw += '<div class="trans">'+esc(c.trans)+'</div>';
+    } else if(c.status==="failed"){
+      raw += '<div class="errline">'+esc(c.error||"실패")+
+        ' <button data-retry="'+c.id+'">다시 시도</button></div>';
+    } else if(c.status==="held"){
+      raw += '<div class="pending">녹음 저장됨 · 전사 안 함</div>';
+    } else if(c.status==="sent"){
+      raw += '<div class="pending">전사 중…</div>';
+    } else {
+      raw += '<div class="pending">대기 중</div>';
+    }
+    raw += '</div></div>';
+  }
+  raw += '</div>';
+  $("pane-raw").innerHTML = raw;
+  $("pane-raw").querySelectorAll("[data-retry]").forEach(b=>b.onclick=()=>retryChunk(b.dataset.retry));
+
+  /* --- 문서 탭 --- */
+  const doneAll = cs.length && cs.every(c=>c.status==="done"||c.status==="failed");
+  let doc = "";
+  if(n.summary){
+    doc = statBar(n.summary)+'<div class="doc">'+md(n.summary)+'</div>'+
+      '<button class="bigbtn ghost" id="regen">회의록 다시 만들기</button>';
+  } else {
+    doc = '<div class="empty"><strong>회의록이 아직 없다</strong>'+
+      (cs.length ? (doneAll ? '전사가 끝났다. 아래 버튼으로 회의록을 만든다.'
+                            : '전사가 끝나면 회의록을 만들 수 있다.')
+                 : '구간이 없다.')+'</div>'+
+      '<div style="padding:0 18px 4px">'+
+        '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
+        '사전 자료 · 안건이나 지난 회의록을 넣으면 정리에 반영된다'+
+        '<button type="button" id="d-brief-file" class="linkbtn">파일에서 불러오기</button></label>'+
+        '<textarea id="d-brief" style="width:100%;min-height:84px;padding:11px 13px;'+
+        'border:1px solid var(--rule);border-radius:10px;background:var(--paper);'+
+        'font-size:14px;line-height:1.5;resize:vertical">'+esc(n.brief||"")+'</textarea>'+
+      '</div>'+
+      '<button class="bigbtn" id="gen"'+(doneAll?"":" disabled")+'>회의록 만들기</button>';
+  }
+  $("pane-doc").innerHTML = doc;
+  const dbf = $("d-brief-file");
+  if(dbf) dbf.onclick = ()=>{ briefTarget = "d-brief"; $("briefin").click(); };
+  const g = $("gen") || $("regen");
+  if(g) g.onclick = async () => {
+    const bf = $("d-brief");
+    if(bf && bf.value.trim() !== (n.brief||"")){
+      n.brief = bf.value.trim(); await put("notes", n);
+    }
+    genMinutes(n, cs, g);
+  };
+}
+
+async function genMinutes(n, cs, btn){
+  const full = cs.filter(c=>c.status==="done"&&c.text)
+    .map(c=>"["+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"] "+c.text).join("\n");
+  if(!full){ toast("전사된 내용이 없다."); return; }
+  btn.disabled = true; btn.textContent = "작성 중…";
+  try{
+    const raw = await makeMinutes(n, full);
+    n.summary = absorbCarry(n, raw);
+    await put("notes", n);
+    if(n.seriesId){
+      const s = findSeries(n.seriesId);
+      if(s){ s.count = (s.count||0)+1; s.lastAt = Date.now();
+             s.ctx = n.ctx || s.ctx; s.target = n.target; s.attendees = n.attendees || [];
+             saveCfg(); }
+    }
+    renderDetail();
+  }catch(e){ toast(e.message); btn.disabled=false; btn.textContent="회의록 만들기"; }
+}
+
+/* 회의록은 절 이름이 고정돼 있다. 그 사실을 이용해 한눈에 보이는 지표를 만든다. */
+const SECTION_KIND = [
+  ["안건 처리 현황","agenda"], ["지난 회의 후속","carry"], ["결정사항","decide"], ["미결사항","open"],
+  ["투두리스트","todo"], ["일반요약","recap"], ["확인 필요","check"]
+];
+const kindOf = name => (SECTION_KIND.find(([k])=>name.indexOf(k)>=0)||[,"recap"])[1];
+
+function sectionStats(text){
+  const s = {}; let cur = null;
+  for(const line of String(text||"").split("\n")){
+    const m = line.match(/^##\s+(.+)$/);
+    if(m){ cur = m[1].trim(); s[cur] = { n:0, unassigned:0 }; continue; }
+    if(!cur) continue;
+    if(!/^[-*]\s+/.test(line)) continue;
+    const body = line.replace(/^[-*]\s+/,"").trim();
+    if(!body || body === "없음") continue;
+    s[cur].n++;
+    if(cur.indexOf("투두")>=0 && /미지정/.test(body)) s[cur].unassigned++;
+  }
+  return s;
+}
+
+function statBar(text){
+  const s = sectionStats(text);
+  const pick = n => Object.keys(s).find(k=>k.indexOf(n)>=0);
+  const chips = [];
+  const kd = pick("결정사항"), ko = pick("미결사항"), kt = pick("투두");
+  if(kd) chips.push('<span class="stat decide">결정 '+s[kd].n+'</span>');
+  if(ko) chips.push('<span class="stat open">미결 '+s[ko].n+'</span>');
+  if(kt){
+    chips.push('<span class="stat todo">투두 '+s[kt].n+'</span>');
+    if(s[kt].unassigned) chips.push('<span class="stat warn">담당 미지정 '+s[kt].unassigned+'</span>');
+  }
+  return chips.length ? '<div class="statbar">'+chips.join("")+'</div>' : "";
+}
+
+/* 아주 작은 마크다운 렌더러 — 회의록 출력 형식만 감당하면 된다 */
+function md(t){
+  const lines = esc(t).split("\n"); let out=[], inUl=false;
+  for(let l of lines){
+    if(/^##\s+/.test(l)){
+      if(inUl){out.push("</ul>");inUl=false;}
+      const name = l.replace(/^##\s+/,"");
+      out.push('<h2 class="sec-'+kindOf(name)+'">'+name+"</h2>"); continue; }
+    if(/^[-*]\s+/.test(l)){ if(!inUl){out.push("<ul>");inUl=true;} out.push("<li>"+bold(l.replace(/^[-*]\s+/,""))+"</li>"); continue; }
+    if(inUl){out.push("</ul>");inUl=false;}
+    if(l.trim()==="") continue;
+    if(/^---+$/.test(l.trim())) continue;
+    out.push("<p>"+bold(l)+"</p>");
+  }
+  if(inUl) out.push("</ul>");
+  return out.join("");
+}
+const bold = s => s.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
+
+/* =====================================================================
+   백업
+   서버가 없으므로 기기 사이 이동은 파일로 한다.
+   오디오는 담지 않는다. 전사가 끝나면 어차피 지워지고, 담으면 파일이 감당이 안 된다.
+   ===================================================================== */
+async function exportBackup(){
+  const notes = await all("notes");
+  const chunks = (await all("chunks")).map(c=>({
+    id:c.id, noteId:c.noteId, seq:c.seq, status:c.status==="done"?"done":c.status,
+    offsetMs:c.offsetMs, text:c.text, trans:c.trans, created:c.created
+  }));
+  const payload = {
+    kind: "meetnote-backup", version: 1, at: Date.now(),
+    settings: { stt:CFG.stt, doc:CFG.doc, chunk:CFG.chunk, gloss:CFG.gloss,
+                people:CFG.people, series:CFG.series },   // 키는 담지 않는다
+    notes, chunks
+  };
+  const name = "meetnote-" + new Date().toISOString().slice(0,10) + ".json";
+  const file = new File([JSON.stringify(payload)], name, {type:"application/json"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({ files:[file], title:name }); return; }
+    catch(e){ if(e.name==="AbortError") return; }
+  }
+  const u = URL.createObjectURL(file), a = document.createElement("a");
+  a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
+  toast("백업 " + notes.length + "건을 내보냈다.");
+}
+
+async function importBackup(file){
+  let d;
+  try{ d = JSON.parse(await file.text()); }
+  catch(e){ toast("백업 파일을 읽지 못했다."); return; }
+  if(!d || d.kind !== "meetnote-backup"){ toast("이 앱의 백업 파일이 아니다."); return; }
+
+  const haveNotes = new Set((await all("notes")).map(n=>n.id));
+  const haveChunks = new Set((await all("chunks")).map(c=>c.id));
+  let addedN = 0, addedC = 0;
+
+  for(const n of (d.notes||[])) if(!haveNotes.has(n.id)){ await put("notes", n); addedN++; }
+  for(const c of (d.chunks||[])) if(!haveChunks.has(c.id)){
+    await put("chunks", Object.assign({ blob:null, error:"", retry:0, keepAudio:false }, c));
+    addedC++;
+  }
+
+  // 참석자와 시리즈는 이름 기준으로 합친다. 키와 모델 설정은 건드리지 않는다.
+  const s = d.settings || {};
+  if(Array.isArray(s.people)){
+    const have = new Set(CFG.people.map(p=>(p.name||"").trim()));
+    for(const p of s.people) if(p.name && !have.has(p.name.trim())){ CFG.people.push(p); }
+  }
+  if(Array.isArray(s.series)){
+    const have = new Set(CFG.series.map(x=>x.id));
+    for(const x of s.series) if(!have.has(x.id)) CFG.series.push(x);
+  }
+  if(s.gloss && !CFG.gloss) CFG.gloss = s.gloss;
+  saveCfg(); renderPeople(); renderSeriesList();
+
+  await refreshList();
+  toast("회의록 " + addedN + "건, 구간 " + addedC + "개를 가져왔다. 중복은 건너뛰었다.");
+}
+
+/* ---------- 내보내기 / 삭제 ---------- */
+async function exportNote(){
+  const n = await get("notes", openId);
+  const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
+  let t = "# "+n.title+"\n"+dayLabel(n.created)+" · "+Math.round(n.duration/60000)+"분\n\n";
+  if(n.summary) t += n.summary+"\n\n---\n\n";
+  t += "## 전사 원본\n\n";
+  for(const c of cs){
+    if(c.status!=="done"||!c.text) continue;
+    t += "**"+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"** "+c.text+"\n";
+    if(c.trans) t += "> "+c.trans+"\n";
+    t += "\n";
+  }
+  const file = new File([t], n.title.replace(/[\/\\:*?"<>|]/g,"_")+".md", {type:"text/markdown"});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{ await navigator.share({ files:[file], title:n.title }); return; }catch(e){ if(e.name==="AbortError") return; }
+  }
+  try{ await navigator.clipboard.writeText(t); toast("회의록을 클립보드에 복사했다."); }
+  catch(e){
+    const u = URL.createObjectURL(file), a = document.createElement("a");
+    a.href=u; a.download=file.name; a.click(); URL.revokeObjectURL(u);
+  }
+}
+
+async function deleteNote(){
+  if(!confirm("이 기록을 지운다. 되돌릴 수 없다.")) return;
+  const cs = await byIndex("chunks","note",openId);
+  for(const c of cs) await del("chunks", c.id);
+  await del("notes", openId);
+  openId=null; show("v-list"); refreshList(); toast("지웠다.");
+}
+
+/* =====================================================================
+   참석자 프로필
+   말투와 어휘를 저장해 두면 회의록에서 발언을 사람에게 붙일 수 있다.
+   성문(voiceprint) 없이 텍스트만으로 추정하므로 프로필이 구체적일수록 정확하다.
+   ===================================================================== */
+function renderPeople(){
+  const box = $("people-list");
+  if(!CFG.people.length){
+    box.innerHTML = '<p class="hint" style="margin-bottom:12px">아직 등록된 참석자가 없다.</p>';
+    return;
+  }
+  box.innerHTML = CFG.people.map((p,i)=>
+    '<div class="pcard" data-i="'+i+'">'+
+      '<div class="row"><b>'+esc(p.name||"이름 없음")+'</b><em>'+esc(p.role||"")+'</em>'+
+      '<button class="kill" data-kill="'+i+'">삭제</button></div>'+
+      '<input data-f="name"  value="'+esc(p.name)+'"  placeholder="이름">'+
+      '<input data-f="role"  value="'+esc(p.role)+'"  placeholder="역할 · 예: 현장소장">'+
+      '<input data-f="lang"  value="'+esc(p.lang)+'"  placeholder="주 사용 언어 · 예: 한국어">'+
+      '<input data-f="style" value="'+esc(p.style)+'" placeholder="말투 · 예: 짧게 끊어 말하고 숫자를 먼저 댄다">'+
+      '<input data-f="words" value="'+esc(p.words)+'" placeholder="자주 쓰는 말 · 쉼표로 구분">'+
+    '</div>').join("");
+
+  box.querySelectorAll("input").forEach(inp=>{
+    inp.oninput = () => {
+      const i = +inp.closest(".pcard").dataset.i;
+      CFG.people[i][inp.dataset.f] = inp.value;
+    };
+  });
+  box.querySelectorAll("[data-kill]").forEach(b=>{
+    b.onclick = () => {
+      if(!confirm("이 참석자를 지운다.")) return;
+      CFG.people.splice(+b.dataset.kill,1); saveCfg(); renderPeople();
+    };
+  });
+}
+
+function renderAttendeePicker(selected){
+  const box = $("r-people");
+  if(!CFG.people.length){
+    box.innerHTML = '<span class="none">설정에서 참석자를 먼저 등록하면 여기서 고를 수 있다.</span>';
+    return;
+  }
+  box.innerHTML = CFG.people.map((p,i)=>
+    '<button type="button" class="chip'+(selected.includes(i)?" on":"")+'" data-p="'+i+'">'+
+    esc(p.name||"이름 없음")+'</button>').join("");
+  box.querySelectorAll(".chip").forEach(c=>{
+    c.onclick = () => c.classList.toggle("on");
+  });
+}
+const pickedAttendees = () =>
+  Array.from($("r-people").querySelectorAll(".chip.on")).map(c=>+c.dataset.p);
+
+/** 회의록 프롬프트에 넣을 참석자 설명 */
+function attendeeBlock(note){
+  const ids = note.attendees || [];
+  if(!ids.length) return "";
+  const lines = ids.map(i=>CFG.people[i]).filter(Boolean).map(p=>
+    "- "+(p.name||"?")+
+    (p.role  ? " / 역할: "+p.role   : "")+
+    (p.lang  ? " / 언어: "+p.lang   : "")+
+    (p.style ? " / 말투: "+p.style  : "")+
+    (p.words ? " / 자주 쓰는 말: "+p.words : "")
+  );
+  return lines.length ? lines.join("\n") : "";
+}
+
+/** 사전 자료에서 고유명사를 뽑아 노트에 심는다. 녹음을 막지 않도록 뒤에서 돈다. */
+async function primeTerms(noteId, brief){
+  if(!brief) return;
+  const terms = await extractTerms(brief);
+  if(!terms.length) return;
+  const n = await get("notes", noteId);
+  if(!n) return;
+  n.terms = terms;
+  await put("notes", n);
+  if(n.seriesId){
+    const s = findSeries(n.seriesId);
+    if(s){
+      const seen = new Set((s.terms||[]).map(x=>x.toLowerCase()));
+      const merged = (s.terms||[]).slice();
+      for(const t of terms) if(!seen.has(t.toLowerCase())){ merged.push(t); seen.add(t.toLowerCase()); }
+      s.terms = merged.slice(-TERM_CAP); saveCfg();
+    }
+  }
+  toast("사전 자료에서 고유명사 " + terms.length + "개를 인식에 반영했다.");
+}
+
+/* =====================================================================
+   회의 시리즈
+   정기회의를 묶어 맥락을 이어간다. 세 가지가 누적된다.
+     terms — 회의에 나온 고유명사. 다음 회의 전사 프롬프트로 들어가 인식률을 올린다.
+     carry — 지난 회의의 미결 사항. 다음 회의록의 "지난 회의 후속" 이 된다.
+     참석자·성격·번역언어 — 매번 다시 입력하지 않게 한다.
+   ===================================================================== */
+const TERM_CAP = 40;   // 전사 프롬프트에 넣을 수 있는 길이가 제한적이라 최근 것만 유지한다
+
+function findSeries(id){ return CFG.series.find(s=>s.id===id) || null; }
+
+function renderSeriesPicker(sel){
+  const el = $("r-series");
+  el.innerHTML = '<option value="">시리즈 없음 (단발 회의)</option>' +
+    CFG.series.map(s=>'<option value="'+s.id+'">'+esc(s.name)+' · '+s.count+'회</option>').join("") +
+    '<option value="__new">+ 새 시리즈 만들기</option>';
+  el.value = sel || "";
+  applySeries();
+}
+
+/** 시리즈를 고르면 지난 회의 설정을 그대로 불러온다. */
+function applySeries(){
+  const el = $("r-series"), hint = $("series-hint");
+  if(el.value === "__new"){
+    const name = prompt("시리즈 이름 (예: 현장 주간회의)");
+    if(!name || !name.trim()){ el.value = ""; hint.textContent=""; return; }
+    const s = { id:uid(), name:name.trim(), ctx:"", attendees:[], target:"",
+                terms:[], carry:"", count:0, lastAt:0 };
+    CFG.series.push(s); saveCfg();
+    renderSeriesPicker(s.id);
+    return;
+  }
+  const s = findSeries(el.value);
+  if(!s){
+    hint.textContent = "";
+    renderAttendeePicker([]);
+    return;
+  }
+  if(s.ctx) $("r-ctx").value = s.ctx;
+  if(s.target !== "") $("r-target").value = s.target;
+  renderAttendeePicker(s.attendees || []);
+  const bits = [];
+  if(s.count) bits.push(s.count + "회차");
+  if(s.terms && s.terms.length) bits.push("고유명사 " + s.terms.length + "개 학습됨");
+  if(s.carry) bits.push("지난 회의 미결 사항이 이어진다");
+  hint.textContent = bits.join(" · ");
+}
+
+function renderSeriesList(){
+  const box = $("series-list");
+  if(!CFG.series.length){
+    box.innerHTML = '<p class="hint" style="margin-bottom:12px">아직 시리즈가 없다. 녹음할 때 만들 수 있다.</p>';
+    return;
+  }
+  box.innerHTML = CFG.series.map((s,i)=>
+    '<div class="scard" data-i="'+i+'">'+
+      '<div class="row"><b>'+esc(s.name)+'</b><em>'+s.count+'회</em>'+
+      '<button class="kill" data-skill="'+i+'">삭제</button></div>'+
+      '<label>다음 회의로 넘길 미결 사항</label>'+
+      '<textarea data-sf="carry" placeholder="회의록을 만들면 자동으로 채워진다">'+esc(s.carry)+'</textarea>'+
+      '<label>학습된 고유명사 · 쉼표로 구분. 잘못 인식된 말은 여기서 지운다</label>'+
+      '<textarea data-sf="terms">'+esc((s.terms||[]).join(", "))+'</textarea>'+
+    '</div>').join("");
+
+  box.querySelectorAll("textarea").forEach(t=>{
+    t.oninput = () => {
+      const i = +t.closest(".scard").dataset.i;
+      if(t.dataset.sf === "terms")
+        CFG.series[i].terms = t.value.split(",").map(x=>x.trim()).filter(Boolean).slice(0,TERM_CAP);
+      else CFG.series[i].carry = t.value;
+    };
+  });
+  box.querySelectorAll("[data-skill]").forEach(b=>{
+    b.onclick = () => {
+      if(!confirm("이 시리즈를 지운다. 이미 만든 회의록은 남는다.")) return;
+      CFG.series.splice(+b.dataset.skill,1); saveCfg(); renderSeriesList();
+    };
+  });
+}
+
+/** 회의록 응답 끝에 붙는 데이터 블록을 떼어내 시리즈에 반영한다. */
+function absorbCarry(note, raw){
+  const m = raw.match(/---CARRY---\s*(\{[\s\S]*\})\s*$/);
+  const body = m ? raw.slice(0, m.index).trim() : raw.trim();
+  if(!m || !note.seriesId) return body;
+  const s = findSeries(note.seriesId);
+  if(!s) return body;
+  try{
+    // LLM 이 JSON 문자열 안에 실제 줄바꿈을 그대로 넣는 일이 잦다. 그러면 파싱이 터진다.
+    // 따옴표 안쪽의 제어문자만 골라 이스케이프한 뒤 파싱한다.
+    let out = "", inStr = false, escNext = false;
+    for(const ch of m[1]){
+      if(escNext){ out += ch; escNext = false; continue; }
+      if(inStr && ch === "\\"){ out += ch; escNext = true; continue; }
+      if(ch === '"'){ inStr = !inStr; out += ch; continue; }
+      if(inStr && (ch === "\n" || ch === "\r")){ out += "\\n"; continue; }
+      if(inStr && ch === "\t"){ out += "\\t"; continue; }
+      out += ch;
+    }
+    const d = JSON.parse(out);
+    if(typeof d.carry === "string") s.carry = d.carry.trim();
+    if(Array.isArray(d.terms)){
+      const seen = new Set((s.terms||[]).map(x=>x.toLowerCase()));
+      const merged = (s.terms||[]).slice();
+      for(const t of d.terms){
+        const v = String(t).trim();
+        if(v && v.length < 40 && !seen.has(v.toLowerCase())){ merged.push(v); seen.add(v.toLowerCase()); }
+      }
+      s.terms = merged.slice(-TERM_CAP);   // 최근 것 우선
+    }
+    saveCfg();
+  }catch(e){ /* 블록이 깨져도 회의록 본문은 살린다 */ }
+  return body;
+}
+
+/* ---------- 시트 ---------- */
+const HINTS = {
+  text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리한다. 녹음하지 않는다. 파일로 불러와도 된다.",
+  live:"녹음하면서 구간이 끝날 때마다 전사와 번역이 붙는다. 인터넷이 끊기면 자동으로 대기했다가 이어서 처리한다.",
+  offline:"녹음만 저장한다. 전사는 나중에 노트에서 직접 실행한다. 배터리와 데이터를 아낄 때 쓴다.",
+  file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다."
+};
+function openSheet(){ $("scrim").classList.add("on"); $("sheet").classList.add("on"); }
+function closeSheet(){ $("scrim").classList.remove("on"); $("sheet").classList.remove("on"); }
+function setMode(m){
+  mode = m;
+  document.querySelectorAll(".segctl button").forEach(b=>b.classList.toggle("on", b.dataset.mode===m));
+  $("mode-hint").textContent = HINTS[m];
+  $("btn-rec").innerHTML = m==="file" ? "음성 파일 선택"
+    : m==="text" ? "정리하기"
+    : '<span class="dot"></span> 녹음 시작';
+  $("btn-pause").style.display = "none";
+  $("btn-mark").style.display = "none";
+  $("text-field").style.display = m==="text" ? "" : "none";
+  $("timer").style.display = "none";
+}
+
+/* ---------- 이벤트 ---------- */
+$("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 넣어라."); show("v-settings"); return; }
+  $("r-title").value=""; $("r-brief").value=""; $("r-text").value=""; renderSeriesPicker(""); setMode("live"); openSheet(); };
+$("scrim").onclick = ()=>{ if(recording){ toast("녹음 중이다. 종료 후 닫아라."); return; } closeSheet(); };
+document.querySelectorAll(".segctl button").forEach(b=>b.onclick=()=>{
+  if(recording){ toast("녹음 중에는 바꿀 수 없다."); return; } setMode(b.dataset.mode); });
+$("btn-rec").onclick = ()=>{
+  if(mode==="file"){ $("filein").click(); return; }
+  if(mode==="text"){ createTextNote(); return; }
+  recording ? stopRecording() : startRecording();
+};
+$("text-file").onclick = ()=>{ briefTarget = "r-text"; $("briefin").click(); };
+$("btn-pause").onclick = togglePause;
+$("btn-mark").onclick = markMoment;
+$("r-series").onchange = applySeries;
+let briefTarget = "r-brief";
+$("brief-file").onclick = ()=>{ briefTarget = "r-brief"; $("briefin").click(); };
+$("briefin").onchange = e => {
+  const f = e.target.files[0];
+  if(f) loadBriefFile(f, briefTarget);
+  e.target.value = "";
+};
+$("p-add").onclick = ()=>{
+  CFG.people.push({ name:"", role:"", lang:"", style:"", words:"" });
+  saveCfg(); renderPeople(); renderSeriesList();
+};
+$("filein").onchange = e => { const f = e.target.files[0]; if(f) importFile(f); e.target.value=""; };
+$("btn-back").onclick = ()=>{ openId=null; show("v-list"); refreshList(); };
+$("btn-back2").onclick = ()=> show(openId?"v-detail":"v-list");
+$("btn-share").onclick = exportNote;
+$("btn-del").onclick = deleteNote;
+$("tab-doc").onclick = ()=>{ curTab="doc"; $("tab-doc").classList.add("on"); $("tab-raw").classList.remove("on");
+  $("pane-doc").style.display=""; $("pane-raw").style.display="none"; };
+$("tab-raw").onclick = ()=>{ curTab="raw"; $("tab-raw").classList.add("on"); $("tab-doc").classList.remove("on");
+  $("pane-raw").style.display=""; $("pane-doc").style.display="none"; };
+$("btn-settings").onclick = ()=>{
+  $("s-oai").value=CFG.oai; $("s-ant").value=CFG.ant; $("s-stt").value=CFG.stt;
+  $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
+  $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
+  $("s-tts").value=CFG.tts; $("s-ttsrate").value=CFG.ttsRate;
+  renderPeople(); renderSeriesList();
+  show("v-settings");
+};
+$("s-export").onclick = exportBackup;
+$("s-import").onclick = ()=> $("backupin").click();
+$("backupin").onchange = e => { const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; };
+$("s-save").onclick = ()=>{
+  CFG.oai=$("s-oai").value.trim(); CFG.ant=$("s-ant").value.trim();
+  CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
+  CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
+  CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
+  CFG.tts=$("s-tts").value; CFG.ttsRate=$("s-ttsrate").value;
+  if(CFG.tts!=="1") ttsStop();
+  CFG.people = CFG.people.filter(p=>(p.name||"").trim());
+  saveCfg(); renderPeople(); renderSeriesList(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
+};
+addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.returnValue=""; } });
+
+
+/* 실행 환경 안내 */
+(function(){
+  const el = document.getElementById("envnote");
+  if(!el) return;
+  el.textContent = NATIVE
+    ? "APK로 실행 중이다. 화면을 꺼도 녹음이 이어진다."
+    : "브라우저로 실행 중이다. 화면이 꺼지면 마이크가 끊긴다. 녹음 중에는 화면을 켜 둘 것.";
+})();
+
+/* =====================================================================
+   업데이트
+   실제 갱신은 부트로더(index.html)가 한다. 여기서는 상태 표시와 조작만 담당한다.
+   새 버전은 받아만 두고 다음 실행에 적용한다. 쓰는 도중에 화면이 갈리면 안 되기 때문이다.
+   ===================================================================== */
+function paintUpdateState(){
+  const el = $("up-state");
+  if(!el) return;
+  const U = window.__mnUpdate;
+  if(!U){ el.textContent = "현재 버전 " + APP_VERSION + " · 브라우저로 열어서 자동 업데이트가 없다."; return; }
+  if(U.pending) el.textContent = "새 버전 " + U.pending + " 을 받아 뒀다. 앱을 닫았다 열면 적용된다.";
+  else el.textContent = "현재 버전 " + APP_VERSION + (U.checked ? " · 최신이다." : "");
+}
+
+function wireUpdateUI(){
+  paintUpdateState();
+  const U = window.__mnUpdate;
+  const c = $("up-check"), r = $("up-revert");
+  if(c) c.onclick = async ()=>{
+    if(!U){ toast("브라우저에서는 자동 업데이트가 없다."); return; }
+    c.disabled = true; c.textContent = "확인 중…";
+    try{
+      const res = await U.check();
+      if(res.status === "updated")     toast("새 버전 " + res.version + " 을 받았다. 앱을 다시 열면 적용된다.");
+      else if(res.status === "latest") toast("이미 최신이다.");
+      else                             toast(res.message || "확인하지 못했다.");
+    }catch(e){ toast("확인하지 못했다. 인터넷 연결을 확인할 것."); }
+    finally{ c.disabled=false; c.textContent="지금 업데이트 확인"; paintUpdateState(); }
+  };
+  if(r) r.onclick = ()=>{
+    if(!U){ toast("브라우저에서는 해당 없다."); return; }
+    if(!confirm("받아 둔 갱신을 버리고 설치된 버전으로 되돌린다. 회의록은 지워지지 않는다.")) return;
+    U.revert(); toast("되돌렸다. 앱을 다시 열어라."); paintUpdateState();
+  };
+  addEventListener("mn-update", paintUpdateState);
+}
+
+/* ---------- 시작 ---------- */
+(async ()=>{
+  await openDB();
+  // 앱이 죽었다 살아난 경우 sent 상태로 멈춘 청크를 되살린다
+  for(const c of await all("chunks")) if(c.status==="sent"){ c.status="pending"; await put("chunks",c); }
+  setMode("live"); paintStrips(); await refreshList(); drain();
+  // 여기까지 왔으면 정상 기동이다. 부트로더의 감시 플래그를 푼다.
+  if(window.__mnBootOK) window.__mnBootOK();
+  wireUpdateUI();
+})();
+</script>
+</body>
+</html>

@@ -1,16 +1,47 @@
 name: APK 빌드
 
 # main 에 푸시하거나 Actions 탭에서 직접 실행하면 APK 가 나온다.
+#
+# 화면과 기능만 고쳤다면 APK 를 다시 깔 필요가 없다.
+# 앱이 www/app.html 을 깃허브에서 직접 받아 가므로, 앱을 껐다 켜면 반영된다.
+# APK 를 다시 깔아야 하는 것은 native/ 아래를 고쳤을 때뿐이다.
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # 앱을 고쳐 놓고 버전을 안 올리면 기기가 갱신을 받지 못한다.
+      # 이 실수가 제일 잦으므로 여기서 막는다.
+      - name: APP_VERSION 올렸는지 확인
+        run: |
+          if ! git rev-parse HEAD~1 >/dev/null 2>&1; then
+            echo "첫 커밋이다. 검사를 건너뛴다."; exit 0
+          fi
+          if git diff --quiet HEAD~1 HEAD -- www/app.html; then
+            echo "app.html 변경 없음. 검사를 건너뛴다."; exit 0
+          fi
+          OLD=$(git show HEAD~1:www/app.html | sed -n 's/.*APP_VERSION *= *"\([^"]*\)".*/\1/p' | head -1)
+          NEW=$(sed -n 's/.*APP_VERSION *= *"\([^"]*\)".*/\1/p' www/app.html | head -1)
+          if [ -z "$NEW" ]; then
+            echo "::error::www/app.html 에서 APP_VERSION 을 찾지 못했다."; exit 1
+          fi
+          if [ "$OLD" = "$NEW" ]; then
+            echo "::error::app.html 을 고쳤는데 APP_VERSION 이 그대로다 ($NEW). 값을 올려야 기기가 새 버전을 받는다."
+            exit 1
+          fi
+          echo "버전 $OLD -> $NEW"
 
       - name: Java 21 설치
         uses: actions/setup-java@v4
@@ -38,6 +69,21 @@ jobs:
           echo "--- MainActivity ---"
           cat android/app/src/main/java/com/handong/meetnote/MainActivity.java
 
+      # 빌드마다 서명키가 바뀌면 (1) 폰이 APK 업데이트를 거부하고
+      # (2) 구글 OAuth (Drive 연동) 가 SHA-1 불일치로 깨진다.
+      # 그래서 고정 키스토어를 secret 으로 넣어 항상 같은 키로 서명한다.
+      - name: 고정 서명키 복원
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS" ]; then
+            echo "::warning::DEBUG_KEYSTORE_B64 secret 이 없다. 임시 키로 서명된다 — Drive 연동과 APK 덮어쓰기 설치가 안 된다."
+          else
+            mkdir -p ~/.android
+            echo "$KS" | base64 -d > ~/.android/debug.keystore
+            echo "고정 키스토어 복원 완료"
+          fi
+
       - name: Gradle 빌드
         run: |
           chmod +x android/gradlew
@@ -55,3 +101,12 @@ jobs:
           name: meetnote-apk
           path: out/*.apk
           retention-days: 30
+
+      # 릴리스로도 남긴다. 폰 브라우저에서 바로 내려받을 수 있다.
+      - name: 릴리스 생성
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ github.run_number }}" out/*.apk \
+            --title "APK ${{ github.run_number }}" \
+            --notes "화면·기능만 바뀌었다면 다시 깔 필요 없다. 앱을 껐다 켜면 반영된다. native/ 가 바뀐 경우에만 이 APK 를 설치하면 된다."

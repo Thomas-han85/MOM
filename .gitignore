@@ -3,3 +3,16 @@ android/
 ios/
 *.apk
 .DS_Store
+
+# 백업 파일에는 회의록 전문이 들어 있다. 절대 커밋하지 말 것.
+meetnote-*.json
+backup*.json
+*.backup
+
+# 혹시 모를 키 파일
+.env
+*service-account*.json
+
+# 서명 키스토어. 절대 커밋 금지 — GitHub secret 으로만 전달한다.
+keys/
+*.keystore
