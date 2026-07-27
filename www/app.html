@@ -427,7 +427,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-1";
+const APP_VERSION = "2026.07.27-2";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -762,8 +762,17 @@ const TTS_LANG = { Korean:"ko-KR", Vietnamese:"vi-VN", English:"en-US" };
    WebView 에는 빠져 있어서 웹 방식으로는 소리가 나지 않는다. APK 에서는 네이티브
    플러그인이 기기 음성을 직접 쓴다. 공짜고 오프라인에서 돌며 지연이 없다.
    브라우저로 열었을 때는 기존 웹 음성을 그대로 쓴다. */
-const NativeTts = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Tts)
-  ? window.Capacitor.Plugins.Tts : null;
+/* Capacitor 7 은 Plugins 객체와 registerPlugin 두 경로가 있다. 둘 다 시도한다. */
+const NativeTts = (function(){
+  const C = window.Capacitor;
+  if(!C) return null;
+  if(C.Plugins && C.Plugins.Tts) return C.Plugins.Tts;
+  const isNative = C.isNativePlatform && C.isNativePlatform();
+  if(isNative && typeof C.registerPlugin === "function"){
+    try{ return C.registerPlugin("Tts"); }catch(e){ return null; }
+  }
+  return null;
+})();
 const HAS_WEB_TTS = ("speechSynthesis" in window) &&
                     typeof window.SpeechSynthesisUtterance === "function";
 const TTS_OK = !!NativeTts || HAS_WEB_TTS;
@@ -2030,9 +2039,25 @@ addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.ret
 (function(){
   const el = document.getElementById("envnote");
   if(!el) return;
-  el.textContent = NATIVE
-    ? "APK로 실행 중이다. 화면을 꺼도 녹음이 이어진다."
-    : "브라우저로 실행 중이다. 화면이 꺼지면 마이크가 끊긴다. 녹음 중에는 화면을 켜 둘 것.";
+  // 어느 부품이 붙어 있는지 그대로 보여 준다. 안 될 때 원인을 짚는 데 쓴다.
+  const P = (window.Capacitor && window.Capacitor.Plugins) ? window.Capacitor.Plugins : {};
+  const names = Object.keys(P).sort().join(", ") || "없음";
+  el.textContent = (NATIVE
+      ? "APK로 실행 중이다. 화면을 꺼도 녹음이 이어진다."
+      : "브라우저로 실행 중이다. 화면이 꺼지면 마이크가 끊긴다. 녹음 중에는 화면을 켜 둘 것.")
+    + "\n녹음 부품 " + (P.Recorder ? "있음" : "없음")
+    + " · 음성 부품 " + (NativeTts ? "있음" : "없음")
+    + " · 웹 음성 " + (HAS_WEB_TTS ? "있음" : "없음")
+    + "\n붙어 있는 부품: " + names;
+  el.style.whiteSpace = "pre-line";
+  // 네이티브 음성이 실제로 응답하는지도 물어본다. 껍데기만 있고 안 되는 경우를 가른다.
+  if(NativeTts && NativeTts.available) NativeTts.available().then(r=>{
+    const L = (r && r.langs) || {};
+    el.textContent += "\n음성 응답: 준비 " + ((r&&r.ready) ? "됨" : "안 됨")
+      + " · 한국어 " + (L.ko ? "O" : "X")
+      + " · 베트남어 " + (L.vi ? "O" : "X")
+      + " · 영어 " + (L.en ? "O" : "X");
+  }).catch(e=>{ el.textContent += "\n음성 응답 실패: " + (e.message||e); });
 })();
 
 /* =====================================================================
