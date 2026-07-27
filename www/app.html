@@ -346,6 +346,21 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
     <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 22px">설치된 버전으로 되돌리기</button>
 
+    <h2 class="sechead">폰과 컴퓨터 연동</h2>
+    <p class="hint">구글 드라이브의 앱 전용 숨김 폴더에 회의록 글자만 올린다. 드라이브 화면에는
+      보이지 않고 다른 앱도 볼 수 없다. 오디오는 올리지 않는다.
+      한 번 연결하면 계속 유지된다. 폰과 컴퓨터에서 각각 한 번씩 연결하면 된다.</p>
+    <p class="hint" id="g-state">연결 안 됨</p>
+    <div class="field"><label for="s-gcid">구글 클라이언트 ID</label>
+      <input id="s-gcid" type="text" autocomplete="off" placeholder="....apps.googleusercontent.com"></div>
+    <div class="field"><label for="s-gcsec">구글 클라이언트 시크릿</label>
+      <input id="s-gcsec" type="password" autocomplete="off" placeholder="GOCSPX-..."></div>
+    <div id="g-code" class="hint" style="display:none;padding:14px;border:1px solid var(--rule);
+      border-radius:10px;background:var(--card);margin-bottom:10px"></div>
+    <button class="bigbtn" id="g-link" style="width:100%;margin:0 0 10px">구글 연결</button>
+    <button class="bigbtn ghost" id="g-sync" style="width:100%;margin:0 0 10px">지금 맞추기</button>
+    <button class="bigbtn ghost" id="g-unlink" style="width:100%;margin:0 0 22px">연결 끊기</button>
+
     <h2 class="sechead">백업</h2>
     <p class="hint">기기 사이에 자료를 옮길 때 쓴다. 폰에서 내보내고 컴퓨터에서 가져오면
       회의록이 합쳐진다. 오디오는 빠지고 글자만 담긴다.</p>
@@ -428,7 +443,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-4";
+const APP_VERSION = "2026.07.27-5";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -448,7 +463,8 @@ const DEFAULTS = { oai:"", ant:"",
                    trans:"gpt-4o-mini",            // 번역
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
                    chunk:"30000", gloss:"", people:[], series:[],
-                   tts:"0", ttsRate:"1", ttsLang:"ko-KR" };   // 번역 읽어주기
+                   tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 번역 읽어주기
+                   gcid:"", gcsec:"" };                       // 구글 드라이브 연동
 let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
 if(!Array.isArray(CFG.people)) CFG.people = [];
@@ -475,7 +491,13 @@ function openDB(){
   });
 }
 const tx = (s,m) => db.transaction(s,m).objectStore(s);
-const put = (s,v) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").put(v); q.onsuccess=()=>res(v); q.onerror=()=>rej(q.error); });
+const putRaw = (s,v) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").put(v); q.onsuccess=()=>res(v); q.onerror=()=>rej(q.error); });
+/* 노트를 저장할 때마다 고친 시각을 남긴다. 기기 사이에 어느 쪽이 최신인지 가리는 기준이다.
+   드라이브에서 받아 온 것을 그대로 넣을 때는 putRaw 를 쓴다. 그래야 남의 시각을 보존한다. */
+const put = (s,v) => {
+  if(s==="notes" && v && typeof v==="object") v.updated = Date.now();
+  return putRaw(s,v);
+};
 const get = (s,k) => new Promise((res,rej)=>{ const q=tx(s,"readonly").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); });
 const del = (s,k) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").delete(k); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); });
 const all = (s) => new Promise((res,rej)=>{ const q=tx(s,"readonly").getAll(); q.onsuccess=()=>res(q.result||[]); q.onerror=()=>rej(q.error); });
@@ -1000,6 +1022,246 @@ ${fullText}${ser ? `
 }
 
 /* =====================================================================
+   구글 드라이브 연동 — 폰과 컴퓨터가 같은 회의록을 본다
+
+   로그인은 "기기 흐름"을 쓴다. 앱이 짧은 코드를 보여 주면 사용자가 아무 브라우저에서
+   그 코드를 넣어 승인한다. 구글은 앱 안의 WebView 로 로그인하는 것을 막아 두었는데,
+   이 방식은 그 제약을 피하면서 폰과 컴퓨터가 똑같은 코드 한 벌로 동작한다.
+   한 번 승인하면 갱신 토큰이 남아 계속 유지된다.
+
+   저장 위치는 드라이브의 앱 전용 숨김 폴더다. 사용자의 드라이브 화면에는 보이지 않고
+   다른 앱도 볼 수 없다. 오디오는 올리지 않는다. 글자만 오간다.
+   ===================================================================== */
+const G = {
+  DEV:"https://oauth2.googleapis.com/device/code",
+  TOK:"https://oauth2.googleapis.com/token",
+  SCOPE:"https://www.googleapis.com/auth/drive.appdata",
+  API:"https://www.googleapis.com/drive/v3",
+  UP:"https://www.googleapis.com/upload/drive/v3"
+};
+const gStore = {
+  get ref(){ return store.get("mn_g_refresh") || ""; },
+  set ref(v){ store.set("mn_g_refresh", v||""); },
+  get acc(){ return store.get("mn_g_access") || ""; },
+  set acc(v){ store.set("mn_g_access", v||""); },
+  get exp(){ return +(store.get("mn_g_exp")||0); },
+  set exp(v){ store.set("mn_g_exp", String(v||0)); }
+};
+const driveOn = () => !!(gStore.ref && CFG.gcid && CFG.gcsec);
+
+function form(o){
+  return Object.keys(o).map(k=>encodeURIComponent(k)+"="+encodeURIComponent(o[k])).join("&");
+}
+
+/* --- 로그인 (기기 흐름) --- */
+async function gStartLink(onCode){
+  if(!CFG.gcid || !CFG.gcsec) throw new Error("구글 클라이언트 ID 와 시크릿을 먼저 넣어라.");
+  const r = await fetch(G.DEV, { method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body: form({ client_id:CFG.gcid, scope:G.SCOPE }) });
+  const d = await r.json();
+  if(!r.ok) throw new Error("연결 시작 실패: "+(d.error_description||d.error||r.status));
+  onCode(d);   // 사용자에게 코드와 주소를 보여 준다
+
+  const until = Date.now() + (d.expires_in||1800)*1000;
+  let wait = (d.interval || 5) * 1000;
+  while(Date.now() < until){
+    await new Promise(s=>setTimeout(s, wait));
+    const p = await fetch(G.TOK, { method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body: form({ client_id:CFG.gcid, client_secret:CFG.gcsec,
+                   device_code:d.device_code, grant_type:"urn:ietf:params:oauth:grant-type:device_code" }) });
+    const t = await p.json();
+    if(p.ok && t.refresh_token){
+      gStore.ref = t.refresh_token;
+      gStore.acc = t.access_token;
+      gStore.exp = Date.now() + (t.expires_in||3600)*1000 - 60000;
+      return true;
+    }
+    if(t.error === "authorization_pending") continue;
+    if(t.error === "slow_down"){ wait += 5000; continue; }
+    throw new Error("연결 실패: "+(t.error_description||t.error||"알 수 없음"));
+  }
+  throw new Error("시간이 지났다. 다시 시도할 것.");
+}
+
+async function gToken(){
+  if(!gStore.ref) throw new Error("구글에 연결돼 있지 않다.");
+  if(gStore.acc && Date.now() < gStore.exp) return gStore.acc;
+  const r = await fetch(G.TOK, { method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body: form({ client_id:CFG.gcid, client_secret:CFG.gcsec,
+                 refresh_token:gStore.ref, grant_type:"refresh_token" }) });
+  const d = await r.json();
+  if(!r.ok || !d.access_token){
+    // 사용자가 승인을 취소했거나 토큰이 죽었다. 다시 연결해야 한다.
+    if(d.error === "invalid_grant"){ gStore.ref=""; gStore.acc=""; gStore.exp=0; }
+    throw new Error("토큰 갱신 실패: "+(d.error_description||d.error||r.status));
+  }
+  gStore.acc = d.access_token;
+  gStore.exp = Date.now() + (d.expires_in||3600)*1000 - 60000;
+  return gStore.acc;
+}
+
+function gUnlink(){ gStore.ref=""; gStore.acc=""; gStore.exp=0; }
+
+/* --- 드라이브 파일 다루기 (앱 전용 숨김 폴더) --- */
+async function dList(){
+  const t = await gToken();
+  let out = [], page = "";
+  do{
+    const u = G.API+"/files?spaces=appDataFolder&pageSize=200"
+      + "&fields=nextPageToken,files(id,name,appProperties)"
+      + (page ? "&pageToken="+encodeURIComponent(page) : "");
+    const r = await fetch(u, { headers:{ Authorization:"Bearer "+t } });
+    if(!r.ok) throw new Error("목록 실패 "+r.status);
+    const d = await r.json();
+    out = out.concat(d.files||[]);
+    page = d.nextPageToken || "";
+  } while(page);
+  return out;
+}
+async function dRead(id){
+  const t = await gToken();
+  const r = await fetch(G.API+"/files/"+id+"?alt=media", { headers:{ Authorization:"Bearer "+t } });
+  if(!r.ok) throw new Error("읽기 실패 "+r.status);
+  return r.json();
+}
+async function dWrite(id, name, obj, updated){
+  const t = await gToken();
+  const meta = { name, appProperties:{ u:String(updated||Date.now()) } };
+  if(!id) meta.parents = ["appDataFolder"];
+  const B = "mnb"+Math.random().toString(36).slice(2);
+  const body =
+    "--"+B+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+
+    "\r\n--"+B+"\r\nContent-Type: application/json\r\n\r\n"+JSON.stringify(obj)+
+    "\r\n--"+B+"--";
+  const url = G.UP+"/files"+(id ? "/"+id : "")+"?uploadType=multipart&fields=id";
+  const r = await fetch(url, { method: id ? "PATCH" : "POST",
+    headers:{ Authorization:"Bearer "+t, "Content-Type":'multipart/related; boundary="'+B+'"' },
+    body });
+  if(!r.ok) throw new Error("올리기 실패 "+r.status+" "+(await r.text()).slice(0,120));
+  return (await r.json()).id;
+}
+async function dDelete(id){
+  const t = await gToken();
+  await fetch(G.API+"/files/"+id, { method:"DELETE", headers:{ Authorization:"Bearer "+t } });
+}
+
+/* --- 노트 한 건을 주고받을 꾸러미로 만든다. 오디오는 뺀다. --- */
+async function packNote(n){
+  const cs = (await byIndex("chunks","note",n.id)).sort((a,b)=>a.seq-b.seq);
+  return { v:1, note: Object.assign({}, n),
+    chunks: cs.filter(c=>c.text||c.trans).map(c=>({
+      id:c.id, seq:c.seq, offsetMs:c.offsetMs, text:c.text||"", trans:c.trans||"", status:"done" })) };
+}
+async function unpackNote(p){
+  if(!p || !p.note) return;
+  await putRaw("notes", p.note);            // 남의 시각을 그대로 보존한다
+  const have = new Set((await byIndex("chunks","note",p.note.id)).map(c=>c.id));
+  for(const c of (p.chunks||[])){
+    if(have.has(c.id)) continue;
+    await putRaw("chunks", Object.assign({ noteId:p.note.id, blob:null, error:"", retry:0,
+      keepAudio:false, created:Date.now() }, c));
+  }
+}
+
+/* --- 동기화 --- */
+let syncing = false, lastSync = 0;
+const TOMB = "tombstones.json";
+
+async function syncDrive(manual){
+  if(syncing || !driveOn() || !navigator.onLine) return;
+  syncing = true;
+  paintSync("맞추는 중…");
+  try{
+    const files = await dList();
+    const byName = {};
+    files.forEach(f => byName[f.name] = f);
+
+    // 지운 것 목록을 합친다. 한쪽에서 지운 회의록이 다른 쪽에서 되살아나면 안 된다.
+    let tombs = [];
+    const tf = byName[TOMB];
+    if(tf){ try{ tombs = (await dRead(tf.id)).ids || []; }catch(e){} }
+    let localTombs = [];
+    try{ localTombs = JSON.parse(store.get("mn_tombs")||"[]"); }catch(e){}
+    const allTombs = [...new Set([...tombs, ...localTombs])];
+    const tombSet = new Set(allTombs);
+
+    // 지운 것이 아직 드라이브에 남아 있으면 치운다
+    for(const id of allTombs){
+      const f = byName["note-"+id+".json"];
+      if(f){ await dDelete(f.id); delete byName["note-"+id+".json"]; }
+    }
+    // 지운 것이 이 기기에 남아 있으면 치운다
+    for(const id of allTombs){
+      const n = await get("notes", id);
+      if(n){
+        for(const c of await byIndex("chunks","note",id)) await del("chunks", c.id);
+        await del("notes", id);
+        if(openId===id){ openId=null; show("v-list"); }
+      }
+    }
+
+    const locals = await all("notes");
+    const localById = {};
+    locals.forEach(n => localById[n.id] = n);
+
+    // 내려받기: 드라이브가 더 새것이거나 이 기기에 없는 것
+    for(const f of files){
+      const m = /^note-(.+)\.json$/.exec(f.name);
+      if(!m) continue;
+      const id = m[1];
+      if(tombSet.has(id)) continue;
+      const remoteU = +((f.appProperties||{}).u || 0);
+      const mine = localById[id];
+      if(mine && (mine.updated||0) >= remoteU) continue;
+      if(recording && activeNote && activeNote.id === id) continue;   // 녹음 중인 것은 건드리지 않는다
+      await unpackNote(await dRead(f.id));
+    }
+
+    // 올리기: 이 기기가 더 새것이거나 드라이브에 없는 것
+    for(const n of await all("notes")){
+      if(tombSet.has(n.id)) continue;
+      if(recording && activeNote && activeNote.id === n.id) continue;
+      const f = byName["note-"+n.id+".json"];
+      const remoteU = f ? +((f.appProperties||{}).u || 0) : -1;
+      const mineU = n.updated || 0;
+      if(f && remoteU >= mineU) continue;
+      await dWrite(f ? f.id : null, "note-"+n.id+".json", await packNote(n), mineU || Date.now());
+    }
+
+    // 지운 것 목록을 드라이브에 반영하고, 이 기기 목록은 비운다
+    if(allTombs.length){
+      await dWrite(tf ? tf.id : null, TOMB, { ids: allTombs.slice(-500) }, Date.now());
+      store.set("mn_tombs","[]");
+    }
+
+    lastSync = Date.now();
+    paintSync("맞췄다 · "+timeLabel(lastSync));
+    await refreshList();
+    if(openId) renderDetail();
+    if(manual) toast("드라이브와 맞췄다.");
+  }catch(e){
+    paintSync("실패 · "+(e.message||e));
+    if(manual) toast(e.message||"동기화 실패");
+  }finally{ syncing = false; }
+}
+
+function markDeleted(id){
+  let t = [];
+  try{ t = JSON.parse(store.get("mn_tombs")||"[]"); }catch(e){}
+  t.push(id); store.set("mn_tombs", JSON.stringify([...new Set(t)]));
+}
+function paintSync(msg){
+  const el = $("g-state"); if(!el) return;
+  el.textContent = driveOn() ? ("연결됨 · "+(msg||"")) : "연결 안 됨";
+}
+// 녹음이 끝나거나 회의록이 만들어진 뒤, 그리고 주기적으로 맞춘다.
+setInterval(()=>{ if(Date.now()-lastSync > 180000) syncDrive(false); }, 60000);
+addEventListener("online", ()=> syncDrive(false));
+
+/* =====================================================================
    큐 워커 — 온라인일 때만 pending 청크를 seq 순서로 처리
    ===================================================================== */
 let working = false;
@@ -1396,6 +1658,7 @@ async function finishRecording(){
   if(mode==="offline") toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
   activeNote = null;
   refreshList();
+  syncDrive(false);
 }
 
 /* =====================================================================
@@ -1651,6 +1914,7 @@ async function genMinutes(n, cs, btn){
              saveCfg(); }
     }
     renderDetail();
+    syncDrive(false);   // 회의록이 나왔으니 다른 기기에도 올린다
   }catch(e){ toast(e.message); btn.disabled=false; btn.textContent="회의록 만들기"; }
 }
 
@@ -1804,7 +2068,9 @@ async function deleteNote(){
   const cs = await byIndex("chunks","note",openId);
   for(const c of cs) await del("chunks", c.id);
   await del("notes", openId);
+  markDeleted(openId);   // 다른 기기에서 되살아나지 않게 지운 사실을 남긴다
   openId=null; show("v-list"); refreshList(); toast("지웠다.");
+  syncDrive(false);
 }
 
 /* =====================================================================
@@ -2077,10 +2343,42 @@ $("btn-settings").onclick = ()=>{
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
   $("s-tts").value=CFG.tts; $("s-ttsrate").value=CFG.ttsRate;
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
+  $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
+  paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
   renderPeople(); renderSeriesList();
   show("v-settings");
 };
 $("s-ttstest").onclick = ttsTest;
+$("g-link").onclick = async ()=>{
+  CFG.gcid = $("s-gcid").value.trim(); CFG.gcsec = $("s-gcsec").value.trim();
+  saveCfg();
+  const box = $("g-code"), b = $("g-link");
+  b.disabled = true; b.textContent = "연결 중…";
+  try{
+    await gStartLink(d => {
+      box.style.display = "";
+      box.innerHTML = '<strong style="display:block;font-size:15px;color:var(--ink);margin-bottom:6px">'+
+        '다른 기기나 브라우저에서 아래 주소를 열고 코드를 넣어라</strong>' +
+        '<div style="margin:8px 0">주소: <strong>'+esc(d.verification_url)+'</strong></div>' +
+        '<div style="font-size:26px;font-weight:700;letter-spacing:.08em;color:var(--ink)">'+
+        esc(d.user_code)+'</div>' +
+        '<div style="margin-top:8px">승인하면 이 화면이 저절로 넘어간다. 창을 닫지 말 것.</div>';
+    });
+    box.style.display = "none";
+    toast("구글에 연결했다.");
+    paintSync("");
+    syncDrive(true);
+  }catch(e){ box.style.display="none"; toast(e.message||"연결 실패", 5000); }
+  finally{ b.disabled=false; b.textContent="구글 연결"; }
+};
+$("g-sync").onclick = ()=>{
+  if(!driveOn()){ toast("먼저 구글에 연결해라."); return; }
+  syncDrive(true);
+};
+$("g-unlink").onclick = ()=>{
+  if(!confirm("연결을 끊는다. 이 기기의 회의록은 지워지지 않는다.")) return;
+  gUnlink(); paintSync(""); toast("연결을 끊었다.");
+};
 $("s-export").onclick = exportBackup;
 $("s-import").onclick = ()=> $("backupin").click();
 $("backupin").onchange = e => { const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; };
@@ -2091,6 +2389,7 @@ $("s-save").onclick = ()=>{
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
   CFG.tts=$("s-tts").value; CFG.ttsRate=$("s-ttsrate").value;
   CFG.ttsLang=$("s-ttslang").value;
+  CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   if(CFG.tts!=="1") ttsStop();
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
   saveCfg(); renderPeople(); renderSeriesList(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
@@ -2213,6 +2512,7 @@ let applyAsked = false;
   // 여기까지 왔으면 정상 기동이다. 부트로더의 감시 플래그를 푼다.
   if(window.__mnBootOK) window.__mnBootOK();
   wireUpdateUI();
+  syncDrive(false);   // 켤 때 한 번 맞춘다
 })();
 </script>
 </body>
