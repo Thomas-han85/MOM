@@ -340,6 +340,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <h2 class="sechead">업데이트</h2>
     <p class="hint" id="up-state">확인 중…</p>
+    <button class="bigbtn" id="up-apply" style="width:100%;margin:0 0 10px;display:none">지금 적용</button>
     <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
     <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 22px">설치된 버전으로 되돌리기</button>
 
@@ -424,7 +425,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.26-4";
+const APP_VERSION = "2026.07.26-5";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2008,20 +2009,39 @@ function paintUpdateState(){
   if(!el) return;
   const U = window.__mnUpdate;
   if(!U){ el.textContent = "현재 버전 " + APP_VERSION + " · 브라우저로 열어서 자동 업데이트가 없다."; return; }
-  if(U.pending) el.textContent = "새 버전 " + U.pending + " 을 받아 뒀다. 앱을 닫았다 열면 적용된다.";
+  if(U.pending) el.textContent = "새 버전 " + U.pending + " 을 받아 뒀다. 아래 '지금 적용'을 누르면 바로 바뀐다.";
   else el.textContent = "현재 버전 " + APP_VERSION + (U.checked ? " · 최신이다." : "");
+  const ap = $("up-apply");
+  if(ap) ap.style.display = U.pending ? "" : "none";
+}
+
+/* 받아 둔 버전을 지금 적용한다. 다시 읽으면 부트로더가 저장된 새 본체를 띄운다.
+   녹음 중에 갈아치우면 진행 중인 회의가 끊기므로 막는다. */
+function applyUpdate(){
+  const U = window.__mnUpdate;
+  if(!U || !U.pending){ toast("받아 둔 새 버전이 없다."); return; }
+  if(recording){ toast("녹음 중에는 적용할 수 없다. 회의를 끝내고 눌러라."); return; }
+  toast("새 버전을 적용한다…");
+  setTimeout(()=>location.reload(), 400);
 }
 
 function wireUpdateUI(){
   paintUpdateState();
   const U = window.__mnUpdate;
-  const c = $("up-check"), r = $("up-revert");
+  const c = $("up-check"), r = $("up-revert"), ap = $("up-apply");
+  if(ap) ap.onclick = applyUpdate;
   if(c) c.onclick = async ()=>{
     if(!U){ toast("브라우저에서는 자동 업데이트가 없다."); return; }
     c.disabled = true; c.textContent = "확인 중…";
     try{
       const res = await U.check();
-      if(res.status === "updated")     toast("새 버전 " + res.version + " 을 받았다. 앱을 다시 열면 적용된다.");
+      if(res.status === "updated"){
+        paintUpdateState();
+        if(!recording && confirm("새 버전 "+res.version+" 을 받았다. 지금 적용할까?\n(회의록은 그대로 남는다)")){
+          applyUpdate(); return;
+        }
+        toast("새 버전 " + res.version + " 을 받았다. '지금 적용'을 누르면 바뀐다.");
+      }
       else if(res.status === "latest") toast("이미 최신이다.");
       else                             toast(res.message || "확인하지 못했다.");
     }catch(e){ toast("확인하지 못했다. 인터넷 연결을 확인할 것."); }
@@ -2032,8 +2052,18 @@ function wireUpdateUI(){
     if(!confirm("받아 둔 갱신을 버리고 설치된 버전으로 되돌린다. 회의록은 지워지지 않는다.")) return;
     U.revert(); toast("되돌렸다. 앱을 다시 열어라."); paintUpdateState();
   };
-  addEventListener("mn-update", paintUpdateState);
+  // 기동 4초 뒤 자동 확인이 끝나면 알려 준다. 녹음 중이면 방해하지 않는다.
+  addEventListener("mn-update", ()=>{
+    paintUpdateState();
+    const V = window.__mnUpdate;
+    if(V && V.pending && !recording && !applyAsked){
+      applyAsked = true;
+      if(confirm("새 버전 "+V.pending+" 이 나왔다. 지금 적용할까?\n(회의록은 그대로 남는다)")) applyUpdate();
+      else toast("설정 → 업데이트에서 '지금 적용'을 누르면 언제든 바뀐다.", 4000);
+    }
+  });
 }
+let applyAsked = false;
 
 /* ---------- 시작 ---------- */
 (async ()=>{
