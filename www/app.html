@@ -472,7 +472,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-19";
+const APP_VERSION = "2026.07.27-20";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1030,7 +1030,7 @@ ${fullText}`;
    자연히 길고 촘촘해진다. 지시보다 구조가 확실하다. */
 const SEG_CHARS = 2500;
 
-async function makeSummary(note, fullText, onStep){
+async function makeSummary(note, fullText, onStep, cache){
   if(fullText.length <= SEG_CHARS){
     return callDocModel(summaryPrompt(note, fullText), 8000);
   }
@@ -1041,6 +1041,9 @@ async function makeSummary(note, fullText, onStep){
   const outs = [];
   for(let i=0;i<parts.length;i++){
     if(onStep) onStep(i+1, parts.length);
+    // 이미 만들어 둔 조각은 다시 만들지 않는다. 도중에 멈춰도 쓴 것은 살린다.
+    const kept = cache && await cache.get(i);
+    if(kept){ outs.push(kept); continue; }
     const tail = i > 0 ? outs[i-1].slice(-1200) : "";
     const head =
 `이 전사문은 길어서 여러 구간으로 나눠 정리한다. 지금은 ${parts.length}개 중 ${i+1}번째 구간이다.
@@ -1057,7 +1060,9 @@ ${tail}
 ` : ""}${i>0 ? "맨 위 전체 요약 문단은 쓰지 마라. 첫 구간에서 이미 썼다. 소제목부터 시작해라.\n" : ""}${i<parts.length-1 ? "'기억할 대목'과 '확인 필요' 절은 쓰지 마라. 마지막 구간에서 한 번에 쓴다.\n" : ""}
 `;
     const p = summaryPrompt(note, parts[i]).replace("가장 중요한 것: 분량이다.", head + "가장 중요한 것: 분량이다.");
-    outs.push(await callDocModel(p, 8000));
+    const out = await callDocModel(p, 8000);
+    outs.push(out);
+    if(cache) await cache.set(i, out);
   }
   return outs.join("\n\n");
 }
@@ -1263,7 +1268,7 @@ ${ser ? `
 ${digests}`;
 }
 
-async function makeMinutes(note, fullText, onStep){
+async function makeMinutes(note, fullText, onStep, cache){
   // 짧은 회의는 한 번에 처리하는 편이 흐름이 매끄럽다.
   if(fullText.length <= SEG_CHARS * 2)
     return callDocModel(minutesPrompt(note, fullText), 12000);
@@ -1272,7 +1277,11 @@ async function makeMinutes(note, fullText, onStep){
   const digests = [];
   for(let i=0;i<parts.length;i++){
     if(onStep) onStep(i+1, parts.length+1);
-    digests.push(await callDocModel(digestPrompt(note, parts[i], i, parts.length), 8000));
+    const kept = cache && await cache.get(i);
+    if(kept){ digests.push(kept); continue; }
+    const out = await callDocModel(digestPrompt(note, parts[i], i, parts.length), 8000);
+    digests.push(out);
+    if(cache) await cache.set(i, out);
   }
   if(onStep) onStep(parts.length+1, parts.length+1);
 
@@ -2250,6 +2259,10 @@ async function renderDetail(){
      원래 짧은 것인지 정리가 뭉갠 것인지 이것으로 갈린다. */
   const rawLen = cs.filter(c=>c.status==="done"&&c.text)
                    .reduce((a,c)=>a + c.text.length, 0);
+  // 조각 이어하기를 가릴 때 쓰는 값. 실제로 모델에 넘기는 글의 길이와 같아야 한다.
+  const rawLen0 = cs.filter(c=>c.status==="done"&&c.text)
+    .map(c=>"["+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"] "+c.text)
+    .join("\n").length;
   const lenBar = (()=>{
     if(!rawLen) return "";
     const docLen = (n.summary||"").length;
@@ -2298,6 +2311,13 @@ async function renderDetail(){
         'border:1px solid var(--rule);border-radius:10px;background:var(--paper);'+
         'font-size:14px;line-height:1.5;resize:vertical">'+esc(n.brief||"")+'</textarea>'+
       '</div>'+
+      (function(){
+        // 하다 만 조각이 있으면 알려 준다. 다시 눌러도 처음부터 하지 않는다.
+        const d = n.draft;
+        const kept = d && d.form===fm && d.len===rawLen0 && (d.parts||[]).filter(Boolean).length;
+        return kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
+          '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다.</p>' : "";
+      })()+
       '<button class="bigbtn" id="gen"'+(doneAll?"":" disabled")+'>'+
         DOC_FORMS[fm].label+' 만들기</button>';
   }
@@ -2349,12 +2369,24 @@ async function genMinutes(n, cs, btn){
   if(!full){ toast("전사된 내용이 없다."); return; }
   const fm = n.docForm || "minutes";
   btn.disabled = true; btn.textContent = "작성 중…";
+  /* 정리도 화면 쪽에서 도는 일이라, 화면이 꺼지면 그대로 멈춘다. 게다가 조각을
+     열세 개 만들다 하나에서 멈추면 그때까지 쓴 것이 전부 날아간다. 화면을 켜 두고,
+     만든 조각은 하나씩 저장해 다음에 이어서 하게 한다. */
+  const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
+  // 형식이나 전사문이 달라졌으면 예전 조각은 버린다. 엉뚱한 것이 섞이면 안 된다.
+  if(!n.draft || n.draft.form !== fm || n.draft.len !== full.length || n.draft.seg !== SEG_CHARS)
+    n.draft = { form:fm, len:full.length, seg:SEG_CHARS, parts:[] };
+  const cache = {
+    get: async i => n.draft.parts[i] || null,
+    set: async (i, v) => { n.draft.parts[i] = v; await put("notes", n); }
+  };
   try{
     // 요약 형식은 회의 시리즈의 미결 인계와 무관하다. 넘길 것이 없으므로 그대로 쓴다.
     const step = (i,total)=>{ btn.textContent = total>1 ? "정리 중… "+i+"/"+total : "정리 중…"; };
-    const raw = fm==="summary" ? await makeSummary(n, full, step)
-                               : await makeMinutes(n, full, step);
+    const raw = fm==="summary" ? await makeSummary(n, full, step, cache)
+                               : await makeMinutes(n, full, step, cache);
     n.summary = fm==="summary" ? raw : absorbCarry(n, raw);
+    n.draft = null;   // 다 만들었으니 조각은 버린다
     // 본문이 새로 만들어졌으므로 옛 번역본은 버린다. 안 그러면 서로 다른 회의록이 공유된다.
     n.i18n = {}; n.viewLang = "__src__";
     await put("notes", n);
@@ -2366,8 +2398,12 @@ async function genMinutes(n, cs, btn){
     }
     renderDetail();
     syncDrive(false);   // 글이 나왔으니 다른 기기에도 올린다
-  }catch(e){ toast(e.message); btn.disabled=false;
-    btn.textContent = DOC_FORMS[fm].label+" 만들기"; }
+  }catch(e){
+    toast(e.message + " · 만들어 둔 조각은 남아 있다. 다시 누르면 이어서 한다.", 6000);
+    btn.disabled=false; renderDetail();
+  }finally{
+    CFG.awake = wasAwake; if(!recording) keepAwake(false);
+  }
 }
 
 /* 회의록은 절 이름이 고정돼 있다. 그 사실을 이용해 한눈에 보이는 지표를 만든다. */
