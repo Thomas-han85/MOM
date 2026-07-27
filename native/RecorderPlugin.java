@@ -102,6 +102,24 @@ public class RecorderPlugin extends Plugin {
         call.resolve();
     }
 
+    /* 녹음 중에는 화면을 켜 둔다.
+       화면이 꺼지면 안드로이드가 화면 쪽(WebView)을 재워 전사와 번역이 멈춘다.
+       녹음 자체는 이어지지만 자막은 끊긴다. 켜 두면 그 문제가 통째로 사라진다.
+       대신 배터리를 쓴다. 그래서 설정에서 끌 수 있게 두었다. */
+    @PluginMethod
+    public void keepAwake(PluginCall call) {
+        final boolean on = Boolean.TRUE.equals(call.getBoolean("on", true));
+        final android.app.Activity act = getActivity();
+        if (act == null) { call.resolve(); return; }
+        act.runOnUiThread(() -> {
+            if (on) act.getWindow().addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            else act.getWindow().clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        });
+        call.resolve();
+    }
+
     @PluginMethod
     public void pause(PluginCall call) {
         if (RecorderService.instance != null) RecorderService.instance.pause();

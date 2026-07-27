@@ -335,6 +335,15 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       기기에 내장된 음성을 쓴다. 무료이고 인터넷 없이도 읽는다.
       소리 시험이 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서
       해당 언어 음성을 받아야 한다. 베트남어는 따로 받아야 하는 기기가 많다.</p>
+    <div class="field"><label for="s-awake">녹음 중 화면 켜 두기</label>
+      <select id="s-awake">
+        <option value="1">켜기 · 자막이 끊기지 않는다</option>
+        <option value="0">끄기 · 배터리를 아낀다</option>
+      </select></div>
+    <p class="hint">화면이 꺼지면 안드로이드가 앱 화면을 재워 전사와 번역이 멈춘다.
+      녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.
+      회의 중 자막을 봐야 한다면 켜 두는 편이 낫다.</p>
+
     <h2 class="sechead">참석자</h2>
     <p class="hint">회의록에서 발언을 사람별로 붙일 때 쓴다. 말투와 자주 쓰는 단어가
       구체적일수록 정확해진다.</p>
@@ -459,7 +468,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-9";
+const APP_VERSION = "2026.07.27-11";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -480,7 +489,8 @@ const DEFAULTS = { oai:"", ant:"",
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
                    chunk:"30000", gloss:"", people:[], series:[],
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 번역 읽어주기
-                   gcid:"", gcsec:"" };                       // 구글 드라이브 연동
+                   gcid:"", gcsec:"",                        // 구글 드라이브 연동
+                   awake:"1" };                              // 녹음 중 화면 켜 두기
 let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
 if(!Array.isArray(CFG.people)) CFG.people = [];
@@ -978,6 +988,8 @@ ${brief}
 - 한 항목은 한 문장으로 끝내지 말고, 필요하면 두세 문장으로 풀어 써라.
 - 목표 분량: **전사문 길이의 절반 이상.** 짧게 쓰는 것은 잘못된 것이다.
   길다고 나무랄 사람은 없다. 빠뜨리는 것이 문제다.
+- 전사문을 처음부터 끝까지 훑어라. 앞부분만 자세히 쓰고 뒤로 갈수록 성기게
+  쓰는 것은 흔한 실패다. 마지막 대목까지 같은 밀도로 써라.
 - 회의록 형식(결정사항·투두 같은 절)을 쓰지 마라. 이 자리에는 그런 것이 없다.
 - 전사문에 없는 내용을 지어내지 마라. 없는 것을 채우지 말고, 있는 것을 빠뜨리지 마라.
 
@@ -1003,10 +1015,48 @@ ${brief}
 ${fullText}`;
 }
 
-async function makeSummary(note, fullText){
-  // 전사문이 길수록 요약도 길어야 한다. 원문 길이에 맞춰 상한을 잡는다.
-  const budget = Math.max(6000, Math.min(15000, Math.round(fullText.length / 2)));
-  return callDocModel(summaryPrompt(note, fullText), budget);
+/* 모델이 한 번에 뱉을 수 있는 양은 16000 토큰 남짓이다. 한국어로 2만 자쯤 되는데,
+   한 시간 회의 전사문이 이미 그만큼이다. 그래서 한 번에 다 쓰게 하면 아무리 길게
+   쓰라고 해도 천장에 막힌다.
+
+   전사문을 구간으로 나눠 따로 정리한 뒤 이어 붙인다. 이러면 총 길이에 제한이 없다.
+   각 구간에는 앞 구간의 꼬리를 문맥으로 함께 준다. 흐름이 끊기지 않게 하기 위해서다. */
+const SEG_CHARS = 9000;
+
+async function makeSummary(note, fullText, onStep){
+  if(fullText.length <= SEG_CHARS){
+    const budget = Math.max(6000, Math.min(15000, Math.round(fullText.length / 2)));
+    return callDocModel(summaryPrompt(note, fullText), budget);
+  }
+
+  // 구간 나누기. 줄 경계에서 자른다. 문장 중간에서 끊지 않기 위해서다.
+  const lines = fullText.split("\n");
+  const parts = [];
+  let buf = "";
+  for(const ln of lines){
+    if(buf.length + ln.length > SEG_CHARS && buf){ parts.push(buf); buf = ""; }
+    buf += ln + "\n";
+  }
+  if(buf.trim()) parts.push(buf);
+
+  const outs = [];
+  for(let i=0;i<parts.length;i++){
+    if(onStep) onStep(i+1, parts.length);
+    const tail = i > 0 ? outs[i-1].slice(-1200) : "";
+    const head =
+`이 전사문은 길어서 여러 구간으로 나눠 정리한다. 지금은 ${parts.length}개 중 ${i+1}번째 구간이다.
+
+${i>0 ? `앞 구간을 정리한 글의 끝부분이다. 이어지는 흐름을 잡는 데만 쓰고, 여기 있는 내용을 다시 쓰지 마라.
+"""
+${tail}
+"""
+
+` : ""}${i>0 ? "맨 위 전체 요약 문단은 쓰지 마라. 첫 구간에서 이미 썼다. 소제목부터 시작해라.\n" : ""}${i<parts.length-1 ? "'기억할 대목'과 '확인 필요' 절은 쓰지 마라. 마지막 구간에서 한 번에 쓴다.\n" : ""}
+`;
+    const p = summaryPrompt(note, parts[i]).replace("가장 중요한 것: 분량이다.", head + "가장 중요한 것: 분량이다.");
+    outs.push(await callDocModel(p, 15000));
+  }
+  return outs.join("\n\n");
 }
 
 /* 회의록과 요약이 같은 모델 경로를 쓴다. claude 를 골랐는데 키가 없으면 OpenAI 로 넘어간다.
@@ -1473,6 +1523,25 @@ function b64ToBlob(b64, type){
   return new Blob([buf], {type});
 }
 
+/* 녹음 중 화면 켜 두기.
+   화면이 꺼지면 안드로이드가 화면 쪽을 재워 전사와 번역이 멈춘다. 켜 두면 그 문제가
+   사라진다. APK 는 네이티브 창 설정을, 브라우저는 화면 잠금 방지 기능을 쓴다. */
+let webWake = null;
+async function keepAwake(on){
+  if(CFG.awake !== "1") on = false;
+  if(NATIVE && Native && Native.keepAwake){
+    try{ await Native.keepAwake({ on }); }catch(e){}
+    return;
+  }
+  try{
+    if(on){
+      if(!webWake && navigator.wakeLock) webWake = await navigator.wakeLock.request("screen");
+    } else if(webWake){ await webWake.release(); webWake = null; }
+  }catch(e){}
+}
+// 브라우저는 탭을 벗어났다 돌아오면 잠금 방지가 풀린다. 녹음 중이면 다시 잡는다.
+addEventListener("visibilitychange", ()=>{ if(!document.hidden && recording) keepAwake(true); });
+
 /* 네이티브가 남겨 둔 구간 파일을 받아 저장하고 지운다.
    저장이 끝난 뒤에야 지우므로, 중간에 앱이 잠들거나 죽어도 그 구간은 살아남는다. */
 let taking = new Set();
@@ -1741,6 +1810,7 @@ async function startRecording(){
   } else {
     nextSegment();
   }
+  keepAwake(true);   // 화면이 꺼지면 전사가 멈춘다
   // 시트를 닫고 전사 화면을 연다. 구간이 전사될 때마다 여기에 바로 쌓인다.
   enterLiveView();
   refreshList();
@@ -1816,6 +1886,7 @@ async function stopRecording(){
 async function finishRecording(){
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   releaseOnline();
+  keepAwake(false);
   if(activeNote){
     activeNote.duration = Math.max(0, Date.now()-startedAt-pausedTotal);
     await put("notes", activeNote);
@@ -2096,7 +2167,11 @@ async function genMinutes(n, cs, btn){
   btn.disabled = true; btn.textContent = "작성 중…";
   try{
     // 요약 형식은 회의 시리즈의 미결 인계와 무관하다. 넘길 것이 없으므로 그대로 쓴다.
-    const raw = fm==="summary" ? await makeSummary(n, full) : await makeMinutes(n, full);
+    const raw = fm==="summary"
+      ? await makeSummary(n, full, (i,total)=>{
+          btn.textContent = total>1 ? "정리 중… "+i+"/"+total : "정리 중…";
+        })
+      : await makeMinutes(n, full);
     n.summary = fm==="summary" ? raw : absorbCarry(n, raw);
     // 본문이 새로 만들어졌으므로 옛 번역본은 버린다. 안 그러면 서로 다른 회의록이 공유된다.
     n.i18n = {}; n.viewLang = "__src__";
@@ -2541,6 +2616,7 @@ $("btn-settings").onclick = ()=>{
   $("s-tts").value=CFG.tts; $("s-ttsrate").value=CFG.ttsRate;
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
+  $("s-awake").value=CFG.awake || "1";
   paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
   renderPeople(); renderSeriesList();
   show("v-settings");
@@ -2587,6 +2663,8 @@ $("s-save").onclick = ()=>{
   CFG.tts=$("s-tts").value; CFG.ttsRate=$("s-ttsrate").value;
   CFG.ttsLang=$("s-ttslang").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
+  CFG.awake=$("s-awake").value;
+  if(recording) keepAwake(CFG.awake==="1");
   if(CFG.tts!=="1") ttsStop();
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
   saveCfg(); renderPeople(); renderSeriesList(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
