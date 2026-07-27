@@ -472,7 +472,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-23";
+const APP_VERSION = "2026.07.27-24";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2308,6 +2308,28 @@ async function openNote(id){
 
 function renderIfOpen(id){ if(openId===id) renderDetail().then(followLive); }
 
+/* 예전에는 노트마다 정리본이 하나뿐이었다. 그것을 문서 목록의 첫 장으로 옮긴다.
+   이미 만들어 둔 글을 잃지 않기 위해서다. */
+function migrateDocs(n){
+  if(n.docs) return;
+  n.docs = n.summary ? [{
+    id: uid(), form: n.docForm || "minutes", size: n.docSize || "normal",
+    body: n.summary, at: n.updated || n.created,
+    i18n: n.i18n || {}, viewLang: n.viewLang || "__src__"
+  }] : [];
+  if(n.docs.length) n.openDoc = n.docs[0].id;
+}
+let docPicking = false;
+
+function draftHint(n, fm, sz, len){
+  const d = n.draft;
+  const kept = d && d.form===fm && d.size===sz && d.len===len && (d.parts||[]).filter(Boolean).length;
+  return (kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
+      '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다.</p>' : "")
+    + (n.docError ? '<p class="hint" style="padding:0 18px;color:var(--danger)">'+
+       esc(n.docError)+'</p>' : "");
+}
+
 async function renderDetail(){
   const n = await get("notes", openId); if(!n) return;
   const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
@@ -2393,38 +2415,30 @@ async function renderDetail(){
       (docLen ? '<span class="stat'+(pct<25?" warn":"")+'">정리본 '+docLen.toLocaleString()+
         '자 · 원문의 '+pct+'%</span>' : '')+'</div>';
   })();
+  /* 문서는 여럿일 수 있다. 같은 회의라도 회의록과 한페이지 요약이 따로 필요하다.
+     예전에는 하나뿐이라 새로 만들면 앞의 것이 사라져 비교할 수가 없었다. */
+  migrateDocs(n);
+  const docs = n.docs || [];
+  const cur = docs.find(d=>d.id===n.openDoc) || docs[0] || null;
+  const picking = docPicking || !docs.length;
+
+  const docChips = docs.length ? '<div class="chiprow" style="padding:14px 18px 0">'+
+      docs.map(d=>'<button class="chip'+(cur&&d.id===cur.id&&!picking?" on":"")+'" data-doc="'+d.id+'">'+
+        DOC_FORMS[d.form].label + (d.size!=="normal" ? " · "+DOC_SIZES[d.size].label : "") +
+        '</button>').join("")+
+      '<button class="chip'+(picking?" on":"")+'" data-newdoc="1">+ 새 문서</button>'+
+    '</div>' : "";
+
   let doc = "";
-  if(n.summary){
-    // 번역본이 있으면 언어 탭을 띄우고, 고른 언어의 본문을 보여준다.
-    const langs = ["__src__", ...Object.keys(n.i18n||{})];
-    const cur = (n.viewLang && (n.viewLang==="__src__" || (n.i18n||{})[n.viewLang])) ? n.viewLang : "__src__";
-    const body = cur==="__src__" ? n.summary : n.i18n[cur];
-    let tabs = "";
-    if(langs.length > 1){
-      tabs = '<div class="tabs" style="border-top:0">' + langs.map(L=>{
-        const nm = L==="__src__" ? "원문" : (DOC_LANG[L]?DOC_LANG[L].label:L);
-        return '<button data-lang="'+L+'"'+(L===cur?' class="on"':'')+'>'+nm+'</button>';
-      }).join("") + '</div>';
-    }
-    doc = tabs + lenBar + (fm==="minutes" ? statBar(body) : "")+'<div class="doc">'+md(body)+'</div>'+
-      '<div style="padding:0 18px 6px">'+
-        '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
-        '다른 언어로 회의록 만들기 · 직원 공유용</label>'+
-        '<div class="chiprow">'+
-          Object.keys(DOC_LANG).map(L=>'<button class="linkbtn" data-tr="'+L+'" '+
-            'style="padding:7px 12px;border:1px solid var(--rule);border-radius:999px">'+
-            DOC_LANG[L].label+((n.i18n||{})[L]?" ✓":"")+'</button>').join("")+
-        '</div>'+
-      '</div>'+
-      formPicker+
-      '<button class="bigbtn ghost" id="regen">다시 만들기</button>';
-  } else {
-    doc = '<div class="empty"><strong>아직 정리하지 않았다</strong>'+
-      (cs.length ? (doneAll ? '전사가 끝났다. 형식을 고르고 아래 버튼을 눌러라.'
-                            : '전사가 끝나면 정리할 수 있다.')
-                 : '구간이 없다.')+'</div>'+
-      lenBar+
-      formPicker+
+  if(picking){
+    doc = docChips +
+      '<div class="empty" style="padding:26px 34px 6px">'+
+        (docs.length ? '<strong>새 문서 만들기</strong>형식과 분량을 고른다. 앞서 만든 문서는 그대로 남는다.'
+                     : '<strong>아직 정리하지 않았다</strong>'+
+          (cs.length ? (doneAll ? '전사가 끝났다. 형식을 고르고 아래 버튼을 눌러라.'
+                                : '전사가 끝나면 정리할 수 있다.')
+                     : '구간이 없다.'))+
+      '</div>'+ lenBar + formPicker +
       '<div style="padding:0 18px 4px">'+
         '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
         '사전 자료 · 안건이나 지난 회의록을 넣으면 정리에 반영된다'+
@@ -2433,21 +2447,58 @@ async function renderDetail(){
         'border:1px solid var(--rule);border-radius:10px;background:var(--paper);'+
         'font-size:14px;line-height:1.5;resize:vertical">'+esc(n.brief||"")+'</textarea>'+
       '</div>'+
-      (function(){
-        // 하다 만 조각이 있으면 알려 준다. 다시 눌러도 처음부터 하지 않는다.
-        const d = n.draft;
-        const kept = d && d.form===fm && d.len===rawLen0 && (d.parts||[]).filter(Boolean).length;
-        return (kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
-          '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다.</p>' : "")
-          + (n.docError ? '<p class="hint" style="padding:0 18px;color:var(--danger)">'+
-             esc(n.docError)+'</p>' : "");
-      })()+
+      draftHint(n, fm, sz, rawLen0) +
       '<button class="bigbtn" id="gen"'+(doneAll?"":" disabled")+'>'+
         DOC_FORMS[fm].label+' 만들기</button>';
+  } else if(cur){
+    // 번역본이 있으면 언어 탭을 띄우고, 고른 언어의 본문을 보여준다.
+    const langs = ["__src__", ...Object.keys(cur.i18n||{})];
+    const vl = (cur.viewLang && (cur.viewLang==="__src__" || (cur.i18n||{})[cur.viewLang])) ? cur.viewLang : "__src__";
+    const body = vl==="__src__" ? cur.body : cur.i18n[vl];
+    let tabs = "";
+    if(langs.length > 1){
+      tabs = '<div class="tabs" style="border-top:0">' + langs.map(L=>{
+        const nm = L==="__src__" ? "원문" : (DOC_LANG[L]?DOC_LANG[L].label:L);
+        return '<button data-lang="'+L+'"'+(L===vl?' class="on"':'')+'>'+nm+'</button>';
+      }).join("") + '</div>';
+    }
+    const pct = rawLen ? Math.round((cur.body||"").length/rawLen*100) : 0;
+    const bar = rawLen ? '<div class="statbar"><span class="stat">전사문 '+rawLen.toLocaleString()+'자</span>'+
+      '<span class="stat'+(pct<15?" warn":"")+'">'+(cur.body||"").length.toLocaleString()+
+      '자 · 원문의 '+pct+'%</span></div>' : "";
+    doc = docChips + tabs + bar + (cur.form==="minutes" ? statBar(body) : "")+
+      '<div class="doc">'+md(body)+'</div>'+
+      '<div style="padding:0 18px 6px">'+
+        '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
+        '다른 언어로 만들기 · 직원 공유용</label>'+
+        '<div class="chiprow">'+
+          Object.keys(DOC_LANG).map(L=>'<button class="linkbtn" data-tr="'+L+'" '+
+            'style="padding:7px 12px;border:1px solid var(--rule);border-radius:999px">'+
+            DOC_LANG[L].label+((cur.i18n||{})[L]?" ✓":"")+'</button>').join("")+
+        '</div>'+
+      '</div>'+
+      '<button class="bigbtn ghost" id="regen">이 문서 다시 만들기</button>'+
+      '<button class="bigbtn ghost" id="deldoc" style="margin-top:0">이 문서 지우기</button>';
+  } else {
+    doc = '<div class="empty">문서가 없다.</div>';
   }
   $("pane-doc").innerHTML = doc;
   const dbf = $("d-brief-file");
   if(dbf) dbf.onclick = ()=>{ briefTarget = "d-brief"; $("briefin").click(); };
+  // 문서 사이 옮겨 다니기
+  $("pane-doc").querySelectorAll("[data-doc]").forEach(b=> b.onclick = async ()=>{
+    n.openDoc = b.dataset.doc; docPicking = false; await put("notes", n); renderDetail();
+  });
+  const nd = $("pane-doc").querySelector("[data-newdoc]");
+  if(nd) nd.onclick = ()=>{ docPicking = true; renderDetail(); };
+  const dd = $("deldoc");
+  if(dd) dd.onclick = async ()=>{
+    if(!cur || !confirm("이 문서를 지운다. 전사문과 다른 문서는 그대로 남는다.")) return;
+    n.docs = n.docs.filter(d=>d.id!==cur.id);
+    n.openDoc = n.docs.length ? n.docs[0].id : "";
+    n.summary = n.docs.length ? n.docs[0].body : "";
+    await put("notes", n); renderDetail(); syncDrive(false);
+  };
   // 형식 전환. 이미 만든 글은 지우지 않는다. 다시 만들기를 눌러야 바뀐다.
   $("pane-doc").querySelectorAll("[data-form]").forEach(b=> b.onclick = async ()=>{
     n.docForm = b.dataset.form;
@@ -2461,22 +2512,23 @@ async function renderDetail(){
   });
   // 언어 탭 전환
   $("pane-doc").querySelectorAll("[data-lang]").forEach(b=> b.onclick = async ()=>{
-    n.viewLang = b.dataset.lang; await put("notes", n); renderDetail();
+    if(cur){ cur.viewLang = b.dataset.lang; await put("notes", n); renderDetail(); }
   });
   // 다른 언어로 번역. 이미 있으면 다시 만들지 묻는다.
   $("pane-doc").querySelectorAll("[data-tr]").forEach(b=> b.onclick = async ()=>{
     const L = b.dataset.tr;
     if(!CFG.oai){ toast("OpenAI 키가 없다."); return; }
-    if((n.i18n||{})[L] && !confirm(DOC_LANG[L].label+" 회의록이 이미 있다. 다시 만들까?")){
-      n.viewLang = L; await put("notes", n); renderDetail(); return;
+    if(!cur) return;
+    if((cur.i18n||{})[L] && !confirm(DOC_LANG[L].label+" 문서가 이미 있다. 다시 만들까?")){
+      cur.viewLang = L; await put("notes", n); renderDetail(); return;
     }
     const old = b.textContent; b.disabled = true; b.textContent = "번역 중…";
     try{
-      const out = await translateDoc(n.summary, L);
-      n.i18n = Object.assign({}, n.i18n); n.i18n[L] = out;
-      n.viewLang = L;
+      const out = await translateDoc(cur.body, L);
+      cur.i18n = Object.assign({}, cur.i18n); cur.i18n[L] = out;
+      cur.viewLang = L;
       await put("notes", n);
-      toast(DOC_LANG[L].label+" 회의록을 만들었다.");
+      toast(DOC_LANG[L].label+" 문서를 만들었다.");
       renderDetail();
     }catch(e){
       b.disabled=false; b.textContent=old; toast(e.message||"번역 실패");
@@ -2488,23 +2540,27 @@ async function renderDetail(){
     if(bf && bf.value.trim() !== (n.brief||"")){
       n.brief = bf.value.trim(); await put("notes", n);
     }
-    genMinutes(n, cs, g);
+    // 새 문서를 만들 때는 목표를 비워 두고, 다시 만들기는 그 문서를 갈아끼운다.
+    genMinutes(n, cs, g, g.id==="regen" ? cur : null);
   };
 }
 
-async function genMinutes(n, cs, btn){
+async function genMinutes(n, cs, btn, target){
   const full = cs.filter(c=>c.status==="done"&&c.text)
     .map(c=>"["+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"] "+c.text).join("\n");
   if(!full){ toast("전사된 내용이 없다."); return; }
-  const fm = n.docForm || "minutes";
+  // 다시 만들기는 그 문서의 형식과 분량을 그대로 쓴다. 새로 만들 때만 고른 값을 쓴다.
+  const fm = target ? target.form : (n.docForm || "minutes");
+  const sz = target ? target.size : (n.docSize || "normal");
+  const prevSize = n.docSize; n.docSize = sz;   // docSize() 가 이 값을 본다
   btn.disabled = true; btn.textContent = "작성 중…";
   /* 정리도 화면 쪽에서 도는 일이라, 화면이 꺼지면 그대로 멈춘다. 게다가 조각을
      열세 개 만들다 하나에서 멈추면 그때까지 쓴 것이 전부 날아간다. 화면을 켜 두고,
      만든 조각은 하나씩 저장해 다음에 이어서 하게 한다. */
   const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
   // 형식이나 전사문이 달라졌으면 예전 조각은 버린다. 엉뚱한 것이 섞이면 안 된다.
-  if(!n.draft || n.draft.form !== fm || n.draft.len !== full.length || n.draft.seg !== SEG_CHARS)
-    n.draft = { form:fm, len:full.length, seg:SEG_CHARS, parts:[] };
+  if(!n.draft || n.draft.form !== fm || n.draft.size !== sz || n.draft.len !== full.length)
+    n.draft = { form:fm, size:sz, len:full.length, parts:[] };
   const cache = {
     get: async i => n.draft.parts[i] || null,
     set: async (i, v) => { n.draft.parts[i] = v; await put("notes", n); }
@@ -2515,10 +2571,21 @@ async function genMinutes(n, cs, btn){
     const raw = fm==="summary"  ? await makeSummary(n, full, step, cache)
               : fm==="byperson" ? await makeByPerson(n, full, step, cache)
                                 : await makeMinutes(n, full, step, cache);
-    n.summary = fm==="minutes" ? absorbCarry(n, raw) : raw;
+    const body = fm==="minutes" ? absorbCarry(n, raw) : raw;
+    migrateDocs(n);
+    if(target){
+      // 갈아끼운다. 본문이 바뀌었으니 옛 번역본은 버린다.
+      target.body = body; target.at = Date.now();
+      target.i18n = {}; target.viewLang = "__src__";
+      n.openDoc = target.id;
+    } else {
+      const d = { id: uid(), form: fm, size: sz, body, at: Date.now(),
+                  i18n:{}, viewLang:"__src__" };
+      n.docs.push(d); n.openDoc = d.id;
+    }
+    docPicking = false;
+    n.summary = body;                  // 예전 형식과 내보내기를 위해 남겨 둔다
     n.draft = null; n.docError = "";   // 다 만들었으니 조각과 오류 자국은 버린다
-    // 본문이 새로 만들어졌으므로 옛 번역본은 버린다. 안 그러면 서로 다른 회의록이 공유된다.
-    n.i18n = {}; n.viewLang = "__src__";
     await put("notes", n);
     if(n.seriesId && fm==="minutes"){
       const s = findSeries(n.seriesId);
@@ -2535,6 +2602,7 @@ async function genMinutes(n, cs, btn){
     toast("멈췄다. 만들어 둔 조각은 남아 있으니 다시 누르면 이어서 한다.", 6000);
     btn.disabled=false; renderDetail();
   }finally{
+    n.docSize = prevSize;
     CFG.awake = wasAwake; if(!recording) keepAwake(false);
   }
 }
