@@ -124,6 +124,24 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .bigbtn:disabled{opacity:.45}
 .bigbtn.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--rule)}
 
+/* ---------- 녹음 중 하단 고정 바 ----------
+   녹음 중에도 전사 화면을 볼 수 있어야 한다. 시트를 닫고 이 바만 띄운다. */
+.livebar{position:fixed;left:0;right:0;bottom:0;z-index:45;background:var(--card);
+  border-top:1px solid var(--rule);box-shadow:0 -6px 22px rgba(28,27,25,.13);
+  padding:11px 16px calc(env(safe-area-inset-bottom) + 11px);
+  display:none;align-items:center;gap:10px}
+.livebar.on{display:flex}
+.livebar .lt{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.livebar .lt.paused{color:var(--muted)}
+.livebar .ldot{width:9px;height:9px;border-radius:50%;background:var(--danger);
+  animation:pulse 1.2s infinite;flex:none}
+.livebar .spacer{flex:1}
+.livebar button{padding:10px 13px;border-radius:10px;font-size:13.5px;font-weight:600;
+  border:1px solid var(--rule);color:var(--ink-soft);white-space:nowrap}
+.livebar button.stop{background:var(--danger);color:#fff;border-color:var(--danger)}
+.livebar button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.view.reclive{padding-bottom:190px}
+
 /* ---------- sheet ---------- */
 .scrim{position:fixed;inset:0;background:rgba(28,27,25,.4);z-index:40;display:none}
 .scrim.on{display:block}
@@ -294,8 +312,17 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         <option value="1.2">1.2배</option>
         <option value="1.5">1.5배</option>
       </select></div>
-    <p class="hint">번역이 나올 때마다 소리로 읽는다. 청크 길이만큼 늦게 읽으므로 동시통역이
-      아니라 지연 통역이다. 회의장 스피커로 틀면 실제 발화와 겹치니 이어폰을 권한다.</p>
+    <div class="field"><label for="s-ttslang">시험용 언어</label>
+      <select id="s-ttslang">
+        <option value="ko-KR">한국어</option>
+        <option value="vi-VN">Tiếng Việt</option>
+        <option value="en-US">English</option>
+      </select></div>
+    <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 8px">소리 시험</button>
+    <p class="hint">번역이 나올 때마다 소리로 읽는다. <strong>번역 대상 언어를 "번역 안 함"으로
+      두면 읽을 것이 없어 소리가 나지 않는다.</strong> 청크 길이만큼 늦게 읽으므로 동시통역이
+      아니라 지연 통역이다. 회의장 스피커로 틀면 실제 발화와 겹치니 이어폰을 권한다.
+      소리 시험이 조용하면 안드로이드 설정 → 언어 → 음성 합성에서 해당 언어 음성을 받아야 한다.</p>
     <h2 class="sechead">참석자</h2>
     <p class="hint">회의록에서 발언을 사람별로 붙일 때 쓴다. 말투와 자주 쓰는 단어가
       구체적일수록 정확해진다.</p>
@@ -329,6 +356,15 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <button class="fab" id="fab" aria-label="새 기록">
   <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg>
 </button>
+
+<div class="livebar" id="livebar">
+  <span class="ldot" id="l-dot"></span>
+  <span class="lt" id="l-timer">00:00</span>
+  <span class="spacer"></span>
+  <button id="l-mark">지금 중요</button>
+  <button id="l-pause">일시정지</button>
+  <button id="l-stop" class="stop">종료</button>
+</div>
 
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet">
@@ -388,7 +424,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.26-3";
+const APP_VERSION = "2026.07.26-4";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -408,7 +444,7 @@ const DEFAULTS = { oai:"", ant:"",
                    trans:"gpt-4o-mini",            // 번역
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
                    chunk:"30000", gloss:"", people:[], series:[],
-                   tts:"0", ttsRate:"1" };              // 번역 읽어주기
+                   tts:"0", ttsRate:"1", ttsLang:"ko-KR" };   // 번역 읽어주기
 let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
 if(!Array.isArray(CFG.people)) CFG.people = [];
@@ -743,6 +779,37 @@ function ttsStop(){
   ttsQueue.length = 0; ttsBusy = false;
   try{ speechSynthesis.cancel(); }catch(e){}
 }
+/* 안드로이드는 사용자가 누른 흐름에서 한 번 소리를 내야 이후 자동 재생을 허용한다.
+   녹음 시작 버튼을 누를 때 무음을 한 번 재생해 잠금을 풀어 둔다. */
+let ttsUnlocked = false;
+function ttsWarmup(){
+  if(ttsUnlocked || CFG.tts!=="1" || !("speechSynthesis" in window)) return;
+  try{
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0; u.rate = 2;
+    speechSynthesis.speak(u);
+    ttsUnlocked = true;
+  }catch(e){}
+}
+/* 설정에서 눌러 소리가 실제로 나는지 확인한다. */
+function ttsTest(){
+  if(!("speechSynthesis" in window)){ toast("이 기기는 음성 읽기를 지원하지 않는다."); return; }
+  ttsUnlocked = true;
+  try{ speechSynthesis.cancel(); }catch(e){}
+  const lang = $("s-ttslang") ? $("s-ttslang").value : "ko-KR";
+  const say = lang.startsWith("vi") ? "Đây là giọng đọc thử."
+            : lang.startsWith("en") ? "This is a voice test."
+            : "소리가 들리면 정상이다.";
+  const u = new SpeechSynthesisUtterance(say);
+  u.lang = lang;
+  u.rate = parseFloat($("s-ttsrate") ? $("s-ttsrate").value : CFG.ttsRate) || 1;
+  const vs = speechSynthesis.getVoices()
+    .filter(v => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0,2).toLowerCase()));
+  if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
+  else toast("이 언어 음성이 기기에 없다. 안드로이드 설정 → 언어 → 음성 합성에서 받아야 한다.", 5000);
+  u.onerror = e => toast("재생 실패: "+(e.error||"알 수 없음"));
+  speechSynthesis.speak(u);
+}
 /* 일부 기기는 음성 목록을 늦게 채운다. 미리 한 번 불러 캐시를 데운다. */
 if("speechSynthesis" in window){
   speechSynthesis.getVoices();
@@ -917,6 +984,8 @@ async function drain(){
           // 녹음이 진행 중인 그 회의의 번역만 읽어준다. 파일 가져오기·재전사는 읽지 않는다.
           if(recording && activeNote && activeNote.id===c.noteId)
             speakTrans(c.trans, note.target);
+          else if(openId === c.noteId && !recording && CFG.tts==="1" && ttsUnlocked)
+            speakTrans(c.trans, note.target);   // 열어 둔 노트를 이어서 전사할 때도 읽는다
         }
         c.status = "done"; c.error = "";
         c.blob = c.keepAudio ? c.blob : null;   // 전사 끝난 오디오는 버려 용량 절약
@@ -985,6 +1054,8 @@ async function togglePause(){
     }
     btn.textContent = "이어서 녹음"; btn.classList.add("on");
     $("timer").classList.add("paused");
+    $("l-pause").textContent = "이어서"; $("l-pause").classList.add("on");
+    $("l-timer").classList.add("paused"); $("l-dot").style.animationPlayState="paused";
   } else {
     paused = false; pausedTotal += Date.now()-pauseAt; pauseAt = 0;
     if(NATIVE){ try{ await Native.resume(); }catch(e){ toast(e.message||"재개 실패"); } }
@@ -996,6 +1067,8 @@ async function togglePause(){
     }
     btn.textContent = "일시정지"; btn.classList.remove("on");
     $("timer").classList.remove("paused");
+    $("l-pause").textContent = "일시정지"; $("l-pause").classList.remove("on");
+    $("l-timer").classList.remove("paused"); $("l-dot").style.animationPlayState="running";
   }
 }
 
@@ -1071,6 +1144,7 @@ function pickMime(){
 }
 
 async function startRecording(){
+  ttsWarmup();   // 버튼을 누른 이 흐름에서 음성 잠금을 풀어 둔다
   if(!NATIVE){
     try{
       stream = await navigator.mediaDevices.getUserMedia({ audio:{
@@ -1095,7 +1169,10 @@ async function startRecording(){
   $("btn-rec").innerHTML = '<span class="dot live"></span> 녹음 종료';
   $("btn-rec").classList.add("stop");
   $("timer").style.display="block";
-  tickTimer = setInterval(()=>{ $("timer").textContent = mmss(elapsed()); }, 500);
+  tickTimer = setInterval(()=>{
+    const t = mmss(elapsed());
+    $("timer").textContent = t; $("l-timer").textContent = t;
+  }, 500);
 
   if(NATIVE){
     const noteId = activeNote.id;
@@ -1123,7 +1200,36 @@ async function startRecording(){
   } else {
     nextSegment();
   }
+  // 시트를 닫고 전사 화면을 연다. 구간이 전사될 때마다 여기에 바로 쌓인다.
+  enterLiveView();
   refreshList();
+}
+
+/* 녹음 중 라이브 화면. 시트를 접고 상세를 띄운 뒤 하단 바로 조작한다. */
+function enterLiveView(){
+  closeSheet();
+  $("livebar").classList.add("on");
+  $("l-pause").textContent = "일시정지"; $("l-pause").classList.remove("on");
+  $("l-timer").classList.remove("paused");
+  $("v-detail").classList.add("reclive");
+  // openNote 가 탭을 문서로 되돌리므로, 연 뒤에 원본 탭으로 바꾼다.
+  const after = () => {
+    curTab = "raw";
+    $("tab-raw").classList.add("on"); $("tab-doc").classList.remove("on");
+    $("pane-raw").style.display=""; $("pane-doc").style.display="none";
+  };
+  if(activeNote) openNote(activeNote.id).then(after); else after();
+}
+function exitLiveView(){
+  $("livebar").classList.remove("on");
+  $("v-detail").classList.remove("reclive");
+}
+/* 새 구간이 전사되면 맨 아래로 따라 내려간다. 사용자가 위를 읽고 있으면 건드리지 않는다. */
+function followLive(){
+  if(!recording) return;
+  const nearBottom = window.innerHeight + window.scrollY >
+                     document.body.scrollHeight - 260;
+  if(nearBottom) window.scrollTo({ top: document.body.scrollHeight, behavior:"smooth" });
 }
 
 function nextSegment(){
@@ -1177,6 +1283,7 @@ async function finishRecording(){
   $("btn-pause").style.display="none"; $("btn-pause").classList.remove("on");
   $("btn-mark").style.display="none";
   $("timer").style.display="none"; $("timer").textContent="00:00";
+  exitLiveView();
   closeSheet();
   if(activeNote) openNote(activeNote.id);
   if(mode==="offline") toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
@@ -1290,7 +1397,7 @@ async function openNote(id){
   scrollTo(0,0);
 }
 
-function renderIfOpen(id){ if(openId===id) renderDetail(); }
+function renderIfOpen(id){ if(openId===id) renderDetail().then(followLive); }
 
 async function renderDetail(){
   const n = await get("notes", openId); if(!n) return;
@@ -1314,7 +1421,12 @@ async function renderDetail(){
 
   /* --- 원본 탭: 대역 조판 --- */
   let raw = '<div class="script">';
-  if(!cs.length) raw += '<div class="empty">구간이 없다.</div>';
+  if(!cs.length) raw += recording
+    ? '<div class="empty"><strong>듣고 있다</strong>첫 구간은 약 '+
+      Math.round(+CFG.chunk/1000)+'초 뒤에 올라온다. 이후 같은 간격으로 이어진다.'+
+      (n.target ? '' : '<br>번역 대상 언어를 "번역 안 함"으로 두어 번역과 읽어주기는 하지 않는다.')+
+      '</div>'
+    : '<div class="empty">구간이 없다.</div>';
   for(const c of cs){
     raw += '<div class="seg '+c.status+'"><div class="gutter"><span class="mark"></span>'+
       mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+'</div><div class="body">';
@@ -1839,6 +1951,9 @@ $("p-add").onclick = ()=>{
   saveCfg(); renderPeople(); renderSeriesList();
 };
 $("filein").onchange = e => { const f = e.target.files[0]; if(f) importFile(f); e.target.value=""; };
+$("l-mark").onclick  = markMoment;
+$("l-pause").onclick = togglePause;
+$("l-stop").onclick  = stopRecording;
 $("btn-back").onclick = ()=>{ openId=null; show("v-list"); refreshList(); };
 $("btn-back2").onclick = ()=> show(openId?"v-detail":"v-list");
 $("btn-share").onclick = exportNote;
@@ -1852,9 +1967,11 @@ $("btn-settings").onclick = ()=>{
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
   $("s-tts").value=CFG.tts; $("s-ttsrate").value=CFG.ttsRate;
+  $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   renderPeople(); renderSeriesList();
   show("v-settings");
 };
+$("s-ttstest").onclick = ttsTest;
 $("s-export").onclick = exportBackup;
 $("s-import").onclick = ()=> $("backupin").click();
 $("backupin").onchange = e => { const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; };
@@ -1864,6 +1981,7 @@ $("s-save").onclick = ()=>{
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
   CFG.tts=$("s-tts").value; CFG.ttsRate=$("s-ttsrate").value;
+  CFG.ttsLang=$("s-ttslang").value;
   if(CFG.tts!=="1") ttsStop();
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
   saveCfg(); renderPeople(); renderSeriesList(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
