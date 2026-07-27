@@ -374,6 +374,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   <div class="grab"></div>
   <div class="segctl">
     <button data-mode="live" class="on">실시간</button>
+    <button data-mode="online" id="mode-online">온라인</button>
     <button data-mode="offline">오프라인</button>
     <button data-mode="file">음성파일</button>
     <button data-mode="text">텍스트</button>
@@ -427,7 +428,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-3";
+const APP_VERSION = "2026.07.27-4";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1183,6 +1184,61 @@ async function markMoment(){
   toast("중요 표시 " + mmss(at));
 }
 
+/* =====================================================================
+   온라인 회의 — 회의 탭의 소리를 직접 따온다.
+
+   왜 이렇게 하나: 마이크만 쓰면 상대방 목소리가 스피커를 거쳐 공기를 타고
+   돌아와야 하는데, 에코 제거가 그것을 지워 버린다. 탭에서 바로 따오면
+   원음 그대로다. 여기에 내 마이크를 섞어 양쪽 대화를 한 줄기로 만든다.
+   ===================================================================== */
+let onlineTabStream = null, onlineMicStream = null, onlineCtx = null;
+
+async function captureOnline(){
+  if(NATIVE) throw new Error("온라인 회의는 컴퓨터 브라우저에서만 된다. 폰은 다른 앱 소리를 녹음할 수 없다.");
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia)
+    throw new Error("이 브라우저는 탭 소리 공유를 지원하지 않는다. 크롬이나 엣지를 쓸 것.");
+
+  // 1) 회의 탭 소리. 화면은 쓰지 않지만 브라우저가 요구해서 같이 받는다.
+  const disp = await navigator.mediaDevices.getDisplayMedia({
+    video:true,
+    audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+  });
+  if(!disp.getAudioTracks().length){
+    disp.getTracks().forEach(t=>t.stop());
+    throw new Error("소리가 안 잡혔다. 공유 창에서 '탭 오디오도 공유'를 켜고 다시 할 것.");
+  }
+  disp.getVideoTracks().forEach(t=>t.stop());   // 화면은 즉시 놓는다. 소리만 쓴다.
+  onlineTabStream = disp;
+
+  // 2) 내 마이크. 없거나 거부해도 회의 소리만으로 진행한다.
+  let mic = null;
+  try{
+    mic = await navigator.mediaDevices.getUserMedia({ audio:{
+      echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+    onlineMicStream = mic;
+  }catch(e){ toast("마이크 없이 회의 소리만 담는다."); }
+
+  // 3) 둘을 한 줄기로 합친다.
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  onlineCtx = new Ctx();
+  const dest = onlineCtx.createMediaStreamDestination();
+  onlineCtx.createMediaStreamSource(disp).connect(dest);
+  if(mic) onlineCtx.createMediaStreamSource(mic).connect(dest);
+
+  // 사용자가 브라우저 상단의 '공유 중지'를 누르면 녹음도 끝낸다.
+  const tab = disp.getAudioTracks()[0];
+  if(tab) tab.onended = () => { if(recording && mode==="online") stopRecording(); };
+
+  toast(mic ? "회의 소리와 마이크를 함께 담는다." : "회의 소리만 담는다.");
+  return dest.stream;
+}
+
+function releaseOnline(){
+  [onlineTabStream, onlineMicStream].forEach(s=>{ if(s) s.getTracks().forEach(t=>t.stop()); });
+  onlineTabStream = onlineMicStream = null;
+  if(onlineCtx){ try{ onlineCtx.close(); }catch(e){} onlineCtx = null; }
+}
+
 function pickMime(){
   const opts = ["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg;codecs=opus"];
   for(const m of opts) if(window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
@@ -1191,7 +1247,11 @@ function pickMime(){
 
 async function startRecording(){
   ttsWarmup();   // 버튼을 누른 이 흐름에서 음성 잠금을 풀어 둔다
-  if(!NATIVE){
+  if(mode==="online"){
+    try{ stream = await captureOnline(); }
+    catch(e){ toast(e.message || "회의 소리를 가져오지 못했다."); return; }
+  }
+  else if(!NATIVE){
     try{
       stream = await navigator.mediaDevices.getUserMedia({ audio:{
         echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
@@ -1320,6 +1380,7 @@ async function stopRecording(){
 
 async function finishRecording(){
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  releaseOnline();
   if(activeNote){
     activeNote.duration = Math.max(0, Date.now()-startedAt-pausedTotal);
     await put("notes", activeNote);
@@ -1952,6 +2013,7 @@ function absorbCarry(note, raw){
 const HINTS = {
   text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리한다. 녹음하지 않는다. 파일로 불러와도 된다.",
   live:"녹음하면서 구간이 끝날 때마다 전사와 번역이 붙는다. 인터넷이 끊기면 자동으로 대기했다가 이어서 처리한다.",
+  online:"줌·팀즈·미트 같은 화상회의용. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
   offline:"녹음만 저장한다. 전사는 나중에 노트에서 직접 실행한다. 배터리와 데이터를 아낄 때 쓴다.",
   file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다."
 };
@@ -1963,6 +2025,7 @@ function setMode(m){
   $("mode-hint").textContent = HINTS[m];
   $("btn-rec").innerHTML = m==="file" ? "음성 파일 선택"
     : m==="text" ? "정리하기"
+    : m==="online" ? '<span class="dot"></span> 회의 소리 고르고 시작'
     : '<span class="dot"></span> 녹음 시작';
   $("btn-pause").style.display = "none";
   $("btn-mark").style.display = "none";
@@ -2037,6 +2100,10 @@ addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.ret
 
 /* 실행 환경 안내 */
 (function(){
+  // 온라인 회의는 브라우저에서만 된다. 폰에서는 탭을 고를 수 없으므로 감춘다.
+  const on = document.getElementById("mode-online");
+  if(on && NATIVE) on.style.display = "none";
+
   const el = document.getElementById("envnote");
   if(!el) return;
   // 어느 부품이 붙어 있는지 그대로 보여 준다. 안 될 때 원인을 짚는 데 쓴다.
