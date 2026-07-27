@@ -472,7 +472,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-20";
+const APP_VERSION = "2026.07.27-21";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1060,16 +1060,34 @@ ${tail}
 ` : ""}${i>0 ? "맨 위 전체 요약 문단은 쓰지 마라. 첫 구간에서 이미 썼다. 소제목부터 시작해라.\n" : ""}${i<parts.length-1 ? "'기억할 대목'과 '확인 필요' 절은 쓰지 마라. 마지막 구간에서 한 번에 쓴다.\n" : ""}
 `;
     const p = summaryPrompt(note, parts[i]).replace("가장 중요한 것: 분량이다.", head + "가장 중요한 것: 분량이다.");
-    const out = await callDocModel(p, 8000);
+    const out = await callDocModel(p, 4000);
     outs.push(out);
     if(cache) await cache.set(i, out);
+    await new Promise(s=>setTimeout(s, 600));   // 몰아치지 않는다
   }
   return outs.join("\n\n");
 }
 
 /* 회의록과 요약이 같은 모델 경로를 쓴다. claude 를 골랐는데 키가 없으면 OpenAI 로 넘어간다.
    상한을 넉넉히 둔다. 4000 으로 묶어 두었더니 요약이 중간에 잘려 짧아 보였다. */
+/* 조각을 연달아 부르면 API 가 속도 제한(429)을 건다. 서버가 잠깐 흔들리기도 한다.
+   한 번 실패했다고 손을 놓으면 열세 조각 중 아홉 번째에서 매번 멈춘다.
+   기다렸다 다시 부른다. 기다리는 시간은 점점 늘린다. */
 async function callDocModel(prompt, budget){
+  let wait = 3000;
+  for(let tries=0;;tries++){
+    try{ return await callDocOnce(prompt, budget); }
+    catch(e){
+      const m = String(e.message||e);
+      const soft = /\b(429|500|502|503|504)\b/.test(m) || /응답이 없다|Failed to fetch|network/i.test(m);
+      if(!soft || tries >= 4) throw e;
+      await new Promise(s=>setTimeout(s, wait));
+      wait = Math.min(wait * 2, 30000);
+    }
+  }
+}
+
+async function callDocOnce(prompt, budget){
   const cap = budget || 12000;
   if(CFG.doc.indexOf("claude") === 0 && CFG.ant){
     const r = await fetch("https://api.anthropic.com/v1/messages",{
@@ -1279,9 +1297,10 @@ async function makeMinutes(note, fullText, onStep, cache){
     if(onStep) onStep(i+1, parts.length+1);
     const kept = cache && await cache.get(i);
     if(kept){ digests.push(kept); continue; }
-    const out = await callDocModel(digestPrompt(note, parts[i], i, parts.length), 8000);
+    const out = await callDocModel(digestPrompt(note, parts[i], i, parts.length), 4000);
     digests.push(out);
     if(cache) await cache.set(i, out);
+    await new Promise(s=>setTimeout(s, 600));   // 몰아치지 않는다
   }
   if(onStep) onStep(parts.length+1, parts.length+1);
 
@@ -2315,8 +2334,10 @@ async function renderDetail(){
         // 하다 만 조각이 있으면 알려 준다. 다시 눌러도 처음부터 하지 않는다.
         const d = n.draft;
         const kept = d && d.form===fm && d.len===rawLen0 && (d.parts||[]).filter(Boolean).length;
-        return kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
-          '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다.</p>' : "";
+        return (kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
+          '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다.</p>' : "")
+          + (n.docError ? '<p class="hint" style="padding:0 18px;color:var(--danger)">'+
+             esc(n.docError)+'</p>' : "");
       })()+
       '<button class="bigbtn" id="gen"'+(doneAll?"":" disabled")+'>'+
         DOC_FORMS[fm].label+' 만들기</button>';
@@ -2386,7 +2407,7 @@ async function genMinutes(n, cs, btn){
     const raw = fm==="summary" ? await makeSummary(n, full, step, cache)
                                : await makeMinutes(n, full, step, cache);
     n.summary = fm==="summary" ? raw : absorbCarry(n, raw);
-    n.draft = null;   // 다 만들었으니 조각은 버린다
+    n.draft = null; n.docError = "";   // 다 만들었으니 조각과 오류 자국은 버린다
     // 본문이 새로 만들어졌으므로 옛 번역본은 버린다. 안 그러면 서로 다른 회의록이 공유된다.
     n.i18n = {}; n.viewLang = "__src__";
     await put("notes", n);
@@ -2399,7 +2420,10 @@ async function genMinutes(n, cs, btn){
     renderDetail();
     syncDrive(false);   // 글이 나왔으니 다른 기기에도 올린다
   }catch(e){
-    toast(e.message + " · 만들어 둔 조각은 남아 있다. 다시 누르면 이어서 한다.", 6000);
+    // 토스트는 곧 사라진다. 무엇이 잘못됐는지는 화면에 남아 있어야 한다.
+    n.docError = (e.message||String(e)) + " (" + new Date().toLocaleTimeString("ko-KR") + ")";
+    await put("notes", n);
+    toast("멈췄다. 만들어 둔 조각은 남아 있으니 다시 누르면 이어서 한다.", 6000);
     btn.disabled=false; renderDetail();
   }finally{
     CFG.awake = wasAwake; if(!recording) keepAwake(false);
