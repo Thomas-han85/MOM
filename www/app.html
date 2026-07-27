@@ -468,7 +468,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-12";
+const APP_VERSION = "2026.07.27-13";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2659,6 +2659,9 @@ $("g-link").onclick = async ()=>{
   saveCfg();
   const box = $("g-code"), b = $("g-link");
   b.disabled = true; b.textContent = "연결 중…";
+  /* 승인을 기다리는 동안 화면이 꺼지면 기다리는 일도 멈춘다. 그러면 구글에서
+     승인해도 앱은 그것을 받지 못한 채 남는다. 기다리는 동안만 화면을 켜 둔다. */
+  const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
   try{
     await gStartLink(d => {
       box.style.display = "";
@@ -2667,14 +2670,18 @@ $("g-link").onclick = async ()=>{
         '<div style="margin:8px 0">주소: <strong>'+esc(d.verification_url)+'</strong></div>' +
         '<div style="font-size:26px;font-weight:700;letter-spacing:.08em;color:var(--ink)">'+
         esc(d.user_code)+'</div>' +
-        '<div style="margin-top:8px">승인하면 이 화면이 저절로 넘어간다. 창을 닫지 말 것.</div>';
+        '<div style="margin-top:8px"><strong>이 화면을 벗어나지 마라.</strong> 앱이 승인을 기다리는 중이라, '+
+        '앱을 나가거나 화면이 꺼지면 승인해도 연결되지 않는다. 승인하면 저절로 넘어간다.</div>';
     });
     box.style.display = "none";
     toast("구글에 연결했다.");
     paintSync("");
     syncDrive(true);
   }catch(e){ box.style.display="none"; toast(e.message||"연결 실패", 5000); }
-  finally{ b.disabled=false; b.textContent="구글 연결"; }
+  finally{
+    b.disabled=false; b.textContent="구글 연결";
+    CFG.awake = wasAwake; if(!recording) keepAwake(false);
+  }
 };
 $("g-sync").onclick = ()=>{
   if(!driveOn()){ toast("먼저 구글에 연결해라."); return; }
