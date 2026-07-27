@@ -472,7 +472,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-17";
+const APP_VERSION = "2026.07.27-18";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1025,12 +1025,14 @@ ${fullText}`;
 
    전사문을 구간으로 나눠 따로 정리한 뒤 이어 붙인다. 이러면 총 길이에 제한이 없다.
    각 구간에는 앞 구간의 꼬리를 문맥으로 함께 준다. 흐름이 끊기지 않게 하기 위해서다. */
-const SEG_CHARS = 9000;
+/* 한 번에 넘기는 양이 많으면 모델은 그것을 통째로 줄여 버린다. 길게 쓰라고 아무리
+   말해도 소용이 없다. 조각을 작게 자르면 조각마다 제 몫을 쓰게 되어, 합쳐진 글이
+   자연히 길고 촘촘해진다. 지시보다 구조가 확실하다. */
+const SEG_CHARS = 2500;
 
 async function makeSummary(note, fullText, onStep){
   if(fullText.length <= SEG_CHARS){
-    const budget = Math.max(6000, Math.min(15000, Math.round(fullText.length / 2)));
-    return callDocModel(summaryPrompt(note, fullText), budget);
+    return callDocModel(summaryPrompt(note, fullText), 8000);
   }
 
   // 구간 나누기. 줄 경계에서 자른다. 문장 중간에서 끊지 않기 위해서다.
@@ -1050,6 +1052,10 @@ async function makeSummary(note, fullText, onStep){
     const head =
 `이 전사문은 길어서 여러 구간으로 나눠 정리한다. 지금은 ${parts.length}개 중 ${i+1}번째 구간이다.
 
+이 구간은 짧다. 그러므로 **이 구간에 나온 말은 하나도 빠짐없이 다뤄라.**
+전체를 줄이려 하지 마라. 전체는 다른 구간들이 맡는다. 너는 이 대목만 촘촘히 쓰면 된다.
+이 구간의 전사문보다 짧게 쓰면 잘못한 것이다.
+
 ${i>0 ? `앞 구간을 정리한 글의 끝부분이다. 이어지는 흐름을 잡는 데만 쓰고, 여기 있는 내용을 다시 쓰지 마라.
 """
 ${tail}
@@ -1058,7 +1064,7 @@ ${tail}
 ` : ""}${i>0 ? "맨 위 전체 요약 문단은 쓰지 마라. 첫 구간에서 이미 썼다. 소제목부터 시작해라.\n" : ""}${i<parts.length-1 ? "'기억할 대목'과 '확인 필요' 절은 쓰지 마라. 마지막 구간에서 한 번에 쓴다.\n" : ""}
 `;
     const p = summaryPrompt(note, parts[i]).replace("가장 중요한 것: 분량이다.", head + "가장 중요한 것: 분량이다.");
-    outs.push(await callDocModel(p, 15000));
+    outs.push(await callDocModel(p, 8000));
   }
   return outs.join("\n\n");
 }
@@ -2122,6 +2128,18 @@ async function renderDetail(){
       '</div>'+
       '<p class="hint" style="margin-top:8px">'+DOC_FORMS[fm].hint+'</p>'+
     '</div>';
+  /* 전사문과 결과물의 길이를 나란히 보여 준다. 요약이 짧다고 느낄 때, 전사문이
+     원래 짧은 것인지 정리가 뭉갠 것인지 이것으로 갈린다. */
+  const rawLen = cs.filter(c=>c.status==="done"&&c.text)
+                   .reduce((a,c)=>a + c.text.length, 0);
+  const lenBar = (()=>{
+    if(!rawLen) return "";
+    const docLen = (n.summary||"").length;
+    const pct = docLen ? Math.round(docLen/rawLen*100) : 0;
+    return '<div class="statbar"><span class="stat">전사문 '+rawLen.toLocaleString()+'자</span>'+
+      (docLen ? '<span class="stat'+(pct<25?" warn":"")+'">정리본 '+docLen.toLocaleString()+
+        '자 · 원문의 '+pct+'%</span>' : '')+'</div>';
+  })();
   let doc = "";
   if(n.summary){
     // 번역본이 있으면 언어 탭을 띄우고, 고른 언어의 본문을 보여준다.
@@ -2135,7 +2153,7 @@ async function renderDetail(){
         return '<button data-lang="'+L+'"'+(L===cur?' class="on"':'')+'>'+nm+'</button>';
       }).join("") + '</div>';
     }
-    doc = tabs + (fm==="minutes" ? statBar(body) : "")+'<div class="doc">'+md(body)+'</div>'+
+    doc = tabs + lenBar + (fm==="minutes" ? statBar(body) : "")+'<div class="doc">'+md(body)+'</div>'+
       '<div style="padding:0 18px 6px">'+
         '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
         '다른 언어로 회의록 만들기 · 직원 공유용</label>'+
@@ -2152,6 +2170,7 @@ async function renderDetail(){
       (cs.length ? (doneAll ? '전사가 끝났다. 형식을 고르고 아래 버튼을 눌러라.'
                             : '전사가 끝나면 정리할 수 있다.')
                  : '구간이 없다.')+'</div>'+
+      lenBar+
       formPicker+
       '<div style="padding:0 18px 4px">'+
         '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
