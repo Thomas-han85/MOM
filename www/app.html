@@ -427,7 +427,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-2";
+const APP_VERSION = "2026.07.27-3";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2050,6 +2050,17 @@ addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.ret
     + " · 웹 음성 " + (HAS_WEB_TTS ? "있음" : "없음")
     + "\n붙어 있는 부품: " + names;
   el.style.whiteSpace = "pre-line";
+  /* APK 안에 함께 깔린 app.html 의 버전을 읽는다. 화면은 깃허브에서 갈아끼워도
+     이 값은 APK 를 새로 깔아야만 바뀐다. 어느 APK 가 설치돼 있는지 가리는 잣대다. */
+  fetch("app.html", { cache:"no-store" })
+    .then(r=>r.text())
+    .then(t=>{
+      const m = t.match(/APP_VERSION\s*=\s*"([^"]+)"/);
+      const v = m ? m[1] : "읽지 못함";
+      const known = { "2026.07.26-1":"APK 5", "2026.07.27-1":"APK 11 이상" };
+      el.textContent += "\nAPK 안의 버전: " + v + (known[v] ? " (" + known[v] + ")" : "");
+    })
+    .catch(()=>{ el.textContent += "\nAPK 안의 버전: 확인 불가"; });
   // 네이티브 음성이 실제로 응답하는지도 물어본다. 껍데기만 있고 안 되는 경우를 가른다.
   if(NativeTts && NativeTts.available) NativeTts.available().then(r=>{
     const L = (r && r.langs) || {};
