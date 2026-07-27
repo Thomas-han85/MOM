@@ -347,8 +347,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 22px">설치된 버전으로 되돌리기</button>
 
     <h2 class="sechead">폰과 컴퓨터 연동</h2>
-    <p class="hint">구글 드라이브의 앱 전용 숨김 폴더에 회의록 글자만 올린다. 드라이브 화면에는
-      보이지 않고 다른 앱도 볼 수 없다. 오디오는 올리지 않는다.
+    <p class="hint">구글 드라이브에 "대역 회의록" 폴더를 만들고 회의록 글자만 올린다.
+      오디오는 올리지 않는다. 이 앱은 자기가 만든 파일만 열 수 있어 나머지 문서에는 손대지 못한다.
       한 번 연결하면 계속 유지된다. 폰과 컴퓨터에서 각각 한 번씩 연결하면 된다.</p>
     <p class="hint" id="g-state">연결 안 됨</p>
     <div class="field"><label for="s-gcid">구글 클라이언트 ID</label>
@@ -443,7 +443,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-5";
+const APP_VERSION = "2026.07.27-6";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1035,7 +1035,12 @@ ${fullText}${ser ? `
 const G = {
   DEV:"https://oauth2.googleapis.com/device/code",
   TOK:"https://oauth2.googleapis.com/token",
-  SCOPE:"https://www.googleapis.com/auth/drive.appdata",
+  /* 원래는 드라이브의 앱 전용 숨김 폴더(drive.appdata)를 쓰려 했으나, 구글이 기기 흐름에서
+     그 범위를 거부한다. drive.file 만 허용된다. 그래서 드라이브에 전용 폴더를 하나 만들어
+     쓴다. 폴더는 눈에 보이지만, 이 범위는 "이 앱이 만든 파일"만 열 수 있어 나머지 문서는
+     여전히 앱의 손이 닿지 않는다. */
+  SCOPE:"https://www.googleapis.com/auth/drive.file",
+  FOLDER:"대역 회의록",
   API:"https://www.googleapis.com/drive/v3",
   UP:"https://www.googleapis.com/upload/drive/v3"
 };
@@ -1103,14 +1108,41 @@ async function gToken(){
   return gStore.acc;
 }
 
-function gUnlink(){ gStore.ref=""; gStore.acc=""; gStore.exp=0; }
+function gUnlink(){ gStore.ref=""; gStore.acc=""; gStore.exp=0; store.set("mn_g_folder",""); }
 
-/* --- 드라이브 파일 다루기 (앱 전용 숨김 폴더) --- */
+/* --- 드라이브 파일 다루기 (전용 폴더 안에서만) --- */
+async function dFolder(){
+  const cached = store.get("mn_g_folder");
+  const t = await gToken();
+  if(cached){
+    // 사용자가 폴더를 지웠을 수 있다. 살아 있는지 확인한다.
+    const r = await fetch(G.API+"/files/"+cached+"?fields=id,trashed",
+      { headers:{ Authorization:"Bearer "+t } });
+    if(r.ok && !(await r.json()).trashed) return cached;
+    store.set("mn_g_folder","");
+  }
+  const q = encodeURIComponent(
+    "mimeType='application/vnd.google-apps.folder' and name='"+G.FOLDER+"' and trashed=false");
+  const f = await fetch(G.API+"/files?q="+q+"&fields=files(id)&pageSize=10",
+    { headers:{ Authorization:"Bearer "+t } });
+  if(f.ok){
+    const d = await f.json();
+    if(d.files && d.files.length){ store.set("mn_g_folder", d.files[0].id); return d.files[0].id; }
+  }
+  const c = await fetch(G.API+"/files?fields=id", { method:"POST",
+    headers:{ Authorization:"Bearer "+t, "Content-Type":"application/json" },
+    body: JSON.stringify({ name:G.FOLDER, mimeType:"application/vnd.google-apps.folder" }) });
+  if(!c.ok) throw new Error("폴더를 만들지 못했다 "+c.status);
+  const id = (await c.json()).id;
+  store.set("mn_g_folder", id);
+  return id;
+}
 async function dList(){
   const t = await gToken();
+  const folder = await dFolder();
   let out = [], page = "";
   do{
-    const u = G.API+"/files?spaces=appDataFolder&pageSize=200"
+    const u = G.API+"/files?pageSize=200&q="+encodeURIComponent("'"+folder+"' in parents and trashed=false")
       + "&fields=nextPageToken,files(id,name,appProperties)"
       + (page ? "&pageToken="+encodeURIComponent(page) : "");
     const r = await fetch(u, { headers:{ Authorization:"Bearer "+t } });
@@ -1130,7 +1162,7 @@ async function dRead(id){
 async function dWrite(id, name, obj, updated){
   const t = await gToken();
   const meta = { name, appProperties:{ u:String(updated||Date.now()) } };
-  if(!id) meta.parents = ["appDataFolder"];
+  if(!id) meta.parents = [await dFolder()];
   const B = "mnb"+Math.random().toString(36).slice(2);
   const body =
     "--"+B+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+
