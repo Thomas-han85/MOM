@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.os.Build;
 import android.util.Base64;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -70,27 +71,17 @@ public class RecorderPlugin extends Plugin {
     private void launch(PluginCall call) {
         long chunkMs = call.getLong("chunkMs", 30000L);
 
+        /* 화면이 꺼지면 안드로이드가 화면 쪽(WebView)을 재운다. 예전에는 여기서 파일을
+           읽어 바로 지우고 이벤트만 보냈는데, 그 사이 이벤트가 전달되지 않으면 그 구간이
+           통째로 사라졌다. 이제는 파일을 남겨 둔다. 화면이 깨어나 pending() 으로 가져가고
+           discard() 로 지운다. 잠든 동안 녹음한 것은 그대로 디스크에 쌓인다. */
         RecorderService.listener = (file, seq, offsetMs, durMs) -> {
-            try {
-                byte[] bytes = new byte[(int) file.length()];
-                FileInputStream in = new FileInputStream(file);
-                int read = 0, n;
-                while (read < bytes.length && (n = in.read(bytes, read, bytes.length - read)) > 0) read += n;
-                in.close();
-                //noinspection ResultOfMethodCallIgnored
-                file.delete();
-
-                JSObject ev = new JSObject();
-                ev.put("seq", seq);
-                ev.put("offsetMs", offsetMs);
-                ev.put("durMs", durMs);
-                ev.put("data", Base64.encodeToString(bytes, Base64.NO_WRAP));
-                notifyListeners("chunk", ev);
-            } catch (Exception e) {
-                JSObject err = new JSObject();
-                err.put("message", "청크 전달 실패 (" + seq + "): " + e.getMessage());
-                notifyListeners("recError", err);
-            }
+            JSObject ev = new JSObject();
+            ev.put("seq", seq);
+            ev.put("offsetMs", offsetMs);
+            ev.put("durMs", durMs);
+            ev.put("name", file.getName());
+            notifyListeners("chunk", ev);
         };
 
         RecorderService.errorListener = message -> {
@@ -139,6 +130,55 @@ public class RecorderPlugin extends Plugin {
         r.put("paused", s != null && s.isPaused());
         r.put("recordedMs", s == null ? 0 : s.getRecordedMs());
         call.resolve(r);
+    }
+
+    /* 아직 화면이 가져가지 않은 구간들. 이름 순으로 돌려준다.
+       화면이 깨어날 때마다 이것을 물어 밀린 것을 회수한다. */
+    @PluginMethod
+    public void pending(PluginCall call) {
+        File dir = new File(getContext().getCacheDir(), "segments");
+        File[] files = dir.listFiles();
+        JSArray out = new JSArray();
+        if (files != null) {
+            java.util.Arrays.sort(files, (a, b) -> a.getName().compareTo(b.getName()));
+            for (File f : files) {
+                JSObject o = new JSObject();
+                o.put("name", f.getName());
+                o.put("size", f.length());
+                out.put(o);
+            }
+        }
+        JSObject r = new JSObject();
+        r.put("files", out);
+        call.resolve(r);
+    }
+
+    /* 구간 하나를 읽어 준다. 화면이 저장한 뒤 discard 로 지운다. */
+    @PluginMethod
+    public void read(PluginCall call) {
+        String name = call.getString("name", "");
+        JSObject r = new JSObject();
+        try {
+            File f = new File(new File(getContext().getCacheDir(), "segments"), name);
+            if (!f.exists()) { r.put("missing", true); call.resolve(r); return; }
+            byte[] bytes = new byte[(int) f.length()];
+            FileInputStream in = new FileInputStream(f);
+            int read = 0, n;
+            while (read < bytes.length && (n = in.read(bytes, read, bytes.length - read)) > 0) read += n;
+            in.close();
+            r.put("data", Base64.encodeToString(bytes, Base64.NO_WRAP));
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("구간을 읽지 못했다: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void discard(PluginCall call) {
+        File f = new File(new File(getContext().getCacheDir(), "segments"), call.getString("name", ""));
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+        call.resolve();
     }
 
     @PluginMethod

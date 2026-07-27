@@ -96,6 +96,7 @@ const PERMS = [
   "android.permission.POST_NOTIFICATIONS",
   "android.permission.INTERNET",
   "android.permission.ACCESS_NETWORK_STATE",
+  "android.permission.WAKE_LOCK",
 ];
 let added = [];
 for (const p of PERMS) {

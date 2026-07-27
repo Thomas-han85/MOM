@@ -10,6 +10,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 import java.io.File;
 import java.io.RandomAccessFile;
@@ -41,6 +42,7 @@ public class RecorderService extends Service {
 
     private AudioRecord audio;
     private Thread worker;
+    private PowerManager.WakeLock wake;
 
     private volatile boolean running = false;
     private volatile boolean paused = false;
@@ -77,6 +79,15 @@ public class RecorderService extends Service {
         } else {
             startForeground(NOTIF_ID, buildNotification(false));
         }
+
+        /* 화면이 꺼져도 CPU 는 깨어 있어야 녹음이 끊기지 않는다.
+           화면은 켜 두지 않는다. 배터리를 그만큼만 쓴다. */
+        try {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "meetnote:rec");
+            wake.setReferenceCounted(false);
+            wake.acquire();
+        } catch (Exception ignored) { }
 
         instance = this;
         running = true;
@@ -180,7 +191,11 @@ public class RecorderService extends Service {
                 }
 
                 if (raf == null) {
-                    cur = new File(dir, "seg_" + System.currentTimeMillis() + ".wav");
+                    /* 이름에 순번을 넣는다. 화면이 잠든 사이 쌓인 파일을 나중에 회수할 때
+                       이 순번으로 순서를 잡고 중복을 가린다. 자릿수를 맞춰 이름 순 정렬이
+                       곧 시간 순이 되게 한다. */
+                    cur = new File(dir, "seg_" + String.format(java.util.Locale.US, "%05d", seq)
+                            + "_" + System.currentTimeMillis() + ".wav");
                     raf = new RandomAccessFile(cur, "rw");
                     raf.setLength(0);
                     raf.write(new byte[44]);      // 헤더 자리. 청크를 닫을 때 채운다.
@@ -304,15 +319,22 @@ public class RecorderService extends Service {
             try { worker.join(2500); } catch (InterruptedException ignored) {}
             worker = null;
         }
+        releaseWake();
         stopForeground(true);
         stopSelf();
         instance = null;
+    }
+
+    private void releaseWake() {
+        try { if (wake != null && wake.isHeld()) wake.release(); } catch (Exception ignored) {}
+        wake = null;
     }
 
     @Override
     public void onDestroy() {
         running = false;
         try { if (audio != null) { audio.release(); audio = null; } } catch (Exception ignored) {}
+        releaseWake();
         instance = null;
         super.onDestroy();
     }
