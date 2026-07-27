@@ -322,7 +322,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <p class="hint">번역이 나올 때마다 소리로 읽는다. <strong>번역 대상 언어를 "번역 안 함"으로
       두면 읽을 것이 없어 소리가 나지 않는다.</strong> 청크 길이만큼 늦게 읽으므로 동시통역이
       아니라 지연 통역이다. 회의장 스피커로 틀면 실제 발화와 겹치니 이어폰을 권한다.
-      소리 시험이 조용하면 안드로이드 설정 → 언어 → 음성 합성에서 해당 언어 음성을 받아야 한다.</p>
+      기기에 내장된 음성을 쓴다. 무료이고 인터넷 없이도 읽는다.
+      소리 시험이 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서
+      해당 언어 음성을 받아야 한다. 베트남어는 따로 받아야 하는 기기가 많다.</p>
     <h2 class="sechead">참석자</h2>
     <p class="hint">회의록에서 발언을 사람별로 붙일 때 쓴다. 말투와 자주 쓰는 단어가
       구체적일수록 정확해진다.</p>
@@ -425,7 +427,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.26-5";
+const APP_VERSION = "2026.07.27-1";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -755,9 +757,20 @@ async function translateChunk(text, target, prevPair, ctxHint){
    비용 0. 품질이 아쉬우면 나중에 OpenAI TTS 로 승격한다.
    ===================================================================== */
 const TTS_LANG = { Korean:"ko-KR", Vietnamese:"vi-VN", English:"en-US" };
+
+/* 앱 안에 들어가는 WebView 에는 웹 음성 기능(speechSynthesis)이 없다. 크롬에는 있지만
+   WebView 에는 빠져 있어서 웹 방식으로는 소리가 나지 않는다. APK 에서는 네이티브
+   플러그인이 기기 음성을 직접 쓴다. 공짜고 오프라인에서 돌며 지연이 없다.
+   브라우저로 열었을 때는 기존 웹 음성을 그대로 쓴다. */
+const NativeTts = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Tts)
+  ? window.Capacitor.Plugins.Tts : null;
+const HAS_WEB_TTS = ("speechSynthesis" in window) &&
+                    typeof window.SpeechSynthesisUtterance === "function";
+const TTS_OK = !!NativeTts || HAS_WEB_TTS;
+
 let ttsQueue = [], ttsBusy = false;
 function speakTrans(text, target){
-  if(CFG.tts!=="1" || !text || !("speechSynthesis" in window)) return;
+  if(CFG.tts!=="1" || !text || !TTS_OK) return;
   ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR" });
   // 처리가 밀리면 읽기가 한없이 뒤처진다. 밀린 것은 버리고 최근 것만 읽는다.
   if(ttsQueue.length > 2) ttsQueue = ttsQueue.slice(-2);
@@ -766,6 +779,13 @@ function speakTrans(text, target){
 function ttsPump(){
   if(ttsBusy || !ttsQueue.length) return;
   const j = ttsQueue.shift(); ttsBusy = true;
+  const done = () => { ttsBusy = false; ttsPump(); };
+  if(NativeTts){
+    // 네이티브는 자체 큐로 순서를 지킨다. 넘겨 두고 바로 다음으로 넘어간다.
+    NativeTts.speak({ text:j.text, lang:j.lang, rate: parseFloat(CFG.ttsRate)||1 })
+      .then(done, done);
+    return;
+  }
   const u = new SpeechSynthesisUtterance(j.text);
   u.lang = j.lang;
   u.rate = parseFloat(CFG.ttsRate) || 1;
@@ -773,37 +793,53 @@ function ttsPump(){
   const vs = speechSynthesis.getVoices()
     .filter(v => v.lang && v.lang.toLowerCase().startsWith(j.lang.slice(0,2).toLowerCase()));
   if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
-  u.onend = u.onerror = () => { ttsBusy=false; ttsPump(); };
-  try{ speechSynthesis.speak(u); }catch(e){ ttsBusy=false; }
+  u.onend = u.onerror = done;
+  try{ speechSynthesis.speak(u); }catch(e){ done(); }
 }
 function ttsStop(){
   ttsQueue.length = 0; ttsBusy = false;
+  if(NativeTts){ try{ NativeTts.stop(); }catch(e){} return; }
   try{ speechSynthesis.cancel(); }catch(e){}
 }
 /* 안드로이드는 사용자가 누른 흐름에서 한 번 소리를 내야 이후 자동 재생을 허용한다.
    녹음 시작 버튼을 누를 때 무음을 한 번 재생해 잠금을 풀어 둔다. */
 let ttsUnlocked = false;
 function ttsWarmup(){
-  if(ttsUnlocked || CFG.tts!=="1" || !("speechSynthesis" in window)) return;
+  if(ttsUnlocked || CFG.tts!=="1" || !TTS_OK) return;
+  ttsUnlocked = true;
+  if(NativeTts) return;   // 네이티브는 잠금이 없다
   try{
     const u = new SpeechSynthesisUtterance(" ");
     u.volume = 0; u.rate = 2;
     speechSynthesis.speak(u);
-    ttsUnlocked = true;
   }catch(e){}
 }
 /* 설정에서 눌러 소리가 실제로 나는지 확인한다. */
-function ttsTest(){
-  if(!("speechSynthesis" in window)){ toast("이 기기는 음성 읽기를 지원하지 않는다."); return; }
-  ttsUnlocked = true;
-  try{ speechSynthesis.cancel(); }catch(e){}
+async function ttsTest(){
+  if(!TTS_OK){
+    toast(NATIVE ? "음성 기능이 없는 APK 다. 새 APK 를 설치해야 한다."
+                 : "이 브라우저는 음성 읽기를 지원하지 않는다.", 5000);
+    return;
+  }
+  ttsUnlocked = true; ttsStop();
   const lang = $("s-ttslang") ? $("s-ttslang").value : "ko-KR";
+  const rate = parseFloat($("s-ttsrate") ? $("s-ttsrate").value : CFG.ttsRate) || 1;
   const say = lang.startsWith("vi") ? "Đây là giọng đọc thử."
             : lang.startsWith("en") ? "This is a voice test."
             : "소리가 들리면 정상이다.";
+  if(NativeTts){
+    try{
+      const r = await NativeTts.speak({ text:say, lang, rate });
+      if(!r || r.spoken === false){
+        toast(r && r.reason==="no-voice"
+          ? "이 언어 음성이 기기에 없다. 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 받아야 한다."
+          : "재생하지 못했다.", 6000);
+      }
+    }catch(e){ toast("재생 실패: "+(e.message||e)); }
+    return;
+  }
   const u = new SpeechSynthesisUtterance(say);
-  u.lang = lang;
-  u.rate = parseFloat($("s-ttsrate") ? $("s-ttsrate").value : CFG.ttsRate) || 1;
+  u.lang = lang; u.rate = rate;
   const vs = speechSynthesis.getVoices()
     .filter(v => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0,2).toLowerCase()));
   if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
