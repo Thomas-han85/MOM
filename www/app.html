@@ -468,7 +468,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-11";
+const APP_VERSION = "2026.07.27-12";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2248,6 +2248,33 @@ const bold = s => s.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
    서버가 없으므로 기기 사이 이동은 파일로 한다.
    오디오는 담지 않는다. 전사가 끝나면 어차피 지워지고, 담으면 파일이 감당이 안 된다.
    ===================================================================== */
+/* 앱 안의 WebView 는 브라우저식 다운로드가 막혀 있다. 링크를 눌러도 아무 일이
+   일어나지 않아, 내보냈다는 말만 뜨고 파일은 어디에도 남지 않았다.
+   APK 에서는 네이티브로 다운로드 폴더에 직접 쓴다. */
+const NativeSaver = (function(){
+  const C = window.Capacitor;
+  if(!C) return null;
+  if(C.Plugins && C.Plugins.Saver) return C.Plugins.Saver;
+  if(C.isNativePlatform && C.isNativePlatform() && typeof C.registerPlugin === "function"){
+    try{ return C.registerPlugin("Saver"); }catch(e){ return null; }
+  }
+  return null;
+})();
+
+async function saveOut(name, mime, text){
+  if(!NativeSaver) return false;
+  try{
+    // 한글이 깨지지 않게 UTF-8 로 바꾼 뒤 base64 로 넘긴다.
+    const bytes = new TextEncoder().encode(text);
+    let bin = "";
+    for(let i=0;i<bytes.length;i+=8192)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i+8192));
+    const r = await NativeSaver.save({ name, mime, data: btoa(bin) });
+    if(r && r.saved){ toast(name + " · " + r.where + "에 저장했다.", 5000); return true; }
+  }catch(e){ toast("저장 실패: " + (e.message||e), 5000); }
+  return false;
+}
+
 async function exportBackup(){
   const notes = await all("notes");
   const chunks = (await all("chunks")).map(c=>({
@@ -2262,7 +2289,9 @@ async function exportBackup(){
     notes, chunks
   };
   const name = "meetnote-" + new Date().toISOString().slice(0,10) + ".json";
-  const file = new File([JSON.stringify(payload)], name, {type:"application/json"});
+  const text = JSON.stringify(payload);
+  if(await saveOut(name, "application/json", text)) return;
+  const file = new File([text], name, {type:"application/json"});
   if(navigator.canShare && navigator.canShare({files:[file]})){
     try{ await navigator.share({ files:[file], title:name }); return; }
     catch(e){ if(e.name==="AbortError") return; }
@@ -2322,10 +2351,13 @@ async function exportNote(){
     if(c.trans) t += "> "+c.trans+"\n";
     t += "\n";
   }
-  const file = new File([t], (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_")+".md", {type:"text/markdown"});
+  const fname = (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_")+".md";
+  const file = new File([t], fname, {type:"text/markdown"});
+  // 공유가 되면 공유가 낫다. 바로 카톡이나 메일로 보낼 수 있다.
   if(navigator.canShare && navigator.canShare({files:[file]})){
     try{ await navigator.share({ files:[file], title:n.title }); return; }catch(e){ if(e.name==="AbortError") return; }
   }
+  if(await saveOut(fname, "text/markdown", t)) return;
   try{ await navigator.clipboard.writeText(t); toast("회의록을 클립보드에 복사했다."); }
   catch(e){
     const u = URL.createObjectURL(file), a = document.createElement("a");

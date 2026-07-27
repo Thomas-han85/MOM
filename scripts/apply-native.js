@@ -26,7 +26,7 @@ if (!fs.existsSync(APP)) fail("android/ 가 없다. 먼저 `npx cap add android`
 
 /* ---------- 1. 자바 소스 복사 ---------- */
 fs.mkdirSync(JAVA_DIR, { recursive: true });
-for (const f of ["RecorderService.java", "RecorderPlugin.java", "TtsPlugin.java"]) {
+for (const f of ["RecorderService.java", "RecorderPlugin.java", "TtsPlugin.java", "SaverPlugin.java"]) {
   fs.copyFileSync(path.join(ROOT, "native", f), path.join(JAVA_DIR, f));
   ok("복사 " + f);
 }
@@ -37,12 +37,13 @@ const mainKt = path.join(JAVA_DIR, "MainActivity.kt");
 
 if (fs.existsSync(mainJava)) {
   let src = fs.readFileSync(mainJava, "utf8");
-  if (src.includes("RecorderPlugin.class") && src.includes("TtsPlugin.class")) {
+  if (src.includes("RecorderPlugin.class") && src.includes("TtsPlugin.class") && src.includes("SaverPlugin.class")) {
     ok("MainActivity 이미 등록됨");
   } else if (/public\s+void\s+onCreate\s*\(/.test(src)) {
     let ins = "";
     if (!src.includes("RecorderPlugin.class")) ins += "\n        registerPlugin(RecorderPlugin.class);";
     if (!src.includes("TtsPlugin.class"))      ins += "\n        registerPlugin(TtsPlugin.class);";
+    if (!src.includes("SaverPlugin.class"))    ins += "\n        registerPlugin(SaverPlugin.class);";
     src = src.replace(/(public\s+void\s+onCreate\s*\([^)]*\)\s*\{)/, "$1" + ins);
     fs.writeFileSync(mainJava, src);
     ok("MainActivity onCreate 에 registerPlugin 삽입");
@@ -59,6 +60,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(RecorderPlugin.class);
         registerPlugin(TtsPlugin.class);
+        registerPlugin(SaverPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
@@ -67,7 +69,7 @@ public class MainActivity extends BridgeActivity {
   }
 } else if (fs.existsSync(mainKt)) {
   let src = fs.readFileSync(mainKt, "utf8");
-  if (!src.includes("RecorderPlugin::class.java") || !src.includes("TtsPlugin::class.java")) {
+  if (!src.includes("RecorderPlugin::class.java") || !src.includes("TtsPlugin::class.java") || !src.includes("SaverPlugin::class.java")) {
     fs.writeFileSync(mainKt,
 `package ${PKG}
 
@@ -78,6 +80,7 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(RecorderPlugin::class.java)
         registerPlugin(TtsPlugin::class.java)
+        registerPlugin(SaverPlugin::class.java)
         super.onCreate(savedInstanceState)
     }
 }
