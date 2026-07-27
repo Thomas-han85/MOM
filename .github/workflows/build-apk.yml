@@ -89,6 +89,19 @@ jobs:
           chmod +x android/gradlew
           cd android && ./gradlew assembleDebug --stacktrace
 
+      # 빌드마다 서명이 같아야 덮어쓰기 설치가 된다. 다르면 안드로이드가
+      # "앱이 설치되지 않음" 으로 막는다. 매번 지문을 찍어 눈으로 확인한다.
+      - name: 서명 지문 확인
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          echo "--- 쓰인 키스토어 ---"
+          ls -l ~/.android/debug.keystore || echo "없음"
+          keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey \
+                  -storepass android 2>/dev/null | grep -E "SHA1:|SHA256:" || echo "키스토어를 읽지 못함"
+          echo "--- APK 에 박힌 서명 ---"
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep -E "SHA-1|SHA-256" || echo "apksigner 실패"
+
       - name: APK 이름 정리
         run: |
           mkdir -p out
