@@ -472,7 +472,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-18";
+const APP_VERSION = "2026.07.27-19";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1036,14 +1036,7 @@ async function makeSummary(note, fullText, onStep){
   }
 
   // 구간 나누기. 줄 경계에서 자른다. 문장 중간에서 끊지 않기 위해서다.
-  const lines = fullText.split("\n");
-  const parts = [];
-  let buf = "";
-  for(const ln of lines){
-    if(buf.length + ln.length > SEG_CHARS && buf){ parts.push(buf); buf = ""; }
-    buf += ln + "\n";
-  }
-  if(buf.trim()) parts.push(buf);
+  const parts = splitParts(fullText);
 
   const outs = [];
   for(let i=0;i<parts.length;i++){
@@ -1096,7 +1089,7 @@ async function callDocModel(prompt, budget){
   return ((await r.json()).choices?.[0]?.message?.content||"").trim();
 }
 
-async function makeMinutes(note, fullText){
+function minutesPrompt(note, fullText){
   const people = attendeeBlock(note);
   const marks = (note.marks||[]).map(m=>mmss(m)).join(", ");
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
@@ -1176,7 +1169,132 @@ ${fullText}${ser ? `
 
 ---CARRY---
 {"carry":"위 미결사항 절의 항목과 투두리스트 중 아직 안 끝난 것을 합쳐 다음 회의에서 확인할 목록으로. 한 줄에 하나씩, 최대 8줄. 없으면 빈 문자열","terms":["이번 회의에 나온 고유명사만. 프로젝트명, 사람 이름, 회사명, 지명, 현장 전문용어. 일반 단어는 넣지 마라"]}` : ""}`;
-  return callDocModel(prompt);
+  return prompt;
+}
+
+/* 회의록도 통째로 넘기면 모델이 다 줄여 버린다. 전사문 12,000자짜리 회의가
+   400자짜리 회의록으로 나왔다. 요약과 같은 병을 앓고 있다.
+
+   다만 회의록은 요약처럼 조각을 그냥 이어 붙일 수 없다. 결정사항과 투두는 회의
+   전체를 훑어야 나오는 것이라 조각마다 따로 뽑으면 같은 항목이 여러 번 나온다.
+   그래서 두 걸음으로 나눈다.
+     1. 조각마다 촘촘한 기록을 남긴다 — 오간 이야기, 그 자리에서 나온 결정·미결·할 일
+     2. 그 기록들만 모아 결정사항·미결사항·투두리스트를 정리한다
+   오간 이야기는 다시 줄이지 않고 그대로 일반요약 자리에 놓는다. 두 번 줄이면
+   또 뭉개지기 때문이다. */
+function splitParts(text){
+  const lines = text.split("\n");
+  const parts = []; let buf = "";
+  for(const ln of lines){
+    if(buf.length + ln.length > SEG_CHARS && buf){ parts.push(buf); buf = ""; }
+    buf += ln + "\n";
+  }
+  if(buf.trim()) parts.push(buf);
+  return parts;
+}
+
+function digestPrompt(note, seg, i, total){
+  return `회의 전사문의 ${total}개 구간 중 ${i+1}번째다. 이 구간만 다룬다.
+
+${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}
+이 구간은 짧다. **여기 나온 말은 하나도 빠짐없이 다뤄라.** 전체를 줄이려 하지 마라.
+전체는 나중에 따로 정리한다. 너는 이 대목만 촘촘히 남기면 된다.
+이 구간의 전사문보다 짧게 쓰면 잘못한 것이다.
+
+아래 형식 그대로 쓴다. 해당 없는 절은 "없음" 이라고 적는다.
+
+## 오간 이야기
+주제가 바뀔 때마다 "### " 소제목을 달고, 그 안에서 오간 말을 시간 순서로 적는다.
+사람 이름, 숫자, 날짜, 치수, 사례, 이유, 주고받은 질문과 대답을 전부 남긴다.
+여러 문장을 한 줄로 뭉뚱그리지 마라.
+
+## 이 구간의 결정
+확정된 것만. 없으면 "없음".
+
+## 이 구간의 미결
+결론이 안 난 것. 무엇이 있어야 결론이 나는지 함께.
+
+## 이 구간의 할 일
+- 담당자 — 할 일 — 기한. 정해지지 않았으면 "미지정".
+
+전사문에 없는 내용을 지어내지 마라.
+
+---전사문 구간---
+${seg}`;
+}
+
+function reducePrompt(note, digests){
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const carry = ser && ser.carry ? ser.carry : "";
+  return `아래는 회의를 구간별로 정리한 기록이다. 이것을 근거로 회의록의 앞부분을 만든다.
+
+${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${carry ? `지난 회의에서 넘어온 미결 사항
+${carry}
+
+이 항목들이 이번 회의에서 다뤄졌는지 확인해 "## 지난 회의 후속" 절에 결과를 적는다.
+언급되지 않은 항목은 "이번 회의에서 언급 없음" 이라고 명시한다. 넘어가지 마라.
+
+` : ""}출력 형식은 마크다운. 아래 절을 이 순서대로 낸다. **"일반요약" 절은 쓰지 마라.**
+그 자리는 구간 기록을 그대로 쓸 것이므로 네가 다시 줄이면 안 된다.
+${carry ? "\n## 지난 회의 후속\n" : ""}
+## 결정사항
+회의 전체에서 확정된 것만 모은다. 같은 내용이 여러 구간에 나오면 하나로 합친다.
+- 결정 내용 (결정한 사람 / 근거가 있으면 함께)
+
+## 미결사항
+결론이 나지 않았거나 보류된 것. 항목마다 왜 안 끝났는지, 무엇이 있어야 결론이 나는지 적는다.
+- 사안 — 막힌 이유 — 결론에 필요한 것
+
+## 투두리스트
+사람이 움직여야 하는 일만. 담당자와 기한을 세 칸 다 채운다. 중복은 합친다.
+- 담당자 — 할 일 — 기한
+정해지지 않았으면 "미지정" 이라고 쓴다. 빈칸으로 두거나 항목을 빼지 마라.
+근거 없이 이름이나 날짜를 지어내지 마라.
+
+## 확인 필요
+전사가 불명확해 사람이 직접 확인해야 하는 지점. 없으면 이 절은 생략한다.
+${ser ? `
+맨 끝에 아래 블록을 정확히 이 형태로 덧붙인다. 설명을 붙이지 마라.
+
+---CARRY---
+{"carry":"미결사항과 투두 중 아직 안 끝난 것을 합쳐 다음 회의에서 확인할 목록으로. 한 줄에 하나씩, 최대 8줄. 없으면 빈 문자열","terms":["이번 회의에 나온 고유명사만"]}` : ""}
+
+---구간 기록---
+${digests}`;
+}
+
+async function makeMinutes(note, fullText, onStep){
+  // 짧은 회의는 한 번에 처리하는 편이 흐름이 매끄럽다.
+  if(fullText.length <= SEG_CHARS * 2)
+    return callDocModel(minutesPrompt(note, fullText), 12000);
+
+  const parts = splitParts(fullText);
+  const digests = [];
+  for(let i=0;i<parts.length;i++){
+    if(onStep) onStep(i+1, parts.length+1);
+    digests.push(await callDocModel(digestPrompt(note, parts[i], i, parts.length), 8000));
+  }
+  if(onStep) onStep(parts.length+1, parts.length+1);
+
+  // 결정·미결·할 일만 모아 앞부분을 만든다. 오간 이야기는 넘기지 않는다.
+  const brief = digests.map(d=>{
+    const k = d.indexOf("## 이 구간의 결정");
+    return k >= 0 ? d.slice(k) : d;
+  }).join("\n\n");
+  let headDoc = await callDocModel(reducePrompt(note, brief), 12000);
+
+  // 오간 이야기는 줄이지 않고 그대로 일반요약 자리에 놓는다.
+  const story = digests.map((d,i)=>{
+    const s = d.indexOf("## 오간 이야기");
+    if(s < 0) return "";
+    const e = d.indexOf("## 이 구간의 결정");
+    return (e > s ? d.slice(s+9, e) : d.slice(s+9)).trim();
+  }).filter(Boolean).join("\n\n");
+
+  const block = "\n\n## 일반요약\n\n" + story + "\n";
+  const c = headDoc.indexOf("---CARRY---");
+  return c >= 0 ? headDoc.slice(0,c) + block + "\n" + headDoc.slice(c)
+                : headDoc + block;
 }
 
 /* =====================================================================
@@ -2233,11 +2351,9 @@ async function genMinutes(n, cs, btn){
   btn.disabled = true; btn.textContent = "작성 중…";
   try{
     // 요약 형식은 회의 시리즈의 미결 인계와 무관하다. 넘길 것이 없으므로 그대로 쓴다.
-    const raw = fm==="summary"
-      ? await makeSummary(n, full, (i,total)=>{
-          btn.textContent = total>1 ? "정리 중… "+i+"/"+total : "정리 중…";
-        })
-      : await makeMinutes(n, full);
+    const step = (i,total)=>{ btn.textContent = total>1 ? "정리 중… "+i+"/"+total : "정리 중…"; };
+    const raw = fm==="summary" ? await makeSummary(n, full, step)
+                               : await makeMinutes(n, full, step);
     n.summary = fm==="summary" ? raw : absorbCarry(n, raw);
     // 본문이 새로 만들어졌으므로 옛 번역본은 버린다. 안 그러면 서로 다른 회의록이 공유된다.
     n.i18n = {}; n.viewLang = "__src__";
