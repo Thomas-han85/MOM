@@ -491,7 +491,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-3";
+const APP_VERSION = "2026.07.28-4";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2567,21 +2567,17 @@ function wireDiar(n, cs){
   };
   const d1 = $("do-diar");   if(d1) d1.onclick = ()=> go(d1);
   const d2 = $("redo-diar"); if(d2) d2.onclick = ()=> go(d2);
-  const rn = $("spk-rename");
-  if(rn) rn.onclick = async ()=>{
-    // 화자마다 이름을 물어 붙인다. 붙인 이름은 문서에도 그대로 쓰인다.
-    const spks = [...new Set((n.script||[]).map(t=>t.spk))];
+  const sv = $("spk-save");
+  if(sv) sv.onclick = async ()=>{
     n.spkNames = Object.assign({}, n.spkNames);
-    for(const s of spks){
-      const sample = (n.script.find(t=>t.spk===s)||{}).text || "";
-      const v = prompt(spkName(n,s)+" 은(는) 누구인가?\n\n첫마디: "+sample.slice(0,60), n.spkNames[s]||"");
-      if(v === null) break;
-      if(v.trim()) n.spkNames[s] = v.trim(); else delete n.spkNames[s];
+    $("pane-raw").querySelectorAll("[data-spk]").forEach(inp=>{
+      const s = inp.dataset.spk, v = inp.value.trim();
+      if(v) n.spkNames[s] = v; else delete n.spkNames[s];
       if(n.spkGuess) n.spkGuess = n.spkGuess.filter(x=>x!==s);   // 사람이 손댔으니 추정이 아니다
-    }
+    });
     learnVoices(n);   // 시리즈가 이 목소리를 기억한다
     await put("notes", n); renderDetail(); syncDrive(false);
-    if(n.seriesId) toast("다음 회의부터 이 사람들을 알아본다.", 4000);
+    toast(n.seriesId ? "저장했다. 다음 회의부터 이 사람들을 알아본다." : "저장했다.", 4000);
   };
 }
 
@@ -2623,7 +2619,6 @@ async function renderDetail(){
       (n.script ?
         '<div class="chiprow"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">실시간 자막</button>'+
         '<button class="chip'+(scriptView?" on":"")+'" data-sv="1">화자별 기록</button>'+
-        '<button class="chip" id="spk-rename">화자 이름</button>'+
         '<button class="chip" id="redo-diar">다시 분리</button></div>'
        : (hasAudio && CFG.eleven ?
         '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
@@ -2636,7 +2631,31 @@ async function renderDetail(){
          : "")+'</p>'+
     '</div>';
 
-  let raw = diarBar + '<div class="script">';
+  /* 이름은 창을 띄워 묻지 않고 화면에 그대로 놓는다. 안드로이드에서 창이 안 뜨는
+     경우가 있고, 다른 탭에 숨겨 두면 있는 줄도 모른다. */
+  const nameBox = (()=>{
+    if(!n.script) return "";
+    const spks = [...new Set(n.script.map(t=>t.spk))];
+    return '<div style="padding:14px 18px 4px">'+
+      '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:8px">'+
+      '화자 이름 · 적어 두면 문서에도 이 이름으로 나온다</label>'+
+      spks.map(s=>{
+        const sample = ((n.script.find(t=>t.spk===s&&t.text.length>10)||n.script.find(t=>t.spk===s)||{}).text||"").slice(0,42);
+        const guessed = (n.spkGuess||[]).includes(s);
+        return '<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">'+
+          '<input data-spk="'+s+'" value="'+esc((n.spkNames||{})[s]||"")+'" '+
+          'placeholder="화자 '+(((/(\d+)$/.exec(s)||[])[1]|0)+1)+'" '+
+          'style="width:38%;padding:9px 11px;border:1px solid var(--rule);border-radius:9px;'+
+          'background:var(--card);font-size:14px">'+
+          '<span style="flex:1;font-size:12.5px;color:var(--muted);overflow:hidden;'+
+          'text-overflow:ellipsis;white-space:nowrap">'+(guessed?"(추정) ":"")+esc(sample)+'</span>'+
+        '</div>';
+      }).join("")+
+      '<button class="bigbtn" id="spk-save" style="width:100%;margin:6px 0 0">이름 저장</button>'+
+    '</div>';
+  })();
+
+  let raw = diarBar + (n.script && scriptView ? nameBox : "") + '<div class="script">';
   if(n.script && scriptView){
     let prev = "";
     for(const t of n.script){
@@ -2694,6 +2713,16 @@ async function renderDetail(){
           DOC_FORMS[k].label+'</button>').join("")+
       '</div>'+
       '<p class="hint" style="margin-top:8px">'+DOC_FORMS[fm].hint+'</p>'+
+      // 참석자별 문서는 이름이 붙어 있어야 값어치가 있다. 어디서 붙이는지 알려 준다.
+      (fm==="byperson" ? (n.script
+        ? (Object.keys(n.spkNames||{}).length
+            ? '<p class="hint">화자 '+Object.keys(n.spkNames).length+'명에 이름이 붙어 있다. 그 이름으로 정리한다.</p>'
+            : '<p class="hint" style="color:var(--warn)">아직 이름을 안 붙였다. '+
+              '<strong>원본 탭 → 화자별 기록</strong> 에서 이름을 적고 저장하면 그 이름으로 정리한다. '+
+              '안 붙이면 "화자 1, 화자 2" 로 나온다.</p>')
+        : '<p class="hint" style="color:var(--warn)">화자 분리를 아직 안 했다. '+
+          '<strong>원본 탭</strong> 에서 먼저 화자를 가르면 훨씬 정확해진다. '+
+          '지금 만들면 말투로 추정만 한다.</p>') : "")+
       '<label style="display:block;font-size:12.5px;color:var(--muted);margin:14px 0 8px">분량</label>'+
       '<div class="segctl">'+
         Object.keys(DOC_SIZES).map(k=>'<button data-size="'+k+'"'+(k===sz?' class="on"':'')+'>'+
