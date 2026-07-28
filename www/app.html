@@ -491,7 +491,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-6";
+const APP_VERSION = "2026.07.28-7";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -993,6 +993,11 @@ const DOC_SIZES = {
 };
 const docSize = n => DOC_SIZES[(n && n.docSize) || "normal"];
 
+/* 지시문을 고치면 이 값을 올린다. 만들다 만 조각을 이어 쓰는 장치가 형식·분량·길이만
+   보고 같으면 다시 만들지 않는데, 그 탓에 지시문을 고쳐도 옛 조각이 그대로 쓰였다.
+   고친 것이 반영되지 않는 것을 오래 눈치채지 못했다. */
+const PROMPT_VER = 3;
+
 function summaryPrompt(note, fullText){
   const people = attendeeBlock(note);
   const brief = (note.brief || "").slice(0, 12000);
@@ -1419,9 +1424,13 @@ ${note.ctx ? "상황: "+note.ctx+"\n" : ""}${people ? "참석자\n"+people+"\n\n
 함께 적어라. 한 줄로 뭉뚱그리면 기도할 때 쓸 수 없다.
 
 - 한 사람이 자기 이야기를 하는 동안 여러 제목이 나온다. 하나로 뭉치지 말고 나눠서 적어라.
-- 항목 하나는 두세 문장이어도 좋다. 왜 그런 사정인지, 무엇을 바라는지 함께 적는다.
-- 사람 이름, 지명, 병명, 날짜, 나이, 회사와 현장 이름, 금액은 그대로 남긴다.
+  이 구간에서 한 사람이 길게 이야기했다면 항목이 대여섯 개 나오는 것이 정상이다.
+- 항목 하나는 두세 문장으로 쓴다. 무슨 일이 있었는지, 왜 그런 사정인지, 무엇을 바라는지
+  세 가지가 다 들어가야 한다. 한 문장으로 끝내면 나중에 읽고 무슨 일인지 알 수 없다.
+- 사람 이름, 지명, 병명, 날짜, 나이, 회사와 현장 이름, 금액, 일정은 그대로 남긴다.
+- 말한 사람이 쓴 표현이 인상적이면 그 말을 그대로 옮겨 적는다.
 - ${S.rule}
+- 이 구간의 전사문이 길면 뽑은 것도 길어야 한다. 전사문의 절반에 못 미치면 무언가 빠뜨린 것이다.
 
 형식은 아래 그대로 지킨다. 줄 앞의 기호와 구분자를 바꾸지 마라. 해당 없는 절은 "없음".
 
@@ -2744,9 +2753,11 @@ function wireDiar(n, cs){
 
 function draftHint(n, fm, sz, len){
   const d = n.draft;
-  const kept = d && d.form===fm && d.size===sz && d.len===len && (d.parts||[]).filter(Boolean).length;
+  const kept = d && d.form===fm && d.size===sz && d.len===len && d.pv===PROMPT_VER
+               && (d.parts||[]).filter(Boolean).length;
   return (kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
-      '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다.</p>' : "")
+      '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다. '+
+      '<button type="button" id="drop-draft" class="linkbtn">버리고 새로</button></p>' : "")
     + (n.docError ? '<p class="hint" style="padding:0 18px;color:var(--danger)">'+
        esc(n.docError)+'</p>' : "");
 }
@@ -2981,6 +2992,8 @@ async function renderDetail(){
   $("pane-doc").querySelectorAll("[data-doc]").forEach(b=> b.onclick = async ()=>{
     n.openDoc = b.dataset.doc; docPicking = false; await put("notes", n); renderDetail();
   });
+  const dp = $("drop-draft");
+  if(dp) dp.onclick = async ()=>{ n.draft = null; await put("notes", n); renderDetail(); };
   const nd = $("pane-doc").querySelector("[data-newdoc]");
   if(nd) nd.onclick = ()=>{ docPicking = true; renderDetail(); };
   const dd = $("deldoc");
@@ -3054,8 +3067,9 @@ async function genMinutes(n, cs, btn, target){
      만든 조각은 하나씩 저장해 다음에 이어서 하게 한다. */
   const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
   // 형식이나 전사문이 달라졌으면 예전 조각은 버린다. 엉뚱한 것이 섞이면 안 된다.
-  if(!n.draft || n.draft.form !== fm || n.draft.size !== sz || n.draft.len !== full.length)
-    n.draft = { form:fm, size:sz, len:full.length, parts:[] };
+  if(!n.draft || n.draft.form !== fm || n.draft.size !== sz || n.draft.len !== full.length
+     || n.draft.pv !== PROMPT_VER)
+    n.draft = { form:fm, size:sz, len:full.length, pv:PROMPT_VER, parts:[] };
   const cache = {
     get: async i => n.draft.parts[i] || null,
     set: async (i, v) => { n.draft.parts[i] = v; await put("notes", n); }
