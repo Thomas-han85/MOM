@@ -345,15 +345,17 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       회의 중 자막을 봐야 한다면 켜 두는 편이 낫다.</p>
 
     <h2 class="sechead">화자 분리</h2>
-    <p class="hint">누가 말했는지 목소리로 갈라 준다. 지금 쓰는 전사는 이것을 못 해서
-      참석자 프로필로 추정할 수밖에 없었다. 회의가 끝난 뒤 오디오를 한 번 더 보내는 방식이며,
-      한국어·베트남어·영어가 섞여 있어도 목소리 기준이라 갈린다. 시간당 약 $0.22.</p>
+    <p class="hint">전사를 두 군데서 나눠 맡는다. <strong>회의 중에는 OpenAI</strong> 가 30초 조각을
+      맡아 자막과 번역을 띄우고, <strong>회의가 끝나면 ElevenLabs</strong> 가 오디오 전체를 한 번에 받아
+      누가 말했는지 목소리로 가른다. 회의록의 바탕이 되는 것은 뒤엣것이다.
+      목소리 기준이라 한국어·베트남어·영어가 섞여도 갈린다. 시간당 약 $0.22.<br>
+      자막이 필요 없는 자리는 <strong>오프라인 녹음</strong> 으로 하면 조각 전사를 건너뛰어 값이 절반이 된다.</p>
     <div class="field"><label for="s-eleven">ElevenLabs API 키</label>
       <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
     <div class="field"><label for="s-diar">녹음이 끝나면 화자 분리</label>
       <select id="s-diar">
         <option value="0">끄기</option>
-        <option value="1">켜기 · 오디오를 보관했다가 분리한다</option>
+        <option value="1">켜기 · 녹음이 끝나면 저절로 갈린다</option>
       </select></div>
     <div class="field"><label for="s-keepaudio">분리한 뒤 오디오</label>
       <select id="s-keepaudio">
@@ -489,7 +491,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-2";
+const APP_VERSION = "2026.07.28-3";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2407,9 +2409,22 @@ async function finishRecording(){
   exitLiveView();
   closeSheet();
   if(activeNote) openNote(activeNote.id);
-  if(mode==="offline") toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
+  const done = activeNote;
   activeNote = null;
   refreshList();
+
+  /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
+     회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
+  if(done && CFG.diar==="1" && CFG.eleven){
+    toast("화자를 가르는 중… 노트에서 진행을 볼 수 있다.", 4000);
+    try{
+      await runDiarize(done, msg => { const e=$("diar-note"); if(e) e.textContent = msg; });
+      toast("화자를 갈랐다.");
+      if(openId===done.id) renderDetail();
+    }catch(e){ toast("화자 분리 실패: "+(e.message||e), 6000); }
+  } else if(mode==="offline"){
+    toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
+  }
   syncDrive(false);
 }
 
@@ -2604,9 +2619,10 @@ async function renderDetail(){
   const hasAudio = cs.some(c=>c.blob);
   const diarBar =
     '<div style="padding:12px 18px 0">'+
+
       (n.script ?
-        '<div class="chiprow"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">구간</button>'+
-        '<button class="chip'+(scriptView?" on":"")+'" data-sv="1">화자별</button>'+
+        '<div class="chiprow"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">실시간 자막</button>'+
+        '<button class="chip'+(scriptView?" on":"")+'" data-sv="1">화자별 기록</button>'+
         '<button class="chip" id="spk-rename">화자 이름</button>'+
         '<button class="chip" id="redo-diar">다시 분리</button></div>'
        : (hasAudio && CFG.eleven ?
@@ -3289,8 +3305,8 @@ function absorbCarry(note, raw){
 const HINTS = {
   text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리한다. 녹음하지 않는다. 파일로 불러와도 된다.",
   live:"녹음하면서 구간이 끝날 때마다 전사와 번역이 붙는다. 인터넷이 끊기면 자동으로 대기했다가 이어서 처리한다.",
-  online:"줌·팀즈·미트 같은 화상회의용. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
-  offline:"녹음만 저장한다. 전사는 나중에 노트에서 직접 실행한다. 배터리와 데이터를 아낄 때 쓴다.",
+  online:"줌·팀즈·미트 같은 화상회의용. 이 모드도 실시간 자막이 뜬다. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
+  offline:"녹음만 하고 자막은 띄우지 않는다. 화자 분리를 켜 두었다면 끝난 뒤 그것으로 한 번에 전사한다. 조각 전사를 건너뛰므로 값이 절반이다. 자막이 필요 없는 자리에 쓴다.",
   file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다."
 };
 function openSheet(){ $("scrim").classList.add("on"); $("sheet").classList.add("on"); }
