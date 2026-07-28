@@ -344,6 +344,23 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.
       회의 중 자막을 봐야 한다면 켜 두는 편이 낫다.</p>
 
+    <h2 class="sechead">화자 분리</h2>
+    <p class="hint">누가 말했는지 목소리로 갈라 준다. 지금 쓰는 전사는 이것을 못 해서
+      참석자 프로필로 추정할 수밖에 없었다. 회의가 끝난 뒤 오디오를 한 번 더 보내는 방식이며,
+      한국어·베트남어·영어가 섞여 있어도 목소리 기준이라 갈린다. 시간당 약 $0.22.</p>
+    <div class="field"><label for="s-eleven">ElevenLabs API 키</label>
+      <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
+    <div class="field"><label for="s-diar">녹음이 끝나면 화자 분리</label>
+      <select id="s-diar">
+        <option value="0">끄기</option>
+        <option value="1">켜기 · 오디오를 보관했다가 분리한다</option>
+      </select></div>
+    <div class="field"><label for="s-keepaudio">분리한 뒤 오디오</label>
+      <select id="s-keepaudio">
+        <option value="0">지운다 · 저장공간을 아낀다</option>
+        <option value="1">남긴다 · 다시 돌릴 수 있다 (1시간에 약 115MB)</option>
+      </select></div>
+
     <h2 class="sechead">참석자</h2>
     <p class="hint">회의록에서 발언을 사람별로 붙일 때 쓴다. 말투와 자주 쓰는 단어가
       구체적일수록 정확해진다.</p>
@@ -472,7 +489,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.27-24";
+const APP_VERSION = "2026.07.28-1";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -494,6 +511,7 @@ const DEFAULTS = { oai:"", ant:"",
                    chunk:"30000", gloss:"", people:[], series:[],
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 번역 읽어주기
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
+                   eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1" };                              // 녹음 중 화면 켜 두기
 let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
@@ -1143,8 +1161,8 @@ function minutesPrompt(note, fullText){
 ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${people ? `참석자
 ${people}
 
-전사문에는 화자 표시가 없다. 위 프로필의 역할, 언어, 말투, 자주 쓰는 말을 근거로
-각 발언이 누구의 것인지 추정해서 이름을 붙여라.
+전사문에 "이름: 말" 형태로 화자가 표시돼 있으면 그것을 그대로 쓴다. 추정하지 마라.
+표시가 없을 때만, 위 프로필의 역할·언어·말투·자주 쓰는 말을 근거로 추정해서 이름을 붙여라.
 다만 근거가 약하면 억지로 붙이지 말고 "발언자 불명"이라고 써라.
 잘못된 이름을 붙이는 것이 이름을 안 붙이는 것보다 나쁘다.
 
@@ -1321,7 +1339,8 @@ function personDigestPrompt(note, seg, i, total){
 ${note.ctx ? "상황: "+note.ctx+"\n" : ""}${people ? `참석자 프로필
 ${people}
 
-` : ""}전사문에는 화자 표시가 없다. 아래를 근거로 추정한다.
+` : ""}전사문에 "이름: 말" 형태로 화자가 표시돼 있으면 그것을 그대로 믿고 쓴다. 추정하지 마라.
+표시가 없을 때만 아래를 근거로 추정한다.
 - 위 프로필의 역할, 언어, 말투, 자주 쓰는 말
 - 대화 속에서 서로를 부르는 이름
 - 말차례가 바뀌는 지점 (인사, 호칭, 화제 전환, 존댓말과 반말의 변화)
@@ -1737,6 +1756,106 @@ setInterval(()=>{ if(Date.now()-lastSync > 180000) syncDrive(false); }, 60000);
 addEventListener("online", ()=> syncDrive(false));
 
 /* =====================================================================
+   화자 분리
+   지금 쓰는 전사는 목소리를 사람별로 갈라 주지 않는다. 그래서 "누가 무슨 말을
+   했는지" 를 참석자 프로필로 추정할 수밖에 없었다. 추정은 자주 틀린다.
+
+   목소리를 실제로 가르려면 서로 견주어야 하므로 회의 전체를 한 번에 봐야 한다.
+   30초 조각으로는 안 된다. 그래서 회의가 끝난 뒤 오디오를 하나로 이어 붙여
+   한 번 더 보낸다. 한국어·베트남어·영어가 섞여 있어도 목소리 기준이라 갈린다.
+   ===================================================================== */
+const EL_URL = "https://api.elevenlabs.io/v1/speech-to-text";
+
+/* 조각으로 흩어진 오디오를 16kHz 모노 한 덩이로 잇는다. */
+async function mergeAudio(chunks, onStep){
+  const RATE = 16000;
+  const parts = [];
+  let total = 0;
+  const ac = new (window.AudioContext||window.webkitAudioContext)();
+  for(let i=0;i<chunks.length;i++){
+    const c = chunks[i];
+    if(!c.blob) continue;
+    if(onStep) onStep(i+1, chunks.length);
+    try{
+      const dec = await ac.decodeAudioData(await c.blob.arrayBuffer());
+      const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(dec.duration*RATE)), RATE);
+      const src = off.createBufferSource(); src.buffer = dec;
+      src.connect(off.destination); src.start();
+      const d = (await off.startRendering()).getChannelData(0);
+      parts.push(d); total += d.length;
+    }catch(e){ /* 못 읽는 조각은 건너뛴다 */ }
+  }
+  ac.close();
+  if(!total) throw new Error("이을 오디오가 없다. 녹음이 이미 지워졌을 수 있다.");
+  const all = new Float32Array(total);
+  let o = 0;
+  for(const p of parts){ all.set(p, o); o += p.length; }
+  return { blob: new Blob([encodeWAV(all, RATE)], {type:"audio/wav"}), seconds: total/RATE };
+}
+
+/* 낱말마다 붙은 화자 표시를 말차례로 묶는다. */
+function wordsToTurns(words){
+  const turns = [];
+  for(const w of (words||[])){
+    if(w.type === "spacing") { if(turns.length) turns[turns.length-1].text += (w.text||" "); continue; }
+    const spk = w.speaker_id || "speaker_0";
+    const last = turns[turns.length-1];
+    if(last && last.spk === spk) last.text += (w.text||"");
+    else turns.push({ spk, t: Math.round((w.start||0)*1000), text: w.text||"" });
+  }
+  return turns.map(t=>({ spk:t.spk, t:t.t, text:t.text.trim() })).filter(t=>t.text);
+}
+
+async function runDiarize(note, onStep){
+  if(!CFG.eleven) throw new Error("ElevenLabs 키가 없다. 설정에서 넣을 것.");
+  const cs = (await byIndex("chunks","note",note.id)).sort((a,b)=>a.seq-b.seq);
+  const withAudio = cs.filter(c=>c.blob);
+  if(!withAudio.length) throw new Error("오디오가 남아 있지 않다. 설정에서 '화자 분리용 오디오 보관' 을 켠 뒤 녹음한 회의만 된다.");
+
+  if(onStep) onStep("오디오를 잇는 중…");
+  const { blob, seconds } = await mergeAudio(withAudio, (i,t)=> onStep && onStep("오디오를 잇는 중… "+i+"/"+t));
+
+  if(onStep) onStep("보내는 중… "+Math.round(seconds/60)+"분");
+  const fd = new FormData();
+  fd.append("file", blob, "meeting.wav");
+  fd.append("model_id", "scribe_v2");
+  fd.append("diarize", "true");
+  fd.append("timestamps_granularity", "word");
+  // 언어는 지정하지 않는다. 한 회의에 여러 말이 섞이기 때문이다.
+  const people = (note.attendees||[]).length;
+  if(people >= 1) fd.append("num_speakers", String(Math.min(32, Math.max(2, people))));
+
+  const r = await fetchT(EL_URL, { method:"POST", headers:{ "xi-api-key": CFG.eleven }, body: fd },
+                         Math.max(120000, seconds*1000));
+  if(!r.ok) throw new Error("화자 분리 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+  const d = await r.json();
+  const turns = wordsToTurns(d.words);
+  if(!turns.length) throw new Error("결과가 비어 있다.");
+
+  note.script = turns;
+  note.scriptLang = d.language_code || "";
+  note.scriptAt = Date.now();
+  await put("notes", note);
+
+  // 다 썼으면 오디오는 버린다. 한 시간에 100메가가 넘는다.
+  if(CFG.keepAudio !== "1"){
+    for(const c of withAudio){ c.blob = null; await putRaw("chunks", c); }
+  }
+  return turns;
+}
+
+/* 화자 표시를 사람 이름으로 바꿔 읽기 좋게 만든다. */
+function spkName(note, spk){
+  const m = (note.spkNames||{})[spk];
+  if(m) return m;
+  const n = /(\d+)$/.exec(spk);
+  return "화자 " + (n ? (+n[1] + 1) : spk);
+}
+function scriptText(note){
+  return (note.script||[]).map(t=> spkName(note, t.spk) + ": " + t.text).join("\n");
+}
+
+/* =====================================================================
    큐 워커 — 온라인일 때만 pending 청크를 seq 순서로 처리
    ===================================================================== */
 let working = false;
@@ -1772,7 +1891,8 @@ async function drain(){
             speakTrans(c.trans, note.target);   // 열어 둔 노트를 이어서 전사할 때도 읽는다
         }
         c.status = "done"; c.error = "";
-        c.blob = c.keepAudio ? c.blob : null;   // 전사 끝난 오디오는 버려 용량 절약
+        // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
+        c.blob = (c.keepAudio || CFG.diar==="1") ? c.blob : null;
       }catch(err){
         c.retry = (c.retry||0) + 1;
         c.error = err.message;
@@ -2320,6 +2440,39 @@ function migrateDocs(n){
   if(n.docs.length) n.openDoc = n.docs[0].id;
 }
 let docPicking = false;
+let scriptView = true;   // 화자 분리를 마쳤으면 그쪽을 먼저 보여 준다
+
+/* 원본 탭의 화자 분리 조작들 */
+function wireDiar(n, cs){
+  const setNote = t => { const e = $("diar-note"); if(e) e.textContent = t; };
+  $("pane-raw").querySelectorAll("[data-sv]").forEach(b=> b.onclick = ()=>{
+    scriptView = b.dataset.sv === "1"; renderDetail();
+  });
+  const go = async (btn) => {
+    btn.disabled = true;
+    try{
+      await runDiarize(n, setNote);
+      scriptView = true;
+      toast("화자를 갈랐다.");
+      renderDetail(); syncDrive(false);
+    }catch(e){ setNote(e.message || "실패"); toast(e.message||"화자 분리 실패", 6000); btn.disabled = false; }
+  };
+  const d1 = $("do-diar");   if(d1) d1.onclick = ()=> go(d1);
+  const d2 = $("redo-diar"); if(d2) d2.onclick = ()=> go(d2);
+  const rn = $("spk-rename");
+  if(rn) rn.onclick = async ()=>{
+    // 화자마다 이름을 물어 붙인다. 붙인 이름은 문서에도 그대로 쓰인다.
+    const spks = [...new Set((n.script||[]).map(t=>t.spk))];
+    n.spkNames = Object.assign({}, n.spkNames);
+    for(const s of spks){
+      const sample = (n.script.find(t=>t.spk===s)||{}).text || "";
+      const v = prompt(spkName(n,s)+" 은(는) 누구인가?\n\n첫마디: "+sample.slice(0,60), n.spkNames[s]||"");
+      if(v === null) break;
+      if(v.trim()) n.spkNames[s] = v.trim(); else delete n.spkNames[s];
+    }
+    await put("notes", n); renderDetail(); syncDrive(false);
+  };
+}
 
 function draftHint(n, fm, sz, len){
   const d = n.draft;
@@ -2350,8 +2503,41 @@ async function renderDetail(){
     renderDetail(); drain();
   };
 
-  /* --- 원본 탭: 대역 조판 --- */
-  let raw = '<div class="script">';
+  /* --- 원본 탭 --- */
+  // 화자 분리를 마쳤으면 사람별로 갈린 스크립트를 보여 준다. 아니면 조각 그대로.
+  const hasAudio = cs.some(c=>c.blob);
+  const diarBar =
+    '<div style="padding:12px 18px 0">'+
+      (n.script ?
+        '<div class="chiprow"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">구간</button>'+
+        '<button class="chip'+(scriptView?" on":"")+'" data-sv="1">화자별</button>'+
+        '<button class="chip" id="spk-rename">화자 이름</button>'+
+        '<button class="chip" id="redo-diar">다시 분리</button></div>'
+       : (hasAudio && CFG.eleven ?
+        '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
+       : ""))+
+      '<p class="hint" id="diar-note" style="margin-top:8px">'+
+        (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸다. 이름을 붙이면 문서에도 그 이름으로 나온다."
+         : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가른다. 시간당 약 $0.22."
+                                  : "설정에서 ElevenLabs 키를 넣으면 화자 분리를 쓸 수 있다.")
+         : "")+'</p>'+
+    '</div>';
+
+  let raw = diarBar + '<div class="script">';
+  if(n.script && scriptView){
+    let prev = "";
+    for(const t of n.script){
+      const nm = spkName(n, t.spk);
+      raw += '<div class="seg done"><div class="gutter"><span class="mark"></span>'+mmss(t.t)+'</div>'+
+        '<div class="body">'+(nm!==prev ? '<div style="font-size:12.5px;font-weight:700;color:var(--accent);'+
+        'margin-bottom:4px">'+esc(nm)+'</div>' : "")+
+        '<div class="orig">'+esc(t.text)+'</div></div></div>';
+      prev = nm;
+    }
+    raw += '</div>';
+    $("pane-raw").innerHTML = raw;
+    wireDiar(n, cs);
+  } else {
   if(!cs.length) raw += recording
     ? '<div class="empty"><strong>듣고 있다</strong>첫 구간은 약 '+
       Math.round(+CFG.chunk/1000)+'초 뒤에 올라온다. 이후 같은 간격으로 이어진다.'+
@@ -2379,6 +2565,8 @@ async function renderDetail(){
   raw += '</div>';
   $("pane-raw").innerHTML = raw;
   $("pane-raw").querySelectorAll("[data-retry]").forEach(b=>b.onclick=()=>retryChunk(b.dataset.retry));
+  wireDiar(n, cs);
+  }
 
   /* --- 문서 탭 --- */
   const doneAll = cs.length && cs.every(c=>c.status==="done"||c.status==="failed");
@@ -2546,8 +2734,11 @@ async function renderDetail(){
 }
 
 async function genMinutes(n, cs, btn, target){
-  const full = cs.filter(c=>c.status==="done"&&c.text)
-    .map(c=>"["+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"] "+c.text).join("\n");
+  /* 화자 분리를 마쳤으면 그 스크립트를 쓴다. 누가 말했는지 추정할 필요가 없어진다. */
+  const full = (n.script && n.script.length)
+    ? n.script.map(t=>"["+mmss(t.t)+"] "+spkName(n, t.spk)+": "+t.text).join("\n")
+    : cs.filter(c=>c.status==="done"&&c.text)
+        .map(c=>"["+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"] "+c.text).join("\n");
   if(!full){ toast("전사된 내용이 없다."); return; }
   // 다시 만들기는 그 문서의 형식과 분량을 그대로 쓴다. 새로 만들 때만 고른 값을 쓴다.
   const fm = target ? target.form : (n.docForm || "minutes");
@@ -3068,6 +3259,8 @@ $("btn-settings").onclick = ()=>{
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
   $("s-awake").value=CFG.awake || "1";
+  $("s-eleven").value=CFG.eleven||""; $("s-diar").value=CFG.diar||"0";
+  $("s-keepaudio").value=CFG.keepAudio||"0";
   paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
   renderPeople(); renderSeriesList();
   show("v-settings");
@@ -3147,6 +3340,8 @@ $("s-save").onclick = ()=>{
   CFG.ttsLang=$("s-ttslang").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
+  CFG.eleven=$("s-eleven").value.trim(); CFG.diar=$("s-diar").value;
+  CFG.keepAudio=$("s-keepaudio").value;
   if(recording) keepAwake(CFG.awake==="1");
   if(CFG.tts!=="1") ttsStop();
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
