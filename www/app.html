@@ -491,7 +491,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-5";
+const APP_VERSION = "2026.07.28-6";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1414,14 +1414,20 @@ function prayerDigestPrompt(note, seg, i, total){
 
 ${note.ctx ? "상황: "+note.ctx+"\n" : ""}${people ? "참석자\n"+people+"\n\n" : ""}전사문에 "이름: 말" 형태로 화자가 표시돼 있으면 그 이름을 그대로 쓴다. 없으면 "발언자 불명".
 
-한 사람이 자기 이야기를 하는 동안 여러 제목이 나온다. 하나로 뭉치지 말고 나눠서 적어라.
-사람 이름, 지명, 병명, 날짜, 회사와 현장 이름은 그대로 남긴다. ${S.rule}
+여기서 뽑은 것이 그대로 최종 기록이 된다. 뒤에서 다시 줄이지 않는다.
+그러므로 **여기서 줄이지 마라.** 나중에 읽는 사람이 무슨 일인지 알 수 있게 사정과 배경을
+함께 적어라. 한 줄로 뭉뚱그리면 기도할 때 쓸 수 없다.
 
-형식은 아래 그대로. 해당 없는 절은 "없음".
+- 한 사람이 자기 이야기를 하는 동안 여러 제목이 나온다. 하나로 뭉치지 말고 나눠서 적어라.
+- 항목 하나는 두세 문장이어도 좋다. 왜 그런 사정인지, 무엇을 바라는지 함께 적는다.
+- 사람 이름, 지명, 병명, 날짜, 나이, 회사와 현장 이름, 금액은 그대로 남긴다.
+- ${S.rule}
+
+형식은 아래 그대로 지킨다. 줄 앞의 기호와 구분자를 바꾸지 마라. 해당 없는 절은 "없음".
 
 ## 공통
 회사·공동체 전체에 걸린 제목. 특정 개인의 사정이 아닌 것.
-- 내용 (말한 사람)
+- 내용
 
 ## 개인
 그 사람의 가정, 건강, 진로, 관계처럼 개인에 매인 제목.
@@ -1469,6 +1475,48 @@ ${last ? `
 ${digests}`;
 }
 
+/* 뽑아 둔 제목을 모델에 다시 넘기지 않고 그대로 모은다.
+   두 번 줄이면 두 번 뭉개진다. 사람별로 묶는 일은 글자 맞추기로 충분하다. */
+function parsePrayer(digests){
+  const common = [], byName = new Map();
+  let sec = "";
+  for(const line of digests.split("\n")){
+    const t = line.trim();
+    if(/^##\s*공통/.test(t)){ sec = "c"; continue; }
+    if(/^##\s*개인/.test(t)){ sec = "p"; continue; }
+    if(/^#/.test(t)){ sec = ""; continue; }
+    if(!/^[-*]\s+/.test(t)) continue;
+    const item = t.replace(/^[-*]\s+/, "").trim();
+    if(!item || /^없음$/.test(item)) continue;
+    if(sec === "c"){ common.push(item); }
+    else if(sec === "p"){
+      // "이름 — 내용" 또는 "이름 - 내용" 또는 "이름: 내용"
+      const m = /^(.{1,24}?)\s*(?:—|–|-|:)\s*(.+)$/.exec(item);
+      const name = m ? m[1].trim() : "발언자 불명";
+      const body = m ? m[2].trim() : item;
+      if(!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(body);
+    }
+  }
+  return { common, byName };
+}
+
+function buildPrayerDoc(parsed, followUp){
+  let out = "";
+  if(followUp) out += followUp.trim() + "\n\n";
+  out += "## 공통 기도제목\n\n";
+  out += parsed.common.length ? parsed.common.map(x=>"- "+x).join("\n") : "없음";
+  out += "\n\n## 사람별 기도제목\n\n";
+  const names = [...parsed.byName.keys()].filter(n=>n!=="발언자 불명");
+  if(!names.length && !parsed.byName.size) out += "없음\n";
+  for(const nm of names){
+    out += "### "+nm+"\n\n" + parsed.byName.get(nm).map(x=>"- "+x).join("\n") + "\n\n";
+  }
+  if(parsed.byName.has("발언자 불명"))
+    out += "### 발언자 불명\n\n" + parsed.byName.get("발언자 불명").map(x=>"- "+x).join("\n") + "\n";
+  return out.trim();
+}
+
 async function makePrayer(note, fullText, onStep, cache){
   const S = docSize(note);
   const parts = splitParts(fullText, S.seg);
@@ -1482,8 +1530,37 @@ async function makePrayer(note, fullText, onStep, cache){
     if(cache) await cache.set(i, out);
     await new Promise(s=>setTimeout(s, 600));
   }
-  if(onStep) onStep(parts.length+1, parts.length+1);
-  return callDocModel(prayerMergePrompt(note, outs.join("\n\n")), 12000);
+  const joined = outs.join("\n\n");
+  const parsed = parsePrayer(joined);
+  const items = parsed.common.length + [...parsed.byName.values()].reduce((a,v)=>a+v.length,0);
+
+  // 형식이 어긋나 거의 못 건졌으면 예전 방식으로 물러선다.
+  if(items < 3){
+    if(onStep) onStep(parts.length+1, parts.length+1);
+    return callDocModel(prayerMergePrompt(note, joined), 12000);
+  }
+
+  // 지난 모임 후속만 따로 짧게 묻는다. 본문은 건드리지 않는다.
+  let followUp = "";
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  if(ser && ser.prayerLast){
+    if(onStep) onStep(parts.length+1, parts.length+1);
+    try{
+      followUp = await callDocModel(
+`지난 모임의 기도제목과 이번 모임의 기도제목이다.
+지난 제목 가운데 이번에 다시 언급된 것을 찾아 어떻게 됐는지 적어라.
+언급되지 않은 것도 "이번에 언급 없음" 으로 한 줄 남긴다. 넘어가지 마라.
+
+"## 지난 기도제목 후속" 이라는 소제목으로 시작하는 마크다운만 출력한다. 다른 절은 쓰지 마라.
+
+---지난 모임---
+${ser.prayerLast.slice(0,3000)}
+
+---이번 모임---
+${(parsed.common.join("\n") + "\n" + [...parsed.byName.entries()].map(([k,v])=>k+": "+v.join(" / ")).join("\n")).slice(0,4000)}`, 2000);
+    }catch(e){ followUp = ""; }
+  }
+  return buildPrayerDoc(parsed, followUp);
 }
 
 async function makeMinutes(note, fullText, onStep, cache){
