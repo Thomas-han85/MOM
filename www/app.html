@@ -489,7 +489,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-1";
+const APP_VERSION = "2026.07.28-2";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -1835,6 +1835,16 @@ async function runDiarize(note, onStep){
   note.script = turns;
   note.scriptLang = d.language_code || "";
   note.scriptAt = Date.now();
+
+  // 정기회의라면 지난 회의에서 배운 말투로 누가 누구인지 맞춰 본다.
+  if(note.seriesId){
+    if(onStep) onStep("지난 회의와 견주는 중…");
+    const map = await matchVoices(note);
+    if(map){
+      note.spkNames = Object.assign({}, note.spkNames, map);
+      note.spkGuess = Object.keys(map);   // 추정한 것은 표시해 둔다
+    }
+  }
   await put("notes", note);
 
   // 다 썼으면 오디오는 버린다. 한 시간에 100메가가 넘는다.
@@ -1842,6 +1852,89 @@ async function runDiarize(note, onStep){
     for(const c of withAudio){ c.blob = null; await putRaw("chunks", c); }
   }
   return turns;
+}
+
+/* =====================================================================
+   시리즈가 목소리를 기억한다
+
+   화자 분리는 회의마다 새로 매긴다. 지난주의 speaker_0 과 이번 주의 speaker_0 은
+   서로 아무 상관이 없다. 그래서 정기회의마다 이름을 다시 붙여야 했다.
+
+   목소리 자체를 저장할 수는 없다. 대신 그 사람이 실제로 한 말을 시리즈에 쌓아 두고,
+   다음 회의에서 새 화자들의 말투와 견주어 누구인지 맞춘다. 사람이 회의록만 보고도
+   "이건 소장님 말투인데" 하고 아는 것과 같은 방식이다. 맞으면 이름이 저절로 붙고,
+   틀리면 고칠 수 있으며 고친 것은 다시 배운다.
+   ===================================================================== */
+function learnVoices(note){
+  if(!note.seriesId || !note.script) return;
+  const ser = findSeries(note.seriesId); if(!ser) return;
+  ser.voices = ser.voices || [];
+  const named = Object.keys(note.spkNames||{});
+  for(const spk of named){
+    const name = note.spkNames[spk];
+    // 그 사람이 한 말 중 긴 것을 골라 남긴다. 짧은 대답은 말투가 드러나지 않는다.
+    const lines = note.script.filter(t=>t.spk===spk).map(t=>t.text)
+      .filter(t=>t.length > 25).sort((a,b)=>b.length-a.length).slice(0,4);
+    if(!lines.length) continue;
+    let v = ser.voices.find(x=>x.name===name);
+    if(!v){ v = { name, samples:[] }; ser.voices.push(v); }
+    // 새 것을 앞에 두고 여덟 개까지만 간직한다. 오래된 말투는 밀려난다.
+    v.samples = [...lines, ...v.samples].slice(0,8);
+  }
+  saveCfg();
+}
+
+async function matchVoices(note){
+  if(!note.seriesId || !note.script || !CFG.oai) return null;
+  const ser = findSeries(note.seriesId);
+  if(!ser || !(ser.voices||[]).length) return null;
+
+  const spks = [...new Set(note.script.map(t=>t.spk))];
+  const news = spks.map(s=>{
+    const lines = note.script.filter(t=>t.spk===s).map(t=>t.text)
+      .filter(t=>t.length>15).sort((a,b)=>b.length-a.length).slice(0,3);
+    return s + "\n" + lines.map(l=>"  · "+l.slice(0,160)).join("\n");
+  }).join("\n\n");
+  const known = ser.voices.map(v=>
+    v.name + "\n" + v.samples.slice(0,4).map(l=>"  · "+l.slice(0,160)).join("\n")).join("\n\n");
+
+  const prompt =
+`같은 모임이 정기적으로 열린다. 지난 회의들에서 사람마다 실제로 한 말을 모아 두었다.
+이번 회의는 목소리로 화자를 갈랐지만 누가 누구인지는 모른다.
+말투, 자주 쓰는 표현, 맡은 역할, 다루는 주제를 근거로 이번 화자들이 누구인지 맞춰라.
+
+확실하지 않으면 비워 둔다. 틀린 이름을 붙이는 것이 이름을 안 붙이는 것보다 나쁘다.
+한 사람이 두 화자에 겹쳐 들어가지 않게 하라.
+
+---지난 회의에서 알던 사람들---
+${known}
+
+---이번 회의의 화자들---
+${news}
+
+아래 형태의 JSON만 출력한다. 설명을 붙이지 마라. 모르는 화자는 빼라.
+{"speaker_0":"이름","speaker_2":"이름"}`;
+
+  try{
+    const r = await fetchT("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
+      body: JSON.stringify({ model:CFG.trans, temperature:0, max_tokens:400,
+        messages:[{role:"user",content:prompt}] })
+    });
+    if(!r.ok) return null;
+    const raw = ((await r.json()).choices?.[0]?.message?.content||"")
+      .replace(/```json|```/g,"").trim();
+    const map = JSON.parse(raw);
+    // 같은 이름이 두 화자에 붙는 것을 막는다
+    const used = new Set(); const out = {};
+    for(const k of Object.keys(map)){
+      const v = String(map[k]||"").trim();
+      if(!v || used.has(v) || !spks.includes(k)) continue;
+      used.add(v); out[k] = v;
+    }
+    return Object.keys(out).length ? out : null;
+  }catch(e){ return null; }
 }
 
 /* 화자 표시를 사람 이름으로 바꿔 읽기 좋게 만든다. */
@@ -2469,8 +2562,11 @@ function wireDiar(n, cs){
       const v = prompt(spkName(n,s)+" 은(는) 누구인가?\n\n첫마디: "+sample.slice(0,60), n.spkNames[s]||"");
       if(v === null) break;
       if(v.trim()) n.spkNames[s] = v.trim(); else delete n.spkNames[s];
+      if(n.spkGuess) n.spkGuess = n.spkGuess.filter(x=>x!==s);   // 사람이 손댔으니 추정이 아니다
     }
+    learnVoices(n);   // 시리즈가 이 목소리를 기억한다
     await put("notes", n); renderDetail(); syncDrive(false);
+    if(n.seriesId) toast("다음 회의부터 이 사람들을 알아본다.", 4000);
   };
 }
 
@@ -2517,7 +2613,8 @@ async function renderDetail(){
         '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
        : ""))+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
-        (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸다. 이름을 붙이면 문서에도 그 이름으로 나온다."
+        (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸다. 이름을 붙이면 문서에도 그 이름으로 나온다."+
+           ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤다. 맞는지 확인해 줄 것." : "")
          : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가른다. 시간당 약 $0.22."
                                   : "설정에서 ElevenLabs 키를 넣으면 화자 분리를 쓸 수 있다.")
          : "")+'</p>'+
@@ -2528,9 +2625,10 @@ async function renderDetail(){
     let prev = "";
     for(const t of n.script){
       const nm = spkName(n, t.spk);
+      const guessed = (n.spkGuess||[]).includes(t.spk);
       raw += '<div class="seg done"><div class="gutter"><span class="mark"></span>'+mmss(t.t)+'</div>'+
         '<div class="body">'+(nm!==prev ? '<div style="font-size:12.5px;font-weight:700;color:var(--accent);'+
-        'margin-bottom:4px">'+esc(nm)+'</div>' : "")+
+        'margin-bottom:4px">'+esc(nm)+(guessed?' <span style="font-weight:400;color:var(--muted)">(추정)</span>':'')+'</div>' : "")+
         '<div class="orig">'+esc(t.text)+'</div></div></div>';
       prev = nm;
     }
