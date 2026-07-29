@@ -2,7 +2,7 @@
   "name": "meetnote",
   "version": "1.0.0",
   "private": true,
-  "description": "대역 - 이중언어 회의 기록. 준실시간 전사/번역 + AI 회의록.",
+  "description": "trans-mom - 실시간 통역과 회의록. 준실시간 전사/통역 + 화자 분리 + AI 회의록.",
   "scripts": {
     "android:init": "npx cap add android && node scripts/apply-native.js",
     "android:sync": "npx cap sync android && node scripts/apply-native.js",

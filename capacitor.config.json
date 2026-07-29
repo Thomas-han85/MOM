@@ -1,6 +1,6 @@
 {
   "appId": "com.handong.meetnote",
-  "appName": "통역+회의록",
+  "appName": "trans-mom",
   "webDir": "www",
   "android": {
     "allowMixedContent": false
