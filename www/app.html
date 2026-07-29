@@ -124,6 +124,32 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .bigbtn:disabled{opacity:.45}
 .bigbtn.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--rule)}
 
+/* ---------- 설정 버튼 ----------
+   아이콘만 두었더니 어디서 여는지 못 찾는다는 말이 있었다. 글자를 함께 둔다. */
+.setbtn{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:20px;
+  border:1px solid var(--rule);background:var(--card);color:var(--ink-soft);
+  font-size:13px;font-weight:600;flex:none}
+.setbtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.setbtn:active{background:var(--rule)}
+
+/* ---------- 설정 구획 ----------
+   한 줄로 죽 늘어놓으니 무엇이 무엇인지 가늠이 안 됐다. 묶어서 칸을 나눈다. */
+.setgroup{background:var(--card);border:1px solid var(--rule);border-radius:14px;
+  padding:16px 15px 6px;margin:0 0 16px}
+.setgroup > h3{margin:0 0 4px;font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);line-height:1.6}
+.setgroup .field:last-of-type{margin-bottom:10px}
+
+/* ---------- 녹음 시트의 접히는 칸 ---------- */
+.fold{border-top:1px solid var(--rule);margin-top:4px}
+.fold > summary{list-style:none;padding:13px 2px;font-size:14px;font-weight:600;
+  color:var(--ink-soft);cursor:pointer;display:flex;align-items:center;gap:8px}
+.fold > summary::-webkit-details-marker{display:none}
+.fold > summary::after{content:"▾";margin-left:auto;color:var(--muted);font-size:12px}
+.fold[open] > summary::after{content:"▴"}
+.fold .inner{padding:2px 0 12px}
+
 /* ---------- 새 버전 알림 줄 ---------- */
 .updbar{position:fixed;left:0;right:0;top:0;z-index:60;display:none;
   align-items:center;gap:10px;padding:10px 14px;background:var(--ink);color:var(--paper);
@@ -225,8 +251,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <!-- ============ LIST ============ -->
 <div class="view on" id="v-list">
   <div class="topbar">
-    <h1>대역<span class="sub">회의 기록 · 이중언어</span></h1>
-    <button class="iconbtn" id="btn-settings" aria-label="설정">
+    <h1>실시간번역 + 회의록작성<span class="sub">sys</span></h1>
+    <button class="setbtn" id="btn-settings" aria-label="설정">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
   </div>
@@ -266,149 +292,123 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <h1>설정</h1>
   </div>
   <div style="padding:18px">
-    <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 번역에 사용</label>
-      <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
-    <div class="field"><label for="s-ant">Anthropic API 키 (선택) · 회의록을 claude 로 만들 때만 필요</label>
-      <input id="s-ant" type="password" autocomplete="off" placeholder="sk-ant-..."></div>
-    <p class="hint">키는 이 기기에만 저장돼. 서버로 보내지 않아.</p>
 
-    <div class="field"><label for="s-stt">전사</label>
-      <select id="s-stt">
-        <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분</option>
-        <option value="gpt-4o-transcribe">gpt-4o-transcribe · 정확도 우선 · $0.006/분</option>
-        <option value="whisper-1">whisper-1 · $0.006/분</option>
-      </select></div>
-    <div class="field"><label for="s-trans">번역</label>
-      <select id="s-trans">
-        <option value="gpt-4o-mini">gpt-4o-mini</option>
-        <option value="gpt-4o">gpt-4o · 정확도 우선</option>
-      </select></div>
-    <div class="field"><label for="s-doc">회의록</label>
-      <select id="s-doc">
-        <option value="gpt-4o-mini">gpt-4o-mini</option>
-        <option value="gpt-4o">gpt-4o · 정확도 우선</option>
-        <option value="claude-sonnet-5">claude-sonnet-5 · Anthropic 키 필요</option>
-        <option value="claude-opus-4-8">claude-opus-4-8 · Anthropic 키 필요</option>
-      </select></div>
-    <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
-      <select id="s-vision">
-        <option value="gpt-4o-mini">gpt-4o-mini</option>
-        <option value="gpt-4o">gpt-4o · 손글씨나 흐린 사진에 강함</option>
-      </select></div>
-    <p class="hint">기본값은 전부 mini 다. 시간당 약 $0.22.
-      특정 단계 결과가 아쉬우면 그 항목만 위 등급으로 올리면 된다.</p>
-    <div class="field"><label for="s-chunk">청크 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 번역이 정확해진다</label>
-      <select id="s-chunk">
-        <option value="10000">10초 · 대화용 · 문장이 자주 잘린다</option>
-        <option value="15000">15초 · 대화용</option>
-        <option value="20000">20초 · 회의 중 균형점</option>
-        <option value="30000" selected>30초 · 회의록 품질 우선</option>
-        <option value="45000">45초</option>
-        <option value="60000">60초</option>
-      </select></div>
-    <p class="hint">자막이 뜨기까지 걸리는 시간은 여기 고른 값에 3~8초를 더한 정도다.
-      끼어들어 대응해야 하는 회의라면 15~20초, 듣고 나중에 정리하는 회의라면 30초 이상이 낫다.
-      10초는 문장 중간이 자주 잘려 번역이 조각날 수 있다. 어느 쪽이든 회의록 품질은
-      전사 원문 전체를 쓰기 때문에 거의 차이가 없다.</p>
-    <div class="field"><label for="s-tts">번역 읽어주기 (TTS)</label>
-      <select id="s-tts">
-        <option value="0">끄기</option>
-        <option value="1">켜기 · 기기 내장 음성 · 무료</option>
-      </select></div>
-    <div class="field"><label for="s-ttsrate">읽기 속도</label>
-      <select id="s-ttsrate">
-        <option value="0.8">0.8배 · 천천히</option>
-        <option value="1">1배</option>
-        <option value="1.2">1.2배</option>
-        <option value="1.5">1.5배</option>
-      </select></div>
-    <div class="field"><label for="s-ttslang">시험용 언어</label>
-      <select id="s-ttslang">
-        <option value="ko-KR">한국어</option>
-        <option value="vi-VN">Tiếng Việt</option>
-        <option value="en-US">English</option>
-      </select></div>
-    <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 8px">소리 시험</button>
-    <p class="hint">번역이 나올 때마다 소리로 읽는다. <strong>번역 대상 언어를 "번역 안 함"으로
-      두면 읽을 것이 없어 소리가 나지 않는다.</strong> 청크 길이만큼 늦게 읽으므로 동시통역이
-      아니라 지연 통역이다. 회의장 스피커로 틀면 실제 발화와 겹치니 이어폰을 권한다.
-      기기에 내장된 음성을 쓴다. 무료이고 인터넷 없이도 읽는다.
-      소리 시험이 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서
-      해당 언어 음성을 받아야 한다. 베트남어는 따로 받아야 하는 기기가 많다.</p>
-    <div class="field"><label for="s-awake">녹음 중 화면 켜 두기</label>
-      <select id="s-awake">
-        <option value="1">켜기 · 자막이 끊기지 않는다</option>
-        <option value="0">끄기 · 배터리를 아낀다</option>
-      </select></div>
-    <p class="hint">화면이 꺼지면 안드로이드가 앱 화면을 재워 전사와 번역이 멈춘다.
-      녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.
-      회의 중 자막을 봐야 한다면 켜 두는 편이 낫다.</p>
+    <div class="setgroup">
+      <h3>열쇠</h3>
+      <p class="lead">각자 자기 열쇠를 쓴다. 쓴 만큼 그 계정으로 결제된다. 열쇠는 이 기기에만 저장되고 어디로도 보내지 않는다.</p>
+      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 번역, 회의록</label>
+        <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
+      <div class="field"><label for="s-eleven">ElevenLabs API 키 (선택) · 화자 분리
+          <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
+        <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
+    </div>
 
-    <h2 class="sechead">화자 분리</h2>
-    <p class="hint">전사를 두 군데서 나눠 맡는다. <strong>회의 중에는 OpenAI</strong> 가 30초 조각을
-      맡아 자막과 번역을 띄우고, <strong>회의가 끝나면 ElevenLabs</strong> 가 오디오 전체를 한 번에 받아
-      누가 말했는지 목소리로 가른다. 회의록의 바탕이 되는 것은 뒤엣것이다.
-      목소리 기준이라 한국어·베트남어·영어가 섞여도 갈린다. 시간당 약 $0.22.<br>
-      자막이 필요 없는 자리는 <strong>오프라인 녹음</strong> 으로 하면 조각 전사를 건너뛰어 값이 절반이 된다.</p>
-    <div class="field"><label for="s-eleven">ElevenLabs API 키</label>
-      <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
-    <div class="field"><label for="s-diar">녹음이 끝나면 화자 분리</label>
-      <select id="s-diar">
-        <option value="0">끄기</option>
-        <option value="1">켜기 · 녹음이 끝나면 저절로 갈린다</option>
-      </select></div>
-    <div class="field"><label for="s-keepaudio">분리한 뒤 오디오</label>
-      <select id="s-keepaudio">
-        <option value="0">지운다 · 저장공간을 아낀다</option>
-        <option value="1">남긴다 · 다시 돌릴 수 있다 (1시간에 약 115MB)</option>
-      </select></div>
+    <div class="setgroup">
+      <h3>정리 품질</h3>
+      <p class="lead">기본은 전부 mini 다. 시간당 약 $0.22. 특정 단계 결과가 아쉬우면 그 항목만 올린다.</p>
+      <div class="field"><label for="s-stt">전사</label>
+        <select id="s-stt">
+          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분</option>
+          <option value="gpt-4o-transcribe">gpt-4o-transcribe · 정확도 우선 · $0.006/분</option>
+          <option value="whisper-1">whisper-1 · $0.006/분</option>
+        </select></div>
+      <div class="field"><label for="s-trans">번역</label>
+        <select id="s-trans">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o · 정확도 우선</option>
+        </select></div>
+      <div class="field"><label for="s-doc">회의록·요약</label>
+        <select id="s-doc">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o · 정확도 우선</option>
+        </select></div>
+      <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
+        <select id="s-vision">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o · 손글씨나 흐린 사진에 강함</option>
+        </select></div>
+    </div>
 
-    <h2 class="sechead">참석자</h2>
-    <p class="hint">회의록에서 발언을 사람별로 붙일 때 쓴다. 말투와 자주 쓰는 단어가
-      구체적일수록 정확해진다.</p>
-    <div id="people-list"></div>
-    <button class="bigbtn ghost" id="p-add" style="width:100%;margin:0 0 22px">참석자 추가</button>
+    <div class="setgroup">
+      <h3>녹음</h3>
+      <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 번역이 정확해진다</label>
+        <select id="s-chunk">
+          <option value="10000">10초 · 대화용 · 문장이 자주 잘린다</option>
+          <option value="15000">15초 · 대화용</option>
+          <option value="20000">20초 · 회의 중 균형점</option>
+          <option value="30000" selected>30초 · 회의록 품질 우선</option>
+          <option value="45000">45초</option>
+          <option value="60000">60초</option>
+        </select></div>
+      <div class="field"><label for="s-awake">녹음 중 화면 켜 두기</label>
+        <select id="s-awake">
+          <option value="1">켜기 · 자막이 끊기지 않는다</option>
+          <option value="0">끄기 · 배터리를 아낀다</option>
+        </select></div>
+      <p class="hint">화면이 꺼지면 전사와 번역이 멈춘다. 녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.</p>
+    </div>
 
-    <h2 class="sechead">회의 시리즈</h2>
-    <p class="hint">정기회의는 시리즈로 묶는다. 참석자와 고유명사가 누적되고,
-      지난 회의의 미결 사항이 다음 회의록으로 넘어간다.</p>
-    <div id="series-list"></div>
+    <div class="setgroup">
+      <h3>읽어주는 목소리</h3>
+      <p class="lead">켜고 끄는 것은 녹음할 때 회의마다 고른다. 여기서는 목소리만 맞춘다.</p>
+      <div class="field"><label for="s-ttsrate">읽기 속도</label>
+        <select id="s-ttsrate">
+          <option value="0.8">0.8배 · 천천히</option>
+          <option value="1">1배</option>
+          <option value="1.2">1.2배</option>
+          <option value="1.5">1.5배</option>
+        </select></div>
+      <div class="field"><label for="s-ttslang">시험용 언어</label>
+        <select id="s-ttslang">
+          <option value="ko-KR">한국어</option>
+          <option value="vi-VN">Tiếng Việt</option>
+          <option value="en-US">English</option>
+        </select></div>
+      <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
+      <p class="hint">기기에 내장된 목소리를 쓴다. 무료이고 인터넷 없이도 읽는다. 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아야 한다. 베트남어는 따로 받아야 하는 기기가 많다.</p>
+    </div>
 
-    <div class="field"><label for="s-gloss">용어집 · 번역할 때 이 표기를 강제한다</label>
-      <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
-    <button class="bigbtn" id="s-save">설정 저장</button>
+    <div class="setgroup">
+      <h3>용어집</h3>
+      <p class="lead">번역할 때 이 표기를 강제한다. 현장 용어가 매번 다르게 나오는 것을 막는다.</p>
+      <div class="field">
+        <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
+    </div>
 
-    <h2 class="sechead">업데이트</h2>
-    <p class="hint" id="up-state">확인 중…</p>
-    <button class="bigbtn" id="up-apply" style="width:100%;margin:0 0 10px;display:none">지금 적용</button>
-    <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
-    <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 22px">설치된 버전으로 되돌리기</button>
+    <div class="setgroup">
+      <h3>폰과 컴퓨터 연동</h3>
+      <p class="lead">구글 드라이브에 회의록 글자만 올려 두 기기가 같은 내용을 본다. 오디오는 올리지 않는다. 안 써도 앱은 잘 돌아간다.</p>
+      <p class="hint" id="g-state">연결 안 됨</p>
+      <div class="field"><label for="s-gcid">구글 클라이언트 ID</label>
+        <input id="s-gcid" type="text" autocomplete="off" placeholder="....apps.googleusercontent.com"></div>
+      <div class="field"><label for="s-gcsec">구글 클라이언트 시크릿
+          <button type="button" id="s-gcsec-show" class="linkbtn">보기</button></label>
+        <input id="s-gcsec" type="password" autocomplete="off" placeholder="클라이언트 보안 비밀"></div>
+      <div id="g-code" class="hint" style="display:none;padding:14px;border:1px solid var(--rule);
+        border-radius:10px;background:var(--paper);margin-bottom:10px"></div>
+      <button class="bigbtn" id="g-link" style="width:100%;margin:0 0 10px">구글 연결</button>
+      <button class="bigbtn ghost" id="g-sync" style="width:100%;margin:0 0 10px">지금 맞추기</button>
+      <button class="bigbtn ghost" id="g-unlink" style="width:100%;margin:0 0 10px">연결 끊기</button>
+    </div>
 
-    <h2 class="sechead">폰과 컴퓨터 연동</h2>
-    <p class="hint">구글 드라이브에 "대역 회의록" 폴더를 만들고 회의록 글자만 올린다.
-      오디오는 올리지 않는다. 이 앱은 자기가 만든 파일만 열 수 있어 나머지 문서에는 손대지 못한다.
-      한 번 연결하면 계속 유지된다. 폰과 컴퓨터에서 각각 한 번씩 연결하면 된다.</p>
-    <p class="hint" id="g-state">연결 안 됨</p>
-    <div class="field"><label for="s-gcid">구글 클라이언트 ID</label>
-      <input id="s-gcid" type="text" autocomplete="off" placeholder="....apps.googleusercontent.com"></div>
-    <div class="field"><label for="s-gcsec">구글 클라이언트 시크릿
-        <button type="button" id="s-gcsec-show" class="linkbtn">보기</button></label>
-      <input id="s-gcsec" type="password" autocomplete="off" placeholder="클라이언트 보안 비밀"></div>
-    <p class="hint">구글은 시크릿을 한 번만 보여 준다. 다른 기기에 넣어야 하는데 잊었다면,
-      이미 넣어 둔 기기에서 <strong>보기</strong>를 눌러 옮겨 적으면 된다.
-      생김새는 클라이언트 유형마다 다르다. 두 기기에 같은 값이 들어 있으면 된다.</p>
-    <div id="g-code" class="hint" style="display:none;padding:14px;border:1px solid var(--rule);
-      border-radius:10px;background:var(--card);margin-bottom:10px"></div>
-    <button class="bigbtn" id="g-link" style="width:100%;margin:0 0 10px">구글 연결</button>
-    <button class="bigbtn ghost" id="g-sync" style="width:100%;margin:0 0 10px">지금 맞추기</button>
-    <button class="bigbtn ghost" id="g-unlink" style="width:100%;margin:0 0 22px">연결 끊기</button>
+    <div class="setgroup">
+      <h3>백업</h3>
+      <p class="lead">회의록은 이 기기에만 있다. 앱을 지우면 사라진다. 가끔 내보내 두는 편이 낫다.</p>
+      <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
+      <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 10px">백업 가져오기</button>
+      <input type="file" id="backupin" accept=".json,application/json" style="display:none">
+    </div>
 
-    <h2 class="sechead">백업</h2>
-    <p class="hint">기기 사이에 자료를 옮길 때 쓴다. 폰에서 내보내고 컴퓨터에서 가져오면
-      회의록이 합쳐진다. 오디오는 빠지고 글자만 담긴다.</p>
-    <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
-    <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 22px">백업 가져오기</button>
-    <input type="file" id="backupin" accept=".json,application/json" style="display:none">
+    <div class="setgroup">
+      <h3>업데이트</h3>
+      <p class="lead" id="up-state">확인 중…</p>
+      <button class="bigbtn" id="up-apply" style="width:100%;margin:0 0 10px;display:none">지금 적용</button>
+      <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
+      <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 10px">설치된 버전으로 되돌리기</button>
+    </div>
+
+    <button class="bigbtn" id="s-save" style="margin:0 0 18px">설정 저장</button>
+
     <p class="hint" style="margin-top:22px"><span id="envnote"></span></p>
   </div>
 </div>
@@ -436,12 +436,13 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <div class="sheet" id="sheet">
   <div class="grab"></div>
   <div class="segctl">
-    <button data-mode="live" class="on">실시간</button>
-    <button data-mode="online" id="mode-online">온라인</button>
-    <button data-mode="offline">오프라인</button>
+    <button data-mode="full" class="on">번역+회의록</button>
+    <button data-mode="trans">번역만</button>
+    <button data-mode="doc">회의록만</button>
     <button data-mode="file">음성파일</button>
-    <button data-mode="text">텍스트</button>
   </div>
+  <button data-mode="online" id="mode-online" class="linkbtn"
+    style="display:none;margin:0 0 10px">화상회의 소리 담기 (컴퓨터 전용)</button>
 
   <div id="rec-ui">
     <div class="field"><label for="r-series">회의 시리즈</label>
@@ -468,12 +469,46 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <textarea id="r-ctx" placeholder="현장 주간회의. 공정 진척과 하자 처리 논의."></textarea></div>
     <div class="field"><label>오늘 참석자</label>
       <div id="r-people" class="chiprow"></div></div>
-    <div class="field"><label for="r-target">번역 대상 언어</label>
+
+    <details class="fold" id="fold-people">
+      <summary>참석자 관리</summary>
+      <div class="inner">
+        <p class="hint">회의록에서 발언을 사람에게 붙일 때 쓴다. 말투와 자주 쓰는 말이
+          구체적일수록 정확해진다. 화자 분리를 켜면 이것 없이도 갈리지만, 이름을 맞히는 데는 도움이 된다.</p>
+        <div id="people-list"></div>
+        <button class="bigbtn ghost" id="p-add" style="width:100%;margin:0">참석자 추가</button>
+      </div>
+    </details>
+
+    <details class="fold" id="fold-series">
+      <summary>회의 시리즈 관리</summary>
+      <div class="inner">
+        <p class="hint">정기회의는 시리즈로 묶는다. 참석자와 고유명사가 누적되고, 지난 회의의
+          미결 사항이 다음 회의록으로 넘어간다. 화자 분리를 쓰면 목소리도 기억한다.</p>
+        <div id="series-list"></div>
+      </div>
+    </details>
+    <div class="field" id="target-field"><label for="r-target">번역 대상 언어</label>
       <select id="r-target">
         <option value="Korean">한국어</option>
         <option value="Vietnamese">Tiếng Việt</option>
         <option value="English">English</option>
         <option value="">번역 안 함</option>
+      </select></div>
+    <div class="field" id="r-tts-field"><label for="r-tts">번역 읽어주기</label>
+      <select id="r-tts">
+        <option value="0">끄기</option>
+        <option value="1">켜기 · 이어폰 권장</option>
+      </select></div>
+    <div class="field"><label for="r-diar">화자 분리 · 누가 말했는지 가른다</label>
+      <select id="r-diar">
+        <option value="1">켜기 · 시간당 약 $0.22</option>
+        <option value="0">끄기</option>
+      </select></div>
+    <div class="field"><label for="r-keepaudio">끝난 뒤 녹음 파일</label>
+      <select id="r-keepaudio">
+        <option value="0">지운다 · 저장공간을 아낀다</option>
+        <option value="1">남긴다 · 1시간에 약 115MB</option>
       </select></div>
     <p class="hint" id="mode-hint"></p>
     <div class="timer" id="timer" style="display:none">00:00</div>
@@ -491,7 +526,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-7";
+const APP_VERSION = "2026.07.28-8";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -2248,7 +2283,7 @@ async function sweepChunks(){
     const r = await Native.pending();
     const files = (r && r.files) || [];
     if(!files.length) return;
-    const status = (mode==="offline") ? "held" : "pending";
+    const status = modeDoes().live ? "pending" : "held";
     const have = new Set((await byIndex("chunks","note",activeNote.id)).map(c=>c.seq));
     for(const f of files){
       // 파일 이름에서 순번을 읽는다. seg_00007_1785... 형태다.
@@ -2447,7 +2482,13 @@ async function startRecording(){
     created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
     target:$("r-target").value, summary:"", mode,
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
-    brief: $("r-brief").value.trim(), terms: [] };
+    brief: $("r-brief").value.trim(), terms: [],
+    wantDiar: modeDoes().diar && $("r-diar").value==="1" };
+  // 이 회의에서 고른 것을 기본값으로 삼는다. 다음에도 대개 같기 때문이다.
+  CFG.tts = modeDoes().translate ? $("r-tts").value : "0";
+  CFG.diar = $("r-diar").value;
+  CFG.keepAudio = $("r-keepaudio").value;
+  saveCfg();
   await put("notes", activeNote);
   primeTerms(activeNote.id, activeNote.brief);
 
@@ -2466,7 +2507,7 @@ async function startRecording(){
 
   if(NATIVE){
     const noteId = activeNote.id;
-    const status = (mode==="offline") ? "held" : "pending";
+    const status = modeDoes().live ? "pending" : "held";
     nativeSub = await Native.addListener("chunk", async ev => {
       await takeChunk(noteId, status, ev);
     });
@@ -2531,7 +2572,7 @@ function nextSegment(){
   rec.onstop = async () => {
     if(parts.length){
       const blob = new Blob(parts, { type: rec.mimeType || "audio/webm" });
-      await saveChunk(activeNote.id, seq++, blob, mode==="offline" ? "held" : "pending", webOffset);
+      await saveChunk(activeNote.id, seq++, blob, modeDoes().live ? "pending" : "held", webOffset);
       webOffset += +CFG.chunk;
     }
     if(recording){ if(!paused) nextSegment(); } else finishRecording();
@@ -2585,14 +2626,14 @@ async function finishRecording(){
 
   /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
      회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
-  if(done && CFG.diar==="1" && CFG.eleven){
+  if(done && done.wantDiar && CFG.eleven){
     toast("화자를 가르는 중… 노트에서 진행을 볼 수 있다.", 4000);
     try{
       await runDiarize(done, msg => { const e=$("diar-note"); if(e) e.textContent = msg; });
       toast("화자를 갈랐다.");
       if(openId===done.id) renderDetail();
     }catch(e){ toast("화자 분리 실패: "+(e.message||e), 6000); }
-  } else if(mode==="offline"){
+  } else if(!modeDoes().live){
     toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
   }
   syncDrive(false);
@@ -3513,12 +3554,23 @@ function absorbCarry(note, raw){
 
 /* ---------- 시트 ---------- */
 const HINTS = {
-  text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리한다. 녹음하지 않는다. 파일로 불러와도 된다.",
-  live:"녹음하면서 구간이 끝날 때마다 전사와 번역이 붙는다. 인터넷이 끊기면 자동으로 대기했다가 이어서 처리한다.",
-  online:"줌·팀즈·미트 같은 화상회의용. 이 모드도 실시간 자막이 뜬다. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
-  offline:"녹음만 하고 자막은 띄우지 않는다. 화자 분리를 켜 두었다면 끝난 뒤 그것으로 한 번에 전사한다. 조각 전사를 건너뛰므로 값이 절반이다. 자막이 필요 없는 자리에 쓴다.",
-  file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다."
+  full:"회의 중에는 자막과 번역이 뜨고, 끝나면 화자를 갈라 회의록까지 만든다. 대부분의 회의는 이것으로 한다.",
+  trans:"회의 중 자막과 번역만 본다. 끝나면 화자를 갈라 기록으로 남기되 회의록은 만들지 않는다. 나중에 필요하면 문서 탭에서 만들 수 있다.",
+  doc:"자막을 띄우지 않고 녹음만 한다. 끝나면 화자를 갈라 한 번에 전사한다. 조각 전사를 건너뛰므로 값이 절반이다. 통역이 필요 없는 자리에 쓴다.",
+  online:"줌·팀즈·미트 같은 화상회의용. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
+  file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다.",
+  text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리한다. 녹음하지 않는다."
 };
+/* 모드마다 무엇을 하는지 한자리에 모아 둔다. 여기저기 흩어 두면 어긋난다. */
+const MODE_DOES = {
+  full:   { live:true,  translate:true,  diar:true  },
+  trans:  { live:true,  translate:true,  diar:true  },
+  doc:    { live:false, translate:false, diar:true  },
+  online: { live:true,  translate:true,  diar:true  },
+  file:   { live:true,  translate:true,  diar:false },
+  text:   { live:false, translate:false, diar:false }
+};
+const modeDoes = () => MODE_DOES[mode] || MODE_DOES.full;
 function openSheet(){ $("scrim").classList.add("on"); $("sheet").classList.add("on"); }
 function closeSheet(){ $("scrim").classList.remove("on"); $("sheet").classList.remove("on"); }
 function setMode(m){
@@ -3529,6 +3581,10 @@ function setMode(m){
     : m==="text" ? "정리하기"
     : m==="online" ? '<span class="dot"></span> 회의 소리 고르고 시작'
     : '<span class="dot"></span> 녹음 시작';
+  // 통역이 없는 모드에서는 번역 대상 언어와 읽어주기를 감춘다. 쓸 자리가 없다.
+  const tr = modeDoes().translate;
+  const tf = $("target-field"); if(tf) tf.style.display = tr ? "" : "none";
+  const rt = $("r-tts-field");  if(rt) rt.style.display = tr ? "" : "none";
   $("btn-pause").style.display = "none";
   $("btn-mark").style.display = "none";
   $("text-field").style.display = m==="text" ? "" : "none";
@@ -3537,7 +3593,13 @@ function setMode(m){
 
 /* ---------- 이벤트 ---------- */
 $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 넣어라."); show("v-settings"); return; }
-  $("r-title").value=""; $("r-brief").value=""; $("r-text").value=""; renderSeriesPicker(""); setMode("live"); openSheet(); };
+  $("r-title").value=""; $("r-brief").value=""; $("r-text").value="";
+  // 회의마다 고르는 것들. 지난번 고른 값을 되살려 매번 다시 고르지 않게 한다.
+  $("r-tts").value = CFG.tts || "0";
+  $("r-diar").value = CFG.diar || "1";
+  $("r-keepaudio").value = CFG.keepAudio || "0";
+  renderSeriesPicker(""); renderPeople(); renderSeriesList();
+  setMode("full"); openSheet(); };
 $("scrim").onclick = ()=>{ if(recording){ toast("녹음 중이다. 종료 후 닫아라."); return; } closeSheet(); };
 document.querySelectorAll(".segctl button").forEach(b=>b.onclick=()=>{
   if(recording){ toast("녹음 중에는 바꿀 수 없다."); return; } setMode(b.dataset.mode); });
@@ -3576,17 +3638,15 @@ $("tab-doc").onclick = ()=>{ curTab="doc"; $("tab-doc").classList.add("on"); $("
 $("tab-raw").onclick = ()=>{ curTab="raw"; $("tab-raw").classList.add("on"); $("tab-doc").classList.remove("on");
   $("pane-raw").style.display=""; $("pane-doc").style.display="none"; };
 $("btn-settings").onclick = ()=>{
-  $("s-oai").value=CFG.oai; $("s-ant").value=CFG.ant; $("s-stt").value=CFG.stt;
+  $("s-oai").value=CFG.oai; $("s-stt").value=CFG.stt;
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
-  $("s-tts").value=CFG.tts; $("s-ttsrate").value=CFG.ttsRate;
+  $("s-ttsrate").value=CFG.ttsRate;
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
   $("s-awake").value=CFG.awake || "1";
-  $("s-eleven").value=CFG.eleven||""; $("s-diar").value=CFG.diar||"0";
-  $("s-keepaudio").value=CFG.keepAudio||"0";
+  $("s-eleven").value=CFG.eleven||"";
   paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
-  renderPeople(); renderSeriesList();
   show("v-settings");
 };
 $("s-ttstest").onclick = ttsTest;
@@ -3638,6 +3698,11 @@ $("g-link").onclick = async ()=>{
     CFG.awake = wasAwake; if(!recording) keepAwake(false);
   }
 };
+$("s-eleven-show").onclick = ()=>{
+  const f = $("s-eleven"), b = $("s-eleven-show");
+  const on = f.type === "password";
+  f.type = on ? "text" : "password"; b.textContent = on ? "숨기기" : "보기";
+};
 $("s-gcsec-show").onclick = ()=>{
   const f = $("s-gcsec"), b = $("s-gcsec-show");
   const on = f.type === "password";
@@ -3656,20 +3721,17 @@ $("s-export").onclick = exportBackup;
 $("s-import").onclick = ()=> $("backupin").click();
 $("backupin").onchange = e => { const f=e.target.files[0]; if(f) importBackup(f); e.target.value=""; };
 $("s-save").onclick = ()=>{
-  CFG.oai=$("s-oai").value.trim(); CFG.ant=$("s-ant").value.trim();
+  CFG.oai=$("s-oai").value.trim();
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
-  CFG.tts=$("s-tts").value; CFG.ttsRate=$("s-ttsrate").value;
-  CFG.ttsLang=$("s-ttslang").value;
+  CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
-  CFG.eleven=$("s-eleven").value.trim(); CFG.diar=$("s-diar").value;
-  CFG.keepAudio=$("s-keepaudio").value;
+  CFG.eleven=$("s-eleven").value.trim();
   if(recording) keepAwake(CFG.awake==="1");
-  if(CFG.tts!=="1") ttsStop();
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
-  saveCfg(); renderPeople(); renderSeriesList(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
+  saveCfg(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
 };
 addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.returnValue=""; } });
 

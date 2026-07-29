@@ -1,6 +1,6 @@
 {
   "appId": "com.handong.meetnote",
-  "appName": "대역",
+  "appName": "실시간번역+회의록작성 sys",
   "webDir": "www",
   "android": {
     "allowMixedContent": false
