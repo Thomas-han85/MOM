@@ -89,6 +89,53 @@ class MainActivity : BridgeActivity() {
   } else ok("MainActivity.kt 이미 등록됨");
 } else fail("MainActivity 를 찾을 수 없다: " + JAVA_DIR);
 
+/* ---------- 2.5 서명을 못 박는다 ----------
+   기본 디버그 키에 기대면 빌드 환경에 따라 키가 달라질 수 있다. 그러면 안드로이드가
+   다른 앱으로 보고 덮어쓰기 설치를 막는다. 쓸 키를 build.gradle 에 직접 적어
+   어느 환경에서 돌려도 같은 서명이 나오게 한다. */
+const GRADLE = path.join(ROOT, "android", "app", "build.gradle");
+if (fs.existsSync(GRADLE)) {
+  let g = fs.readFileSync(GRADLE, "utf8");
+  if (g.includes("signing.keystore")) {
+    ok("서명 설정 이미 있음");
+  } else {
+    const cfg =
+`
+    signingConfigs {
+        release {
+            storeFile file('signing.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+`;
+    // android { 바로 뒤에 넣는다
+    g = g.replace(/android\s*\{/, m => m + cfg);
+    // debug 와 release 모두 이 키로 서명한다
+    g = g.replace(/buildTypes\s*\{/, m => m +
+`
+        debug {
+            signingConfig signingConfigs.release
+        }
+`);
+    if (!/buildTypes\s*\{/.test(g)) {
+      g = g.replace(/signingConfigs \{[\s\S]*?\n    \}\n/, m => m +
+`
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+`);
+    }
+    fs.writeFileSync(GRADLE, g);
+    ok("build.gradle 에 서명 설정 삽입");
+  }
+} else {
+  console.log("! build.gradle 을 찾지 못했다: " + GRADLE);
+}
+
 /* ---------- 3. 매니페스트 패치 ---------- */
 let mf = fs.readFileSync(MANIFEST, "utf8");
 

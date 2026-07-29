@@ -4,7 +4,7 @@ name: APK 빌드
 #
 # 화면과 기능만 고쳤다면 APK 를 다시 깔 필요가 없다.
 # 앱이 www/app.html 을 깃허브에서 직접 받아 가므로, 앱을 껐다 켜면 반영된다.
-# APK 를 다시 깔아야 하는 것은 native/ 아래를 고쳤을 때뿐이다.
+# APK 를 다시 깔아야 하는 것은 native/ 아래와 앱 이름을 고쳤을 때뿐이다.
 
 on:
   push:
@@ -62,56 +62,57 @@ jobs:
           npx cap add android
           node scripts/apply-native.js
 
+      # 빌드마다 서명이 달라지면 안드로이드가 다른 앱으로 보고 덮어쓰기 설치를 막는다.
+      # 고정 키를 secret 에 넣어 두고 매번 같은 것으로 서명한다.
+      # build.gradle 이 android/app/signing.keystore 를 직접 가리키므로 그 자리에 둔다.
+      - name: 고정 서명키 복원
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS" ]; then
+            echo "::error::DEBUG_KEYSTORE_B64 secret 이 없다. 서명이 매번 달라져 덮어쓰기 설치가 막힌다."
+            exit 1
+          fi
+          mkdir -p ~/.android
+          echo "$KS" | base64 -d > ~/.android/debug.keystore
+          echo "$KS" | base64 -d > android/app/signing.keystore
+          echo "고정 키스토어 복원 완료"
+          keytool -list -v -keystore android/app/signing.keystore \
+                  -alias androiddebugkey -storepass android 2>/dev/null \
+            | grep -E "SHA1:" || echo "키스토어를 읽지 못함"
+
       - name: 주입 결과 확인
         run: |
           echo "--- AndroidManifest 권한/서비스 ---"
           grep -E "uses-permission|RecorderService" android/app/src/main/AndroidManifest.xml
           echo "--- MainActivity ---"
           cat android/app/src/main/java/com/handong/meetnote/MainActivity.java
-
-      # 빌드마다 서명키가 바뀌면 (1) 폰이 APK 업데이트를 거부하고
-      # (2) 구글 OAuth (Drive 연동) 가 SHA-1 불일치로 깨진다.
-      # 그래서 고정 키스토어를 secret 으로 넣어 항상 같은 키로 서명한다.
-      - name: 고정 서명키 복원
-        env:
-          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
-        run: |
-          if [ -z "$KS" ]; then
-            echo "::warning::DEBUG_KEYSTORE_B64 secret 이 없다. 임시 키로 서명된다 — Drive 연동과 APK 덮어쓰기 설치가 안 된다."
-          else
-            mkdir -p ~/.android
-            echo "$KS" | base64 -d > ~/.android/debug.keystore
-            echo "고정 키스토어 복원 완료"
-          fi
+          echo "--- 서명 설정 ---"
+          grep -A 8 "signingConfigs" android/app/build.gradle || echo "서명 설정 없음"
 
       - name: Gradle 빌드
         run: |
           chmod +x android/gradlew
           cd android && ./gradlew assembleDebug --stacktrace
 
-      # 빌드마다 서명이 같아야 덮어쓰기 설치가 된다. 다르면 안드로이드가
-      # "앱이 설치되지 않음" 으로 막는다. 매번 지문을 찍어 눈으로 확인한다.
+      # APK 에 실제로 박힌 서명을 찍는다. 이 값이 빌드마다 같아야 덮어쓰기가 된다.
       - name: 서명 지문 확인
         run: |
           APK=android/app/build/outputs/apk/debug/app-debug.apk
-          echo "--- 쓰인 키스토어 ---"
-          ls -l ~/.android/debug.keystore || echo "없음"
-          keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey \
-                  -storepass android 2>/dev/null | grep -E "SHA1:|SHA256:" || echo "키스토어를 읽지 못함"
-          echo "--- APK 에 박힌 서명 ---"
           APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          echo "--- APK 에 박힌 서명 ---"
           "$APKSIGNER" verify --print-certs "$APK" | grep -E "SHA-1|SHA-256" || echo "apksigner 실패"
 
       - name: APK 이름 정리
         run: |
           mkdir -p out
           cp android/app/build/outputs/apk/debug/app-debug.apk \
-             out/meetnote-${{ github.run_number }}.apk
+             out/transmom-${{ github.run_number }}.apk
 
       - name: APK 업로드
         uses: actions/upload-artifact@v4
         with:
-          name: meetnote-apk
+          name: transmom-apk
           path: out/*.apk
           retention-days: 30
 
@@ -122,4 +123,4 @@ jobs:
         run: |
           gh release create "v${{ github.run_number }}" out/*.apk \
             --title "APK ${{ github.run_number }}" \
-            --notes "화면·기능만 바뀌었다면 다시 깔 필요 없다. 앱을 껐다 켜면 반영된다. native/ 가 바뀐 경우에만 이 APK 를 설치하면 된다."
+            --notes "화면·기능만 바뀌었다면 다시 깔 필요 없다. 앱을 껐다 켜면 반영된다. native/ 나 앱 이름이 바뀐 경우에만 이 APK 를 설치하면 된다."
