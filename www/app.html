@@ -296,7 +296,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <div class="setgroup">
       <h3>열쇠</h3>
       <p class="lead">각자 자기 열쇠를 쓴다. 쓴 만큼 그 계정으로 결제된다. 열쇠는 이 기기에만 저장되고 어디로도 보내지 않는다.</p>
-      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 번역, 회의록</label>
+      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 통역, 회의록</label>
         <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
       <div class="field"><label for="s-eleven">ElevenLabs API 키 (선택) · 화자 분리
           <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
@@ -312,7 +312,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-transcribe">gpt-4o-transcribe · 정확도 우선 · $0.006/분</option>
           <option value="whisper-1">whisper-1 · $0.006/분</option>
         </select></div>
-      <div class="field"><label for="s-trans">번역</label>
+      <div class="field"><label for="s-trans">통역</label>
         <select id="s-trans">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o · 정확도 우선</option>
@@ -331,7 +331,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>녹음</h3>
-      <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 번역이 정확해진다</label>
+      <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 통역이 정확해진다</label>
         <select id="s-chunk">
           <option value="10000">10초 · 대화용 · 문장이 자주 잘린다</option>
           <option value="15000">15초 · 대화용</option>
@@ -345,7 +345,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="1">켜기 · 자막이 끊기지 않는다</option>
           <option value="0">끄기 · 배터리를 아낀다</option>
         </select></div>
-      <p class="hint">화면이 꺼지면 전사와 번역이 멈춘다. 녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.</p>
+      <p class="hint">화면이 꺼지면 전사와 통역이 멈춘다. 녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.</p>
     </div>
 
     <div class="setgroup">
@@ -370,7 +370,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>용어집</h3>
-      <p class="lead">번역할 때 이 표기를 강제한다. 현장 용어가 매번 다르게 나오는 것을 막는다.</p>
+      <p class="lead">통역과 번역에서 이 표기를 강제한다. 현장 용어가 매번 다르게 나오는 것을 막는다.</p>
       <div class="field">
         <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
     </div>
@@ -488,14 +488,14 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         <div id="series-list"></div>
       </div>
     </details>
-    <div class="field" id="target-field"><label for="r-target">번역 대상 언어</label>
+    <div class="field" id="target-field"><label for="r-target">통역할 언어</label>
       <select id="r-target">
         <option value="Korean">한국어</option>
         <option value="Vietnamese">Tiếng Việt</option>
         <option value="English">English</option>
-        <option value="">번역 안 함</option>
+        <option value="">통역 안 함</option>
       </select></div>
-    <div class="field" id="r-tts-field"><label for="r-tts">번역 읽어주기</label>
+    <div class="field" id="r-tts-field"><label for="r-tts">통역 읽어주기</label>
       <select id="r-tts">
         <option value="0">끄기</option>
         <option value="1">켜기 · 이어폰 권장</option>
@@ -526,7 +526,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.28-10";
+const APP_VERSION = "2026.07.28-11";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -543,10 +543,10 @@ const store = {
 const DEFAULTS = { oai:"", ant:"",
                    stt:"gpt-4o-mini-transcribe",   // 전사
                    doc:"gpt-4o-mini",              // 회의록
-                   trans:"gpt-4o-mini",            // 번역
+                   trans:"gpt-4o-mini",            // 통역
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
                    chunk:"30000", gloss:"", people:[], series:[],
-                   tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 번역 읽어주기
+                   tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1" };                              // 녹음 중 화면 켜 두기
@@ -855,12 +855,12 @@ async function translateChunk(text, target, prevPair, ctxHint){
     body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:1600,
       messages:[{role:"system",content:sys},{role:"user",content:text}] })
   });
-  if(!r.ok) throw new Error("번역 실패 "+r.status);
+  if(!r.ok) throw new Error("통역 실패 "+r.status);
   return ((await r.json()).choices?.[0]?.message?.content||"").trim();
 }
 
 /* =====================================================================
-   TTS — 번역 청크를 기기 내장 음성으로 읽어준다.
+   TTS — 통역한 구간을 기기 내장 음성으로 읽어준다.
    청크가 읽는 도중에 또 도착할 수 있으므로 큐로 순서를 지킨다.
    비용 0. 품질이 아쉬우면 나중에 OpenAI TTS 로 승격한다.
    ===================================================================== */
@@ -998,7 +998,7 @@ async function translateDoc(text, target){
     body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:4000,
       messages:[{role:"system",content:sys},{role:"user",content:text}] })
   });
-  if(!r.ok) throw new Error("회의록 번역 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+  if(!r.ok) throw new Error("회의록 통역 실패 "+r.status+" · "+(await r.text()).slice(0,160));
   return ((await r.json()).choices?.[0]?.message?.content||"").trim();
 }
 
@@ -2184,7 +2184,7 @@ async function drain(){
         if(note.target && c.text){
           const pair = prev && prev.text ? prev.text.slice(-260) : "";
           c.trans = await translateChunk(c.text, note.target, pair, note.ctx);
-          // 녹음이 진행 중인 그 회의의 번역만 읽어준다. 파일 가져오기·재전사는 읽지 않는다.
+          // 녹음이 진행 중인 그 회의의 통역만 읽어준다. 파일 가져오기·재전사는 읽지 않는다.
           if(recording && activeNote && activeNote.id===c.noteId)
             speakTrans(c.trans, note.target);
           else if(openId === c.noteId && !recording && CFG.tts==="1" && ttsUnlocked)
@@ -2239,7 +2239,7 @@ function b64ToBlob(b64, type){
 }
 
 /* 녹음 중 화면 켜 두기.
-   화면이 꺼지면 안드로이드가 화면 쪽을 재워 전사와 번역이 멈춘다. 켜 두면 그 문제가
+   화면이 꺼지면 안드로이드가 화면 쪽을 재워 전사와 통역이 멈춘다. 켜 두면 그 문제가
    사라진다. APK 는 네이티브 창 설정을, 브라우저는 화면 잠금 방지 기능을 쓴다. */
 let webWake = null;
 async function keepAwake(on){
@@ -2371,7 +2371,7 @@ async function createTextNote(){
     created: Date.now(), keepAudio: false
   });
 
-  // 번역 대상이 지정돼 있으면 원문 옆에 번역도 붙인다.
+  // 통역할 언어가 지정돼 있으면 원문 옆에 통역도 붙인다.
   if(note.target && navigator.onLine && CFG.oai){
     (async ()=>{
       try{
@@ -2380,7 +2380,7 @@ async function createTextNote(){
         c.trans = await translateChunk(src.slice(0, 12000), note.target, "", note.ctx);
         await put("chunks", c);
         renderIfOpen(note.id);
-      }catch(e){ /* 번역 실패해도 정리는 진행된다 */ }
+      }catch(e){ /* 통역이 실패해도 정리는 진행된다 */ }
     })();
   }
 
@@ -2887,7 +2887,7 @@ async function renderDetail(){
   if(!cs.length) raw += recording
     ? '<div class="empty"><strong>듣고 있다</strong>첫 구간은 약 '+
       Math.round(+CFG.chunk/1000)+'초 뒤에 올라온다. 이후 같은 간격으로 이어진다.'+
-      (n.target ? '' : '<br>번역 대상 언어를 "번역 안 함"으로 두어 번역과 읽어주기는 하지 않는다.')+
+      (n.target ? '' : '<br>통역할 언어를 "통역 안 함"으로 두어 통역과 읽어주기는 하지 않는다.')+
       '</div>'
     : '<div class="empty">구간이 없다.</div>';
   for(const c of cs){
@@ -3442,7 +3442,7 @@ async function primeTerms(noteId, brief){
    정기회의를 묶어 맥락을 이어간다. 세 가지가 누적된다.
      terms — 회의에 나온 고유명사. 다음 회의 전사 프롬프트로 들어가 인식률을 올린다.
      carry — 지난 회의의 미결 사항. 다음 회의록의 "지난 회의 후속" 이 된다.
-     참석자·성격·번역언어 — 매번 다시 입력하지 않게 한다.
+     참석자·성격·통역언어 — 매번 다시 입력하지 않게 한다.
    ===================================================================== */
 const TERM_CAP = 40;   // 전사 프롬프트에 넣을 수 있는 길이가 제한적이라 최근 것만 유지한다
 
@@ -3554,8 +3554,8 @@ function absorbCarry(note, raw){
 
 /* ---------- 시트 ---------- */
 const HINTS = {
-  full:"회의 중에는 자막과 번역이 뜨고, 끝나면 화자를 갈라 회의록까지 만든다. 대부분의 회의는 이것으로 한다.",
-  trans:"회의 중 자막과 번역만 본다. 끝나면 화자를 갈라 기록으로 남기되 회의록은 만들지 않는다. 나중에 필요하면 문서 탭에서 만들 수 있다.",
+  full:"회의 중에는 자막과 통역이 뜨고, 끝나면 화자를 갈라 회의록까지 만든다. 대부분의 회의는 이것으로 한다.",
+  trans:"회의 중 자막과 통역만 본다. 끝나면 화자를 갈라 기록으로 남기되 회의록은 만들지 않는다. 나중에 필요하면 문서 탭에서 만들 수 있다.",
   doc:"자막을 띄우지 않고 녹음만 한다. 끝나면 화자를 갈라 한 번에 전사한다. 조각 전사를 건너뛰므로 값이 절반이다. 통역이 필요 없는 자리에 쓴다.",
   online:"줌·팀즈·미트 같은 화상회의용. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
   file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다.",
@@ -3581,7 +3581,7 @@ function setMode(m){
     : m==="text" ? "정리하기"
     : m==="online" ? '<span class="dot"></span> 회의 소리 고르고 시작'
     : '<span class="dot"></span> 녹음 시작';
-  // 통역이 없는 모드에서는 번역 대상 언어와 읽어주기를 감춘다. 쓸 자리가 없다.
+  // 통역이 없는 모드에서는 통역할 언어와 읽어주기를 감춘다. 쓸 자리가 없다.
   const tr = modeDoes().translate;
   const tf = $("target-field"); if(tf) tf.style.display = tr ? "" : "none";
   const rt = $("r-tts-field");  if(rt) rt.style.display = tr ? "" : "none";
