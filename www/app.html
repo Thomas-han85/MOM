@@ -393,7 +393,10 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>백업</h3>
-      <p class="lead">회의록은 이 기기에만 있다. 앱을 지우면 사라진다. 가끔 내보내 두는 편이 낫다.</p>
+      <p class="lead">회의록은 이 기기에만 있다. 앱을 지우면 사라진다. 가끔 내보내 두는 편이 낫다.
+        녹음이 끝날 때마다 글자만 담은 백업이 하루 한 번 다운로드 폴더에 저절로 내려간다.</p>
+      <p class="hint" id="stor-state">저장공간 확인 중…</p>
+      <button class="bigbtn ghost" id="s-trim" style="width:100%;margin:0 0 10px">녹음 파일 비우기</button>
       <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
       <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 10px">백업 가져오기</button>
       <input type="file" id="backupin" accept=".json,application/json" style="display:none">
@@ -526,7 +529,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.29-1";
+const APP_VERSION = "2026.07.29-2";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -581,7 +584,7 @@ const putRaw = (s,v) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").put(v
    드라이브에서 받아 온 것을 그대로 넣을 때는 putRaw 를 쓴다. 그래야 남의 시각을 보존한다. */
 const put = (s,v) => {
   if(s==="notes" && v && typeof v==="object") v.updated = Date.now();
-  return putRaw(s,v);
+  return putSafe(s,v);
 };
 const get = (s,k) => new Promise((res,rej)=>{ const q=tx(s,"readonly").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); });
 const del = (s,k) => new Promise((res,rej)=>{ const q=tx(s,"readwrite").delete(k); q.onsuccess=()=>res(); q.onerror=()=>rej(q.error); });
@@ -623,6 +626,93 @@ async function sttChunk(blob, prevTail, ctxHint, terms){
   });
   if(!r.ok) throw new Error("전사 실패 "+r.status+" · "+(await r.text()).slice(0,160));
   return ((await r.json()).text||"").trim();
+}
+
+/* =====================================================================
+   저장공간 지키기
+
+   현장에서 하루 돌고 나니 앱이 튕기면서 회의록이 통째로 사라졌다.
+   화자 분리를 켜면 녹음을 보관하는데 한 시간에 115MB 다. 하루 쓰면 수백 MB 가 쌓인다.
+   안드로이드는 앱 저장소가 넘치면 웹 저장소를 통째로 비워 버린다. 회의록도 함께 날아간다.
+   글자 몇 백 KB 를 지키자고 오디오 수백 MB 를 껴안고 있을 까닭이 없다.
+
+   네 겹으로 막는다.
+     1. 저장소를 "지워도 되는 것" 에서 빼 달라고 안드로이드에 요청한다
+     2. 자리가 모자라면 오래된 녹음부터 버린다. 글자는 건드리지 않는다
+     3. 그래도 넘치면 그 자리에서 녹음을 버리고 다시 시도한다
+     4. 녹음이 끝날 때마다 글자만 따로 백업해 둔다. 저장소가 비워져도 되살릴 수 있다
+   ===================================================================== */
+const AUDIO_BUDGET = 350 * 1024 * 1024;   // 녹음을 쥐고 있을 상한
+
+/* 안드로이드에게 이 저장소를 함부로 비우지 말라고 요청한다. */
+async function askPersist(){
+  try{
+    if(navigator.storage && navigator.storage.persist){
+      if(!(await navigator.storage.persisted())) await navigator.storage.persist();
+    }
+  }catch(e){}
+}
+
+async function storageInfo(){
+  try{
+    if(!navigator.storage || !navigator.storage.estimate) return null;
+    const e = await navigator.storage.estimate();
+    return { used: e.usage||0, quota: e.quota||0,
+             pct: e.quota ? Math.round((e.usage/e.quota)*100) : 0 };
+  }catch(e){ return null; }
+}
+
+/* 오래된 녹음부터 버린다. 전사가 끝났고 화자 분리도 마친 것이 먼저다.
+   글자는 절대 건드리지 않는다. 그것이 회의록의 알맹이다. */
+async function freeAudio(needBytes){
+  const notes = await all("notes");
+  const doneDiar = new Set(notes.filter(n=>n.script).map(n=>n.id));
+  const cs = (await all("chunks")).filter(c=>c.blob);
+  // 화자 분리를 마친 회의의 녹음 → 오래된 것 → 순으로 버린다
+  cs.sort((a,b)=>{
+    const A = doneDiar.has(a.noteId) ? 0 : 1, B = doneDiar.has(b.noteId) ? 0 : 1;
+    return A!==B ? A-B : (a.created||0)-(b.created||0);
+  });
+  let freed = 0;
+  for(const c of cs){
+    const sz = c.blob.size || 0;
+    c.blob = null; c.keepAudio = false;
+    await putRaw("chunks", c);
+    freed += sz;
+    if(freed >= needBytes) break;
+  }
+  return freed;
+}
+
+/* 녹음을 쥐고 있는 총량. 상한을 넘으면 오래된 것부터 버린다. */
+async function trimAudio(){
+  const cs = (await all("chunks")).filter(c=>c.blob);
+  let total = 0;
+  for(const c of cs) total += (c.blob.size||0);
+  if(total > AUDIO_BUDGET) await freeAudio(total - AUDIO_BUDGET);
+
+  const s = await storageInfo();
+  if(s && s.quota && s.used > s.quota * 0.75){
+    await freeAudio(s.used - s.quota * 0.5);
+    toast("저장공간이 모자라 오래된 녹음을 지웠다. 회의록은 그대로다.", 5000);
+  }
+}
+
+/* 저장이 자리 부족으로 실패하면 녹음을 버리고 한 번 더 해 본다.
+   여기서 그냥 터지면 앱이 튕기고, 그때 저장소가 통째로 날아간다. */
+async function putSafe(store, val){
+  try{ return await putRaw(store, val); }
+  catch(e){
+    const quota = /quota/i.test(String(e && e.name)) || /quota/i.test(String(e && e.message));
+    if(!quota) throw e;
+    await freeAudio(120 * 1024 * 1024);
+    try{ return await putRaw(store, val); }
+    catch(e2){
+      // 그래도 안 되면 녹음을 통째로 비운다. 글자를 지키는 것이 먼저다.
+      await freeAudio(Number.MAX_SAFE_INTEGER);
+      return await putRaw(store, val);
+    }
+  }
 }
 
 /* =====================================================================
@@ -2665,7 +2755,10 @@ function nextSegment(){
   recTimer = setTimeout(()=>{ if(rec && rec.state==="recording") rec.stop(); }, +CFG.chunk);
 }
 
+let trimTick = 0;
 async function saveChunk(noteId, s, blob, status, offsetMs){
+  // 스무 조각마다 한 번씩 자리를 살핀다. 매번 재면 느려진다.
+  if(++trimTick % 20 === 0) await trimAudio();
   await put("chunks", { id:uid(), noteId, seq:s, blob, status,
     offsetMs: (offsetMs==null ? s*(+CFG.chunk) : offsetMs),
     text:"", trans:"", error:"", retry:0, created:Date.now(), keepAudio:false });
@@ -2707,6 +2800,7 @@ async function finishRecording(){
   const done = activeNote;
   activeNote = null;
   refreshList();
+  autoBackup();   // 저장소가 비워져도 되살릴 수 있게 글자만 내려 둔다
 
   /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
      회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
@@ -3335,6 +3429,48 @@ async function saveOut(name, mime, text){
   return false;
 }
 
+/* 회의가 끝날 때마다 글자만 조용히 내려 둔다. 하루 한 번이면 넉넉하다.
+   저장소가 통째로 비워져도 이것으로 되살릴 수 있다. 오디오는 담지 않아 가볍다. */
+async function paintStorage(){
+  const el = $("stor-state"); if(!el) return;
+  const mb = b => (b/1024/1024).toFixed(0) + "MB";
+  try{
+    const cs = (await all("chunks")).filter(c=>c.blob);
+    let audio = 0; for(const c of cs) audio += (c.blob.size||0);
+    const s = await storageInfo();
+    el.textContent =
+      "쥐고 있는 녹음 " + mb(audio) + " (" + cs.length + "조각)" +
+      (s ? " · 앱 저장소 " + mb(s.used) + " / " + mb(s.quota) + " (" + s.pct + "%)" : "") +
+      (CFG.lastBackup ? " · 마지막 자동백업 " + CFG.lastBackup : "");
+    el.style.color = (s && s.pct >= 70) ? "var(--danger)" : "";
+  }catch(e){ el.textContent = "저장공간을 재지 못했다."; }
+}
+
+async function autoBackup(){
+  if(!NativeSaver) return;
+  const today = new Date().toISOString().slice(0,10);
+  if(CFG.lastBackup === today) return;
+  try{
+    const notes = await all("notes");
+    if(!notes.length) return;
+    const chunks = (await all("chunks")).map(c=>({
+      id:c.id, noteId:c.noteId, seq:c.seq, status:c.status==="done"?"done":c.status,
+      offsetMs:c.offsetMs, text:c.text, trans:c.trans, created:c.created
+    }));
+    const payload = { kind:"meetnote-backup", version:1, at:Date.now(), auto:true,
+      settings:{ stt:CFG.stt, doc:CFG.doc, trans:CFG.trans, vision:CFG.vision,
+                 chunk:CFG.chunk, gloss:CFG.gloss, people:CFG.people, series:CFG.series },
+      notes, chunks };
+    const name = "transmom-자동백업-" + today + ".json";
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    let bin = "";
+    for(let i=0;i<bytes.length;i+=8192)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i+8192));
+    await NativeSaver.save({ name, mime:"application/json", data: btoa(bin) });
+    CFG.lastBackup = today; saveCfg();
+  }catch(e){ /* 실패해도 회의 흐름을 막지 않는다 */ }
+}
+
 async function exportBackup(){
   const notes = await all("notes");
   const chunks = (await all("chunks")).map(c=>({
@@ -3732,6 +3868,7 @@ $("btn-settings").onclick = ()=>{
   $("s-awake").value=CFG.awake || "1";
   $("s-eleven").value=CFG.eleven||"";
   paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
+  paintStorage();
   show("v-settings");
 };
 $("s-ttstest").onclick = ttsTest;
@@ -3801,6 +3938,11 @@ $("g-sync").onclick = ()=>{
 $("g-unlink").onclick = ()=>{
   if(!confirm("연결을 끊는다. 이 기기의 회의록은 지워지지 않는다.")) return;
   gUnlink(); paintSync(""); toast("연결을 끊었다.");
+};
+$("s-trim").onclick = async ()=>{
+  const n = await freeAudio(Number.MAX_SAFE_INTEGER);
+  toast("녹음 " + Math.round(n/1024/1024) + "MB 를 비웠다. 회의록은 그대로다.", 5000);
+  paintStorage();
 };
 $("s-export").onclick = exportBackup;
 $("s-import").onclick = ()=> $("backupin").click();
@@ -3930,6 +4072,8 @@ function paintUpdBar(){
 /* ---------- 시작 ---------- */
 (async ()=>{
   await openDB();
+  await askPersist();          // 함부로 비우지 말라고 안드로이드에 요청
+  trimAudio();                 // 지난번에 쌓인 녹음이 있으면 정리한다
   // 앱이 죽었다 살아난 경우 sent 상태로 멈춘 청크를 되살린다
   for(const c of await all("chunks")) if(c.status==="sent"){ c.status="pending"; await put("chunks",c); }
   setMode("live"); paintStrips(); await refreshList(); drain();
