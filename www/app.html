@@ -242,6 +242,22 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   background:var(--ink);color:var(--paper);padding:13px 16px;border-radius:11px;font-size:14px;
   opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;line-height:1.5}
 .toast.on{opacity:1;transform:none}
+/* ---------- 쓴 돈 ---------- */
+.costbox{border:1px solid var(--rule);border-radius:11px;background:var(--paper);
+  padding:14px;margin-bottom:12px;font-size:13.5px;color:var(--muted);line-height:1.6}
+.costbox .big{display:block;font-size:26px;font-weight:700;color:var(--ink);
+  letter-spacing:-.02em;margin:2px 0 2px}
+.costbox .big small{font-size:14px;font-weight:400;color:var(--muted);margin-left:7px;letter-spacing:0}
+.costbox h4{margin:0 0 3px;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.05em}
+.costbox .part{padding:12px 0;border-top:1px solid var(--rule)}
+.costbox .part:first-child{padding-top:0;border-top:none}
+.costbox .row{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
+.costbox .row b{font-weight:600;color:var(--ink)}
+.costbox .bad{color:var(--danger);font-weight:600}
+.costbox .bar{height:6px;border-radius:4px;background:var(--rule);overflow:hidden;margin:7px 0 4px}
+.costbox .bar i{display:block;height:100%;background:var(--accent)}
+.costbox .bar.over i{background:var(--danger)}
+
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
@@ -301,6 +317,27 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <div class="field"><label for="s-eleven">ElevenLabs API 키 (선택) · 화자 분리
           <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
         <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
+    </div>
+
+    <div class="setgroup">
+      <h3>쓴 돈</h3>
+      <p class="lead">두 곳에서 각각 가져온다. OpenAI 는 실제 청구된 금액, ElevenLabs 는 이번 달 쓴 양이다.
+        앱이 어림한 값이 아니라 그 회사가 계산한 값이다.</p>
+      <div id="cost-box" class="costbox">아직 확인하지 않았다.</div>
+      <button class="bigbtn ghost" id="s-cost-now" style="width:100%;margin:0 0 14px">지금 확인</button>
+
+      <div class="field"><label for="s-oaiadmin">OpenAI 관리자 열쇠 · 청구액 조회용
+          <button type="button" id="s-oaiadmin-show" class="linkbtn">보기</button></label>
+        <input id="s-oaiadmin" type="password" autocomplete="off" placeholder="sk-admin-..."></div>
+      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없다. 다른 열쇠가 따로 있다.
+        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 만들어 여기에 넣는다.
+        안 넣어도 앱은 그대로 돌아가고, ElevenLabs 쪽만 보인다.</p>
+
+      <div class="field"><label for="s-budget">월 한도 · 원 · 비워 두면 알리지 않는다</label>
+        <input id="s-budget" type="number" inputmode="numeric" placeholder="예: 30000"></div>
+      <p class="hint">한도의 80% 와 100% 에서 첫 화면에 한 줄로 알린다.
+        <strong>녹음이나 회의록을 막지는 않는다.</strong> 회의 도중에 갑자기 멈추면 안 되기 때문이다.
+        실제로 돈이 나가는 것을 막으려면 OpenAI 쪽에서 결제 한도를 걸어야 한다.</p>
     </div>
 
     <div class="setgroup">
@@ -531,7 +568,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-2";
+const APP_VERSION = "2026.08.02-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -577,7 +614,9 @@ const DEFAULTS = { oai:"", ant:"",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
-                   awake:"1" };                              // 녹음 중 화면 켜 두기
+                   awake:"1",                                // 녹음 중 화면 켜 두기
+                   oaiAdmin:"", budget:"",                   // 쓴 돈 보기와 월 한도
+                   costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
 if(!Array.isArray(CFG.people)) CFG.people = [];
@@ -2939,7 +2978,9 @@ function paintStrips(){
     s.innerHTML = '<div class="strip warn"><span class="dot"></span>오프라인 — 연결되면 남은 구간을 자동으로 전사한다</div>';
   } else if(working){
     s.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중</div>';
-  } else s.innerHTML = "";
+  } else s.innerHTML = budgetStrip();
+  const c = $("strip-cost");
+  if(c) c.onclick = ()=> $("btn-settings").click();
 }
 
 async function openNote(id){
@@ -3877,6 +3918,215 @@ $("updbar-x").onclick  = ()=> $("updbar").classList.remove("on");
 $("l-mark").onclick  = markMoment;
 $("l-pause").onclick = togglePause;
 $("l-stop").onclick  = stopRecording;
+/* =====================================================================
+   쓴 돈
+
+   앱이 어림잡지 않는다. 두 회사가 계산한 값을 그대로 가져와 보여 준다.
+   어림값은 실제 청구서와 어긋나면 오히려 사람을 불안하게 만든다.
+
+   OpenAI    : /v1/organization/costs — 실제 청구 금액(달러)
+               평소 쓰는 sk- 열쇠로는 안 되고 관리자 열쇠가 따로 필요하다.
+   ElevenLabs: /v1/user/subscription — 이번 주기에 쓴 양과 한도, 초과 요금
+
+   한 번 가져온 값은 저장해 둔다. 앱을 열 때마다 부르면 느리기도 하고,
+   금액은 몇 시간 단위로만 갱신되므로 자주 물어봐야 소용이 없다.
+   ===================================================================== */
+
+const FX = 1400;                      // 달러당 원. 표시용 어림값이다.
+const COST_TTL = 6 * 60 * 60 * 1000;  // 이만큼 지나야 다시 물어본다
+
+const won  = usd => Math.round(usd * FX).toLocaleString("ko-KR") + "원";
+const usdS = v   => "$" + (Math.round(v * 100) / 100).toFixed(2);
+
+/* 이번 달 1일 0시. 청구는 달 단위로 끊어 본다. */
+function monthStart(){
+  const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+const monthKey = () => { const d=new Date(); return d.getFullYear()+"-"+(d.getMonth()+1); };
+
+/* OpenAI 청구액.
+   응답은 날짜별 통(bucket)이고 통마다 결과가 여러 개 들어 있다.
+   모양이 조금 바뀌어도 견디도록, 금액이 붙어 있는 것만 훑어 더한다. */
+async function fetchOpenAICost(){
+  const key = (CFG.oaiAdmin || "").trim();
+  if(!key) return { skip:true };
+
+  const start = Math.floor(monthStart() / 1000);
+  const url = "https://api.openai.com/v1/organization/costs"
+            + "?start_time=" + start + "&bucket_width=1d&limit=31";
+  const r = await fetchT(url, { headers:{ Authorization:"Bearer " + key } }, 20000);
+
+  if(r.status === 401) throw new Error("관리자 열쇠가 맞지 않는다. sk-admin- 으로 시작하는 열쇠인지 확인해라.");
+  if(r.status === 403) throw new Error("이 열쇠에는 청구액을 볼 권한이 없다. 관리자 열쇠로 다시 만들어라.");
+  if(!r.ok) throw new Error("OpenAI 응답 " + r.status);
+
+  const j = await r.json();
+  let total = 0; const days = [];
+  for(const b of (j.data || [])){
+    let sum = 0;
+    for(const it of (b.results || [])){
+      // 숫자로도 문자로도 올 수 있다. 0 원이라고 잘못 안심시키는 것이 제일 나쁘다.
+      const v = it && it.amount ? Number(it.amount.value) : 0;
+      if(isFinite(v)) sum += v;
+    }
+    total += sum;
+    if(sum > 0) days.push({ at: (b.start_time || 0) * 1000, usd: sum });
+  }
+  days.sort((a,b)=> b.at - a.at);
+  return { usd: total, days: days.slice(0, 7) };
+}
+
+/* ElevenLabs 사용량. 여기는 금액이 아니라 "쓴 양" 이 기준이다.
+   유료 주기를 넘겨 쓰면 current_overage 에 실제 초과 요금이 붙는다. */
+async function fetchElevenUsage(){
+  const key = (CFG.eleven || "").trim();
+  if(!key) return { skip:true };
+
+  const r = await fetchT("https://api.elevenlabs.io/v1/user/subscription",
+                         { headers:{ "xi-api-key": key } }, 20000);
+  if(r.status === 401)
+    throw new Error("열쇠에 조회 권한이 없다. ElevenLabs 열쇠를 다시 만들 때 'User' 항목도 접근으로 켜라.");
+  if(!r.ok) throw new Error("ElevenLabs 응답 " + r.status);
+
+  const j = await r.json();
+  const over = j.current_overage && Number(j.current_overage.amount);
+  return {
+    tier:  j.tier || "",
+    used:  Number(j.character_count) || 0,
+    limit: Number(j.character_limit) || 0,
+    resetAt: j.next_character_count_reset_unix ? j.next_character_count_reset_unix * 1000 : 0,
+    overUsd: isFinite(over) ? over : 0
+  };
+}
+
+/* 두 곳을 함께 물어본다. 한쪽이 실패해도 다른 쪽은 보여 준다. */
+async function loadCosts(force){
+  const c = CFG.costCache;
+  if(!force && c && c.month === monthKey() && (Date.now() - c.at) < COST_TTL) return c;
+
+  const [o, e] = await Promise.allSettled([ fetchOpenAICost(), fetchElevenUsage() ]);
+  const box = {
+    at: Date.now(), month: monthKey(),
+    oai:    o.status === "fulfilled" ? o.value : null,
+    oaiErr: o.status === "rejected"  ? String(o.reason && o.reason.message || o.reason) : "",
+    el:     e.status === "fulfilled" ? e.value : null,
+    elErr:  e.status === "rejected"  ? String(e.reason && e.reason.message || e.reason) : ""
+  };
+  CFG.costCache = box; saveCfg();
+  return box;
+}
+
+function paintCosts(c, note){
+  const box = $("cost-box"); if(!box) return;
+  if(note){ box.innerHTML = esc(note); return; }
+  if(!c){ box.textContent = "아직 확인하지 않았다."; return; }
+
+  let h = "";
+
+  /* --- OpenAI --- */
+  h += '<div class="part"><h4>OPENAI · 이번 달 청구액</h4>';
+  if(c.oaiErr){
+    h += '<div class="bad">'+esc(c.oaiErr)+'</div>';
+  } else if(!c.oai || c.oai.skip){
+    h += '관리자 열쇠를 넣으면 실제 청구액이 여기 나온다.';
+  } else {
+    h += '<span class="big">'+won(c.oai.usd)+'<small>'+usdS(c.oai.usd)+'</small></span>';
+    if(c.oai.days && c.oai.days.length){
+      h += '<div style="margin-top:8px">';
+      for(const d of c.oai.days)
+        h += '<div class="row"><span>'+esc(dayLabel(d.at))+'</span><b>'+won(d.usd)+'</b></div>';
+      h += '</div>';
+    } else h += '<div>이번 달에는 아직 쓴 것이 없다.</div>';
+  }
+  h += '</div>';
+
+  /* --- ElevenLabs --- */
+  h += '<div class="part"><h4>ELEVENLABS · 화자 분리</h4>';
+  if(c.elErr){
+    h += '<div class="bad">'+esc(c.elErr)+'</div>';
+  } else if(!c.el || c.el.skip){
+    h += '열쇠를 넣지 않았다. 화자 분리를 안 쓰면 이 칸은 비어 있는 것이 맞다.';
+  } else {
+    const pct = c.el.limit ? Math.min(100, Math.round(c.el.used / c.el.limit * 100)) : 0;
+    h += '<span class="big">'+pct+'%<small>'+c.el.used.toLocaleString("ko-KR")
+       + ' / ' + c.el.limit.toLocaleString("ko-KR") + '</small></span>';
+    h += '<div class="bar'+(pct>=100?" over":"")+'"><i style="width:'+pct+'%"></i></div>';
+    if(c.el.tier)     h += '<div class="row"><span>요금제</span><b>'+esc(c.el.tier)+'</b></div>';
+    if(c.el.resetAt)  h += '<div class="row"><span>다시 채워지는 날</span><b>'+esc(dayLabel(c.el.resetAt))+'</b></div>';
+    if(c.el.overUsd)  h += '<div class="row"><span>한도 넘겨 쓴 요금</span><b class="bad">'+won(c.el.overUsd)+'</b></div>';
+  }
+  h += '</div>';
+
+  h += '<div class="part" style="padding-bottom:0">'+esc(timeLabel(c.at))+' 기준 · 환율 '
+     + FX.toLocaleString("ko-KR") + '원 어림'
+     + (budgetTotalUsd(c) !== null && Number(CFG.budget) > 0
+        ? ' · 한도 ' + Number(CFG.budget).toLocaleString("ko-KR") + '원 중 '
+          + Math.round(budgetTotalUsd(c) * FX / Number(CFG.budget) * 100) + '% 씀'
+        : '')
+     + '</div>';
+
+  box.innerHTML = h;
+}
+
+/* 한도와 견줄 금액. 두 곳에서 실제로 돈이 나가는 것만 더한다.
+   ElevenLabs 는 요금제 안에서 쓰는 동안은 추가 지출이 아니므로
+   한도를 넘겨 쓴 몫만 센다. */
+function budgetTotalUsd(c){
+  if(!c) return null;
+  let t = 0, any = false;
+  if(c.oai && !c.oai.skip && typeof c.oai.usd === "number"){ t += c.oai.usd; any = true; }
+  if(c.el  && !c.el.skip  && c.el.overUsd){ t += c.el.overUsd; any = true; }
+  return any ? t : null;
+}
+
+async function checkCosts(force){
+  if(!navigator.onLine) return;
+  if(!CFG.oaiAdmin && !CFG.eleven) return;
+  try{
+    const c = await loadCosts(force);
+    paintCosts(c);
+    warnBudget(c);
+  }catch(e){
+    paintCosts(null, "확인하지 못했다. " + (e.message || e));
+  }
+}
+
+/* 한도 경고. 막지 않고 알리기만 한다.
+   같은 달에 같은 단계를 두 번 알리지 않는다. 매번 뜨면 결국 안 보게 된다. */
+function warnBudget(c){
+  const limit = Number(CFG.budget) || 0;
+  if(!limit) return;
+  const usd = budgetTotalUsd(c);
+  if(usd === null) return;
+
+  const pct = usd * FX / limit * 100;
+  const step = pct >= 100 ? 100 : (pct >= 80 ? 80 : 0);
+  if(!step) return;
+
+  const mark = monthKey() + ":" + step;
+  if(CFG.budgetWarned === mark) return;
+  CFG.budgetWarned = mark; saveCfg();
+
+  toast(step >= 100
+    ? "이번 달 " + won(usd) + " 썼다. 정한 한도 " + limit.toLocaleString("ko-KR") + "원을 넘었다."
+    : "이번 달 " + won(usd) + " 썼다. 한도의 " + Math.round(pct) + "% 다.", 8000);
+  paintStrips();
+}
+
+/* 첫 화면 위에 붙는 줄. 한도를 넘긴 동안은 계속 보인다. */
+function budgetStrip(){
+  const limit = Number(CFG.budget) || 0;
+  const c = CFG.costCache;
+  if(!limit || !c) return "";
+  const usd = budgetTotalUsd(c);
+  if(usd === null) return "";
+  const pct = usd * FX / limit * 100;
+  if(pct < 80) return "";
+  return '<div class="strip warn"><span class="dot"></span>이번 달 ' + won(usd)
+       + ' · 한도의 ' + Math.round(pct) + '%'
+       + '<button id="strip-cost">보기</button></div>';
+}
+
 $("btn-back").onclick = ()=>{ openId=null; show("v-list"); refreshList(); };
 $("btn-back2").onclick = ()=> show(openId?"v-detail":"v-list");
 $("btn-share").onclick = exportNote;
@@ -3894,9 +4144,28 @@ $("btn-settings").onclick = ()=>{
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
   $("s-awake").value=CFG.awake || "1";
   $("s-eleven").value=CFG.eleven||"";
+  $("s-oaiadmin").value=CFG.oaiAdmin||"";
+  $("s-budget").value=CFG.budget||"";
   paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
   paintStorage();
+  paintCosts(CFG.costCache);   // 저장해 둔 값을 먼저 띄우고
+  checkCosts(false);           // 오래됐으면 조용히 새로 가져온다
   show("v-settings");
+};
+$("s-cost-now").onclick = async ()=>{
+  const b = $("s-cost-now");
+  if(!CFG.oaiAdmin && !CFG.eleven){
+    toast("관리자 열쇠나 ElevenLabs 열쇠를 먼저 넣고 저장해라.", 5000); return;
+  }
+  b.disabled = true; b.textContent = "확인 중…";
+  paintCosts(null, "확인 중…");
+  await checkCosts(true);
+  b.disabled = false; b.textContent = "지금 확인";
+};
+$("s-oaiadmin-show").onclick = ()=>{
+  const f = $("s-oaiadmin"), b = $("s-oaiadmin-show");
+  const on = f.type === "password";
+  f.type = on ? "text" : "password"; b.textContent = on ? "숨기기" : "보기";
 };
 $("s-ttstest").onclick = ttsTest;
 $("g-link").onclick = async ()=>{
@@ -3983,6 +4252,11 @@ $("s-save").onclick = ()=>{
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
   CFG.eleven=$("s-eleven").value.trim();
+  CFG.oaiAdmin=$("s-oaiadmin").value.trim();
+  // 한도를 바꿨으면 지난번 경고 기록을 지운다. 새 기준으로 다시 알려야 한다.
+  const nb = $("s-budget").value.trim();
+  if(nb !== (CFG.budget||"")) CFG.budgetWarned = "";
+  CFG.budget = nb;
   if(recording) keepAwake(CFG.awake==="1");
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
   saveCfg(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
@@ -4108,6 +4382,7 @@ function paintUpdBar(){
   if(window.__mnBootOK) window.__mnBootOK();
   wireUpdateUI();
   syncDrive(false);   // 켤 때 한 번 맞춘다
+  checkCosts(false);  // 오래됐으면 쓴 돈도 조용히 확인한다
 })();
 </script>
 </body>
