@@ -333,9 +333,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 만들어 여기에 넣는다.
         안 넣어도 앱은 그대로 돌아가고, ElevenLabs 쪽만 보인다.</p>
 
-      <div class="field"><label for="s-budget">월 한도 · 원 · 비워 두면 알리지 않는다</label>
-        <input id="s-budget" type="number" inputmode="numeric" placeholder="예: 30000"></div>
-      <p class="hint">한도의 80% 와 100% 에서 첫 화면에 한 줄로 알린다.
+      <div class="field"><label for="s-budget">월 한도 · 달러 · 비워 두면 알리지 않는다</label>
+        <input id="s-budget" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 20"></div>
+      <p class="hint">두 곳 다 달러로 청구하므로 달러로 적는다. 한도의 80% 와 100% 에서 첫 화면에 한 줄로 알린다.
         <strong>녹음이나 회의록을 막지는 않는다.</strong> 회의 도중에 갑자기 멈추면 안 되기 때문이다.
         실제로 돈이 나가는 것을 막으려면 OpenAI 쪽에서 결제 한도를 걸어야 한다.</p>
     </div>
@@ -568,7 +568,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-3";
+const APP_VERSION = "2026.08.02-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -615,7 +615,7 @@ const DEFAULTS = { oai:"", ant:"",
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1",                                // 녹음 중 화면 켜 두기
-                   oaiAdmin:"", budget:"",                   // 쓴 돈 보기와 월 한도
+                   oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
@@ -3932,11 +3932,11 @@ $("l-stop").onclick  = stopRecording;
    금액은 몇 시간 단위로만 갱신되므로 자주 물어봐야 소용이 없다.
    ===================================================================== */
 
-const FX = 1400;                      // 달러당 원. 표시용 어림값이다.
 const COST_TTL = 6 * 60 * 60 * 1000;  // 이만큼 지나야 다시 물어본다
 
-const won  = usd => Math.round(usd * FX).toLocaleString("ko-KR") + "원";
-const usdS = v   => "$" + (Math.round(v * 100) / 100).toFixed(2);
+/* 두 곳 다 달러로 청구한다. 원으로 바꿔 보여 주면 환율을 어림잡아야 하고,
+   그 어림값이 실제 청구서와 어긋난다. 청구되는 단위 그대로 둔다. */
+const usdS = v => "$" + (Math.round(v * 100) / 100).toFixed(2);
 
 /* 이번 달 1일 0시. 청구는 달 단위로 끊어 본다. */
 function monthStart(){
@@ -4030,11 +4030,11 @@ function paintCosts(c, note){
   } else if(!c.oai || c.oai.skip){
     h += '관리자 열쇠를 넣으면 실제 청구액이 여기 나온다.';
   } else {
-    h += '<span class="big">'+won(c.oai.usd)+'<small>'+usdS(c.oai.usd)+'</small></span>';
+    h += '<span class="big">'+usdS(c.oai.usd)+'</span>';
     if(c.oai.days && c.oai.days.length){
       h += '<div style="margin-top:8px">';
       for(const d of c.oai.days)
-        h += '<div class="row"><span>'+esc(dayLabel(d.at))+'</span><b>'+won(d.usd)+'</b></div>';
+        h += '<div class="row"><span>'+esc(dayLabel(d.at))+'</span><b>'+usdS(d.usd)+'</b></div>';
       h += '</div>';
     } else h += '<div>이번 달에는 아직 쓴 것이 없다.</div>';
   }
@@ -4053,15 +4053,14 @@ function paintCosts(c, note){
     h += '<div class="bar'+(pct>=100?" over":"")+'"><i style="width:'+pct+'%"></i></div>';
     if(c.el.tier)     h += '<div class="row"><span>요금제</span><b>'+esc(c.el.tier)+'</b></div>';
     if(c.el.resetAt)  h += '<div class="row"><span>다시 채워지는 날</span><b>'+esc(dayLabel(c.el.resetAt))+'</b></div>';
-    if(c.el.overUsd)  h += '<div class="row"><span>한도 넘겨 쓴 요금</span><b class="bad">'+won(c.el.overUsd)+'</b></div>';
+    if(c.el.overUsd)  h += '<div class="row"><span>한도 넘겨 쓴 요금</span><b class="bad">'+usdS(c.el.overUsd)+'</b></div>';
   }
   h += '</div>';
 
-  h += '<div class="part" style="padding-bottom:0">'+esc(timeLabel(c.at))+' 기준 · 환율 '
-     + FX.toLocaleString("ko-KR") + '원 어림'
-     + (budgetTotalUsd(c) !== null && Number(CFG.budget) > 0
-        ? ' · 한도 ' + Number(CFG.budget).toLocaleString("ko-KR") + '원 중 '
-          + Math.round(budgetTotalUsd(c) * FX / Number(CFG.budget) * 100) + '% 씀'
+  const bt = budgetTotalUsd(c), lim = Number(CFG.budgetUsd) || 0;
+  h += '<div class="part" style="padding-bottom:0">'+esc(timeLabel(c.at))+' 기준'
+     + (bt !== null && lim
+        ? ' · 한도 ' + usdS(lim) + ' 중 ' + Math.round(bt / lim * 100) + '% 씀'
         : '')
      + '</div>';
 
@@ -4094,12 +4093,12 @@ async function checkCosts(force){
 /* 한도 경고. 막지 않고 알리기만 한다.
    같은 달에 같은 단계를 두 번 알리지 않는다. 매번 뜨면 결국 안 보게 된다. */
 function warnBudget(c){
-  const limit = Number(CFG.budget) || 0;
+  const limit = Number(CFG.budgetUsd) || 0;
   if(!limit) return;
   const usd = budgetTotalUsd(c);
   if(usd === null) return;
 
-  const pct = usd * FX / limit * 100;
+  const pct = usd / limit * 100;
   const step = pct >= 100 ? 100 : (pct >= 80 ? 80 : 0);
   if(!step) return;
 
@@ -4108,21 +4107,21 @@ function warnBudget(c){
   CFG.budgetWarned = mark; saveCfg();
 
   toast(step >= 100
-    ? "이번 달 " + won(usd) + " 썼다. 정한 한도 " + limit.toLocaleString("ko-KR") + "원을 넘었다."
-    : "이번 달 " + won(usd) + " 썼다. 한도의 " + Math.round(pct) + "% 다.", 8000);
+    ? "이번 달 " + usdS(usd) + " 썼다. 정한 한도 " + usdS(limit) + " 를 넘었다."
+    : "이번 달 " + usdS(usd) + " 썼다. 한도의 " + Math.round(pct) + "% 다.", 8000);
   paintStrips();
 }
 
 /* 첫 화면 위에 붙는 줄. 한도를 넘긴 동안은 계속 보인다. */
 function budgetStrip(){
-  const limit = Number(CFG.budget) || 0;
+  const limit = Number(CFG.budgetUsd) || 0;
   const c = CFG.costCache;
   if(!limit || !c) return "";
   const usd = budgetTotalUsd(c);
   if(usd === null) return "";
-  const pct = usd * FX / limit * 100;
+  const pct = usd / limit * 100;
   if(pct < 80) return "";
-  return '<div class="strip warn"><span class="dot"></span>이번 달 ' + won(usd)
+  return '<div class="strip warn"><span class="dot"></span>이번 달 ' + usdS(usd)
        + ' · 한도의 ' + Math.round(pct) + '%'
        + '<button id="strip-cost">보기</button></div>';
 }
@@ -4145,7 +4144,7 @@ $("btn-settings").onclick = ()=>{
   $("s-awake").value=CFG.awake || "1";
   $("s-eleven").value=CFG.eleven||"";
   $("s-oaiadmin").value=CFG.oaiAdmin||"";
-  $("s-budget").value=CFG.budget||"";
+  $("s-budget").value=CFG.budgetUsd||"";
   paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
   paintStorage();
   paintCosts(CFG.costCache);   // 저장해 둔 값을 먼저 띄우고
@@ -4255,8 +4254,8 @@ $("s-save").onclick = ()=>{
   CFG.oaiAdmin=$("s-oaiadmin").value.trim();
   // 한도를 바꿨으면 지난번 경고 기록을 지운다. 새 기준으로 다시 알려야 한다.
   const nb = $("s-budget").value.trim();
-  if(nb !== (CFG.budget||"")) CFG.budgetWarned = "";
-  CFG.budget = nb;
+  if(nb !== (CFG.budgetUsd||"")) CFG.budgetWarned = "";
+  CFG.budgetUsd = nb;
   if(recording) keepAwake(CFG.awake==="1");
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
   saveCfg(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
