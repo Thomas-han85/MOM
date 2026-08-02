@@ -258,6 +258,16 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .costbox .bar i{display:block;height:100%;background:var(--accent)}
 .costbox .bar.over i{background:var(--danger)}
 
+/* ---------- 회의 시리즈 (노트 안) ---------- */
+.serrow{display:flex;align-items:center;gap:10px;padding:10px 18px;
+  border-bottom:1px solid var(--rule);background:var(--paper)}
+.serrow > span{font-size:12.5px;color:var(--muted);flex:0 0 auto}
+.serrow select{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--rule);
+  border-radius:9px;background:var(--card);font-size:13.5px}
+.serrow + .serrow-note{padding:8px 18px 10px;font-size:12px;color:var(--muted);
+  border-bottom:1px solid var(--rule);background:var(--paper);margin:0;line-height:1.5}
+.serrow{border-bottom:none}
+
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
@@ -295,6 +305,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <button id="tab-raw">원본</button>
   </div>
   <div id="d-strip"></div>
+  <div id="d-series"></div>
   <div id="pane-doc"></div>
   <div id="pane-raw" style="display:none"></div>
 </div>
@@ -568,7 +579,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-4";
+const APP_VERSION = "2026.08.02-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3038,6 +3049,100 @@ function wireDiar(n, cs){
   };
 }
 
+/* =====================================================================
+   녹음이 끝난 뒤에도 시리즈를 붙인다
+
+   예전에는 녹음을 시작할 때만 시리즈를 고를 수 있었다. 그런데 회의가
+   시리즈가 될지는 대개 나중에 정해진다. 첫 회의를 그냥 녹음해 두었다가
+   "이거 매주 하겠다" 가 되는 식이다. 그때 붙일 수 없으면 첫 회의만
+   영영 따로 놀고, 시리즈는 두 번째 회의부터 쌓이기 시작한다.
+
+   그래서 나중에 붙일 수 있게 하고, 붙이는 순간 이 회의가 이미 가진 것
+   (화자 목소리, 고유명사, 참석자)을 시리즈로 옮긴다. 그러지 않으면
+   붙여 놓고도 다음 회의가 이 회의를 모른다.
+   ===================================================================== */
+
+/* 이 노트가 가진 것을 시리즈로 옮긴다. 같은 시리즈에 두 번 옮기지 않는다. */
+function absorbIntoSeries(n){
+  const s = n.seriesId ? findSeries(n.seriesId) : null;
+  if(!s) return "";
+  if(n.serAbsorbed === n.seriesId) return "";   // 이미 옮겼다
+
+  const got = [];
+
+  // 화자 이름을 붙여 두었다면 그 말투를 시리즈가 기억하게 한다
+  if(n.script && Object.keys(n.spkNames || {}).length){
+    learnVoices(n);
+    got.push("화자 " + Object.keys(n.spkNames).length + "명");
+  }
+  // 이 회의에서 골라낸 고유명사를 시리즈 사전에 합친다
+  if((n.terms || []).length){
+    const merged = [...new Set([...(s.terms || []), ...n.terms])];
+    s.terms = merged.slice(-TERM_CAP);
+    got.push("고유명사 " + n.terms.length + "개");
+  }
+  if((n.attendees || []).length && !(s.attendees || []).length){
+    s.attendees = n.attendees.slice();
+    got.push("참석자 " + n.attendees.length + "명");
+  }
+  if(n.ctx && !s.ctx) s.ctx = n.ctx;
+  if(n.target && !s.target) s.target = n.target;
+
+  s.lastAt = Date.now();
+  n.serAbsorbed = n.seriesId;
+  saveCfg();
+  return got.join(" · ");
+}
+
+function seriesRow(n){
+  const s = n.seriesId ? findSeries(n.seriesId) : null;
+  const opts = '<option value="">시리즈 없음 (단발 회의)</option>'
+    + CFG.series.map(x=>'<option value="'+x.id+'"'+(x.id===n.seriesId?" selected":"")+'>'
+        + esc(x.name) + ' · ' + (x.count||0) + '회</option>').join("")
+    + '<option value="__new">+ 새 시리즈 만들기</option>';
+
+  let note = "";
+  if(s){
+    const bits = [];
+    if((s.voices || []).length) bits.push("목소리 " + s.voices.length + "명 기억함");
+    if((s.terms  || []).length) bits.push("고유명사 " + s.terms.length + "개");
+    if(s.carry) bits.push("미결 사항이 다음 회의록으로 넘어간다");
+    note = bits.length ? bits.join(" · ") : "아직 쌓인 것이 없다.";
+  } else {
+    note = "묶어 두면 참석자와 고유명사가 쌓이고, 화자 이름을 다음 회의가 알아본다.";
+  }
+  return '<div class="serrow"><span>회의 시리즈</span>'
+       + '<select id="d-ser">' + opts + '</select></div>'
+       + '<p class="note serrow-note">' + esc(note) + '</p>';
+}
+
+function wireSeriesRow(n){
+  const el = $("d-ser"); if(!el) return;
+  el.onchange = async ()=>{
+    let id = el.value;
+
+    if(id === "__new"){
+      const name = prompt("시리즈 이름 (예: 현장 주간회의)");
+      if(!name || !name.trim()){ el.value = n.seriesId || ""; return; }
+      const s = { id:uid(), name:name.trim(), ctx:"", attendees:[], target:"",
+                  terms:[], carry:"", count:0, lastAt:0 };
+      CFG.series.push(s); saveCfg();
+      id = s.id;
+    }
+
+    if(id === n.seriesId) return;
+    n.seriesId = id;
+    n.serAbsorbed = "";              // 시리즈가 바뀌었으니 다시 옮겨야 한다
+    const moved = id ? absorbIntoSeries(n) : "";
+    await put("notes", n);
+
+    renderDetail(); syncDrive(false);
+    if(!id) toast("시리즈에서 뺐다.");
+    else toast(moved ? "시리즈에 넣었다. " + moved + " 을(를) 시리즈로 옮겼다."
+                     : "시리즈에 넣었다. 다음 회의가 이 회의를 이어받는다.", 5000);
+  };
+}
+
 function draftHint(n, fm, sz, len){
   const d = n.draft;
   const kept = d && d.form===fm && d.size===sz && d.len===len && d.pv===PROMPT_VER
@@ -3068,6 +3173,10 @@ async function renderDetail(){
     for(const c of cs) if(c.status==="held"){ c.status="pending"; await put("chunks",c); }
     renderDetail(); drain();
   };
+
+  // 시리즈는 두 탭 어느 쪽에서 보든 같은 자리에 둔다
+  $("d-series").innerHTML = seriesRow(n);
+  wireSeriesRow(n);
 
   /* --- 원본 탭 --- */
   // 화자 분리를 마쳤으면 사람별로 갈린 스크립트를 보여 준다. 아니면 조각 그대로.
