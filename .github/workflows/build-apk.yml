@@ -41,7 +41,22 @@ jobs:
             echo "::error::app.html 을 고쳤는데 APP_VERSION 이 그대로다 ($NEW). 값을 올려야 기기가 새 버전을 받는다."
             exit 1
           fi
-          echo "버전 $OLD -> $NEW"
+
+          # 앞 버전을 복사해 뒤 숫자만 올리다 보면 날짜가 며칠 전에 멈춰 있게 된다.
+          # 그러면 버전만 봐서는 언제 고친 것인지 알 수 없다.
+          # 깃허브는 세계시로 도는데 우리는 한국에서 고치므로 서울 시각으로 본다.
+          TODAY=$(TZ=Asia/Seoul date +%Y.%m.%d)
+          case "$NEW" in
+            "$TODAY"-*)
+              ;;
+            *)
+              echo "::error::APP_VERSION 의 날짜가 오늘이 아니다. 지금 값은 $NEW, 오늘은 $TODAY (서울 기준)."
+              echo "::error::www/app.html 의 APP_VERSION 을 \"$TODAY-1\" 로 고쳐라. 오늘 이미 올린 적이 있으면 뒤 숫자를 하나 올려라."
+              exit 1
+              ;;
+          esac
+
+          echo "버전 $OLD -> $NEW (오늘 $TODAY)"
 
       - name: Java 21 설치
         uses: actions/setup-java@v4
