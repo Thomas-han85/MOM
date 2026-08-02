@@ -123,6 +123,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   background:var(--ink);color:var(--paper);font-weight:600;text-align:center}
 .bigbtn:disabled{opacity:.45}
 .bigbtn.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--rule)}
+.bigbtn.danger{background:var(--danger);color:#fff}
+.pickrow.danger b{color:var(--danger)}
 
 /* ---------- 설정 버튼 ----------
    아이콘만 두었더니 어디서 여는지 못 찾는다는 말이 있었다. 글자를 함께 둔다. */
@@ -585,7 +587,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-7";
+const APP_VERSION = "2026.08.02-8";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3431,12 +3433,12 @@ async function renderDetail(){
   const nd = $("pane-doc").querySelector("[data-newdoc]");
   if(nd) nd.onclick = ()=>{ docPicking = true; renderDetail(); };
   const dd = $("deldoc");
-  if(dd) dd.onclick = async ()=>{
-    if(!cur || !confirm("이 문서를 지운다. 전사문과 다른 문서는 그대로 남는다.")) return;
-    n.docs = n.docs.filter(d=>d.id!==cur.id);
-    n.openDoc = n.docs.length ? n.docs[0].id : "";
-    n.summary = n.docs.length ? n.docs[0].body : "";
-    await put("notes", n); renderDetail(); syncDrive(false);
+  if(dd) dd.onclick = ()=>{
+    if(!cur) return;
+    confirmSheet("이 문서를 지운다",
+      DOC_FORMS[cur.form].label + " 을(를) 지운다. 전사문과 나머지 " + (docs.length-1) +
+      "개 문서는 그대로 남는다. 필요하면 다시 만들 수 있다.",
+      "지운다", ()=> deleteDoc(n, cur.id));
   };
   // 형식 전환. 이미 만든 글은 지우지 않는다. 다시 만들기를 눌러야 바뀐다.
   $("pane-doc").querySelectorAll("[data-form]").forEach(b=> b.onclick = async ()=>{
@@ -3839,7 +3841,7 @@ function sheet(title, items){
       '<div class="grab"></div>'+
       '<div class="pickhead">'+esc(title)+'</div>'+
       items.map((it,i)=>
-        '<button class="pickrow" data-i="'+i+'"><b>'+esc(it.label)+'</b>'+
+        '<button class="pickrow'+(it.danger?" danger":"")+'" data-i="'+i+'"><b>'+esc(it.label)+'</b>'+
         (it.sub?'<span>'+esc(it.sub)+'</span>':'')+'</button>').join("")+
       '<button class="bigbtn ghost" data-x="1" style="width:100%;margin:12px 0 0">그만두기</button>'+
     '</div>';
@@ -3851,8 +3853,77 @@ function sheet(title, items){
   });
 }
 
+/* 되돌릴 수 없는 일을 한 번 더 묻는다.
+   confirm 은 쓰지 않는다. 이 앱의 WebView 에서 뜨지 않고 넘어간 적이 있다. */
+function confirmSheet(title, body, yes, go){
+  const old = $("picksheet"); if(old) old.remove();
+  const d = document.createElement("div");
+  d.id = "picksheet";
+  d.innerHTML =
+    '<div class="scrim on" data-x="1"></div>'+
+    '<div class="sheet on">'+
+      '<div class="grab"></div>'+
+      '<div class="pickhead">'+esc(title)+'</div>'+
+      '<p style="font-size:13.5px;color:var(--muted);line-height:1.6;margin:0 0 16px">'+esc(body)+'</p>'+
+      '<button class="bigbtn danger" data-yes="1" style="width:100%;margin:0">'+esc(yes)+'</button>'+
+      '<button class="bigbtn ghost" data-x="1" style="width:100%;margin:10px 0 0">그만두기</button>'+
+    '</div>';
+  document.body.appendChild(d);
+  const close = ()=> d.remove();
+  d.querySelectorAll("[data-x]").forEach(b=> b.onclick = close);
+  d.querySelector("[data-yes]").onclick = async ()=>{
+    close(); try{ await go(); }catch(e){ toast(e.message||"실패", 5000); }
+  };
+}
+
+/* =====================================================================
+   지우기
+
+   위쪽 휴지통은 회의 전체를 지운다. 문서 하나만 지우는 단추는 문서 맨 아래에
+   따로 있었는데, 눈에 띄는 것은 휴지통이라 그쪽을 누르게 된다. 그러면 문서
+   하나를 지우려다 회의가 통째로 날아간다.
+
+   게다가 확인은 confirm 창으로 물었다. 이 앱의 WebView 에서 그 창이 뜨지 않고
+   그냥 넘어간 적이 있다. 묻지도 않고 지워졌다는 뜻이다.
+
+   그래서 휴지통을 누르면 무엇을 지울지 고르게 하고, 확인도 직접 그린 창으로
+   받는다. 되돌릴 수 없는 일은 반드시 한 번 더 물어야 한다.
+   ===================================================================== */
+
+async function askDelete(){
+  const n = await get("notes", openId); if(!n) return;
+  migrateDocs(n);
+  const docs = n.docs || [];
+  const cur = docs.find(d=>d.id===n.openDoc) || docs[0] || null;
+
+  const items = [];
+  if(cur) items.push({
+    label: "이 문서만 지우기",
+    sub: DOC_FORMS[cur.form].label + " · 전사문과 나머지 " + (docs.length-1) + "개 문서는 그대로 남는다",
+    go: ()=> deleteDoc(n, cur.id)
+  });
+  items.push({
+    label: "회의 전체 지우기",
+    sub: "전사문, 녹음, 문서 " + docs.length + "개를 모두 지운다. 되돌릴 수 없다.",
+    danger: true,
+    go: ()=> confirmSheet("회의 전체를 지운다",
+                          "「" + n.title + "」 의 전사문과 문서 " + docs.length +
+                          "개가 모두 사라진다. 되돌릴 수 없다.",
+                          "지운다", deleteNote)
+  });
+  sheet("무엇을 지울까", items);
+}
+
+async function deleteDoc(n, id){
+  n.docs = (n.docs||[]).filter(d=>d.id!==id);
+  n.openDoc = n.docs.length ? n.docs[0].id : "";
+  n.summary = n.docs.length ? n.docs[0].body : "";
+  await put("notes", n);
+  renderDetail(); syncDrive(false);
+  toast(n.docs.length ? "문서를 지웠다. 나머지 "+n.docs.length+"개는 그대로다." : "문서를 지웠다. 전사문은 남아 있다.", 4000);
+}
+
 async function deleteNote(){
-  if(!confirm("이 기록을 지운다. 되돌릴 수 없다.")) return;
   const cs = await byIndex("chunks","note",openId);
   for(const c of cs) await del("chunks", c.id);
   await del("notes", openId);
@@ -3891,8 +3962,10 @@ function renderPeople(){
   });
   box.querySelectorAll("[data-kill]").forEach(b=>{
     b.onclick = () => {
-      if(!confirm("이 참석자를 지운다.")) return;
-      CFG.people.splice(+b.dataset.kill,1); saveCfg(); renderPeople();
+      const i = +b.dataset.kill;
+      confirmSheet("참석자를 지운다",
+        "「"+((CFG.people[i]||{}).name || "이름 없음")+"」 을(를) 목록에서 뺀다. 이미 만든 회의록은 그대로다.",
+        "지운다", ()=>{ CFG.people.splice(i,1); saveCfg(); renderPeople(); });
     };
   });
 }
@@ -4022,8 +4095,11 @@ function renderSeriesList(){
   });
   box.querySelectorAll("[data-skill]").forEach(b=>{
     b.onclick = () => {
-      if(!confirm("이 시리즈를 지운다. 이미 만든 회의록은 남는다.")) return;
-      CFG.series.splice(+b.dataset.skill,1); saveCfg(); renderSeriesList();
+      const i = +b.dataset.skill, s = CFG.series[i];
+      confirmSheet("「"+s.name+"」 시리즈를 지운다",
+        "쌓아 둔 고유명사 "+((s.terms||[]).length)+"개와 기억한 목소리 "+((s.voices||[]).length)+
+        "명이 사라진다. 이미 만든 회의록은 그대로 남는다.",
+        "지운다", ()=>{ CFG.series.splice(i,1); saveCfg(); renderSeriesList(); toast("시리즈를 지웠다."); });
     };
   });
 }
@@ -4351,7 +4427,7 @@ function budgetStrip(){
 $("btn-back").onclick = ()=>{ openId=null; show("v-list"); refreshList(); };
 $("btn-back2").onclick = ()=> show(openId?"v-detail":"v-list");
 $("btn-share").onclick = exportNote;
-$("btn-del").onclick = deleteNote;
+$("btn-del").onclick = askDelete;
 $("tab-doc").onclick = ()=>{ curTab="doc"; $("tab-doc").classList.add("on"); $("tab-raw").classList.remove("on");
   $("pane-doc").style.display=""; $("pane-raw").style.display="none"; };
 $("tab-raw").onclick = ()=>{ curTab="raw"; $("tab-raw").classList.add("on"); $("tab-doc").classList.remove("on");
@@ -4453,8 +4529,9 @@ $("g-sync").onclick = ()=>{
   syncDrive(true);
 };
 $("g-unlink").onclick = ()=>{
-  if(!confirm("연결을 끊는다. 이 기기의 회의록은 지워지지 않는다.")) return;
-  gUnlink(); paintSync(""); toast("연결을 끊었다.");
+  confirmSheet("구글 연결을 끊는다",
+    "이 기기의 회의록은 지워지지 않는다. 다시 이으려면 코드를 넣어 승인해야 한다.",
+    "끊는다", ()=>{ gUnlink(); paintSync(""); toast("연결을 끊었다."); });
 };
 $("s-trim").onclick = async ()=>{
   const n = await freeAudio(Number.MAX_SAFE_INTEGER);
@@ -4572,8 +4649,9 @@ function wireUpdateUI(){
   };
   if(r) r.onclick = ()=>{
     if(!U){ toast("브라우저에서는 해당 없다."); return; }
-    if(!confirm("받아 둔 갱신을 버리고 설치된 버전으로 되돌린다. 회의록은 지워지지 않는다.")) return;
-    U.revert(); toast("되돌렸다. 앱을 다시 열어라."); paintUpdateState();
+    confirmSheet("설치된 버전으로 되돌린다",
+      "받아 둔 갱신을 버린다. 회의록은 지워지지 않는다. 앱을 다시 열면 APK 에 들어 있던 판으로 돌아간다.",
+      "되돌린다", ()=>{ U.revert(); toast("되돌렸다. 앱을 다시 열어라."); paintUpdateState(); });
   };
   // 기동 4초 뒤 자동 확인이 끝나면 알려 준다. 녹음 중이면 방해하지 않는다.
   addEventListener("mn-update", ()=>{ paintUpdateState(); paintUpdBar(); });
