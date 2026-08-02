@@ -531,7 +531,30 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-1";
+const APP_VERSION = "2026.08.02-2";
+
+/* ---------- 부트 화면 걷어내기 ----------
+   index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
+   그런데 웹뷰 판에 따라 갈아 끼우지 않고 뒤에 덧붙이는 경우가 있다.
+   그러면 부트 화면(#boot)이 앱 위에 그대로 남는다. 이것이 한 화면 높이라
+   제목만 화면 한가운데 덩그러니 보이고, 목록도 설정 버튼도 한 화면 아래로
+   밀려 내려가 스크롤해야 나온다.
+
+   부트로더는 APK 에 들어 있어 고치려면 앱을 다시 깔아야 하므로,
+   치우는 일은 저절로 갱신되는 이쪽에서 한다.
+   남아 있지 않으면 아무 일도 하지 않는다. */
+function clearBoot(){
+  try{
+    const b = document.getElementById("boot");
+    if(b && b.parentNode) b.parentNode.removeChild(b);
+    // 부트 화면이 쓰던 html,body{height:100%} 도 함께 걷어낸다
+    document.documentElement.style.height = "auto";
+    if(document.body) document.body.style.height = "auto";
+  }catch(e){}
+}
+clearBoot();
+addEventListener("DOMContentLoaded", clearBoot);
+addEventListener("load", clearBoot);
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,

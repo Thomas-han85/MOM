@@ -50,6 +50,16 @@ var ls = {
 
 function msg(t){ var e = document.getElementById("bmsg"); if(e) e.textContent = t; }
 
+/* 부트 화면을 걷어낸다. 이미 없으면 아무 일도 하지 않는다. */
+function dropBoot(){
+  try{
+    var b = document.getElementById("boot");
+    if(b && b.parentNode) b.parentNode.removeChild(b);
+    document.documentElement.style.height = "auto";
+    if(document.body) document.body.style.height = "auto";
+  }catch(e){}
+}
+
 function versionOf(html){
   var m = String(html).match(/APP_VERSION\s*=\s*"([^"]+)"/);
   return m ? m[1] : "";
@@ -108,11 +118,17 @@ function run(html, fromCache){
 
   // 앱이 끝까지 뜨면 이걸 부른다. 안 불리면 다음 기동에서 원본으로 되돌린다.
   ls.set(K_FLAG, "1");
-  window.__mnBootOK = function(){ ls.del(K_FLAG); };
+  window.__mnBootOK = function(){ ls.del(K_FLAG); dropBoot(); };
 
   document.open();
   document.write(html);
   document.close();
+
+  // document.write 가 화면을 갈아 끼우지 않고 뒤에 덧붙이는 웹뷰가 있다.
+  // 그러면 이 부트 화면이 한 화면을 차지한 채 앱 위에 남아,
+  // 제목만 가운데 보이고 내용은 스크롤해야 나온다. 남았으면 치운다.
+  dropBoot();
+  setTimeout(dropBoot, 0);
 
   // 화면이 자리를 잡은 뒤 조용히 확인한다.
   setTimeout(function(){
