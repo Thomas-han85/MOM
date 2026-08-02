@@ -188,6 +188,12 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .sheet.on{transform:translateY(0)}
 @media (prefers-reduced-motion:reduce){.sheet{transition:none}}
 .grab{width:38px;height:4px;border-radius:4px;background:var(--rule);margin:8px auto 16px}
+.pickhead{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 12px}
+.pickrow{display:block;width:100%;text-align:left;padding:14px 15px;margin-bottom:8px;
+  border:1px solid var(--rule);border-radius:12px;background:var(--paper)}
+.pickrow:active{background:#EFEDE8}
+.pickrow b{display:block;font-weight:600;font-size:15.5px;letter-spacing:-.01em}
+.pickrow span{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
 .segctl{display:flex;background:#EFEDE8;border-radius:11px;padding:3px;margin-bottom:16px}
 .segctl button{flex:1;padding:9px 4px;border-radius:9px;font-size:13px;color:var(--ink-soft);white-space:nowrap}
 .segctl button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.09)}
@@ -579,7 +585,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-6";
+const APP_VERSION = "2026.08.02-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3739,34 +3745,110 @@ async function importBackup(file){
 }
 
 /* ---------- 내보내기 / 삭제 ---------- */
-async function exportNote(){
-  const n = await get("notes", openId);
-  const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
-  // 지금 화면에서 보고 있는 언어를 그대로 내보낸다. 번역본을 보다가 공유를 누르면 번역본이 나간다.
+/* =====================================================================
+   내보내기
+
+   앱 안의 WebView 에는 navigator.share 가 없다. 그래서 예전에는 "공유" 를
+   눌러도 공유창이 뜨지 않고 다운로드 폴더에 파일만 떨어졌다. 그 파일을 찾아
+   카톡에 첨부하는 일은 아무도 하지 않는다. 네이티브로 안드로이드 공유창을 띄운다.
+
+   보낼 것도 나눈다. 대화 앱에 전사 원본까지 통째로 보내면 아무도 안 읽는다.
+   ===================================================================== */
+
+const NativeShare = (function(){
+  const C = window.Capacitor;
+  if(!C) return null;
+  if(C.Plugins && C.Plugins.Share) return C.Plugins.Share;
+  if(C.isNativePlatform && C.isNativePlatform() && typeof C.registerPlugin === "function"){
+    try{ return C.registerPlugin("Share"); }catch(e){ return null; }
+  }
+  return null;
+})();
+
+/* 지금 보고 있는 언어 그대로 내보낸다. 번역본을 보다가 공유하면 번역본이 나간다. */
+function exportPieces(n, cs){
   const vl = n.viewLang && n.viewLang !== "__src__" ? n.viewLang : null;
   const doc = vl && (n.i18n||{})[vl] ? n.i18n[vl] : n.summary;
   const suffix = vl ? " ("+(DOC_LANG[vl]?DOC_LANG[vl].label:vl)+")" : "";
-  let t = "# "+n.title+suffix+"\n"+dayLabel(n.created)+" · "+Math.round(n.duration/60000)+"분\n\n";
-  if(doc) t += doc+"\n\n---\n\n";
-  t += "## 전사 원본\n\n";
-  for(const c of cs){
-    if(c.status!=="done"||!c.text) continue;
-    t += "**"+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"** "+c.text+"\n";
-    if(c.trans) t += "> "+c.trans+"\n";
-    t += "\n";
+  const head = n.title + suffix + "\n" + dayLabel(n.created) + " · "
+             + Math.round(n.duration/60000) + "분\n\n";
+
+  let script = "";
+  if(n.script){
+    let prev = "";
+    for(const t of n.script){
+      const nm = spkName(n, t.spk);
+      if(nm !== prev){ script += (script?"\n":"") + nm + "\n"; prev = nm; }
+      script += t.text + "\n";
+    }
+  } else {
+    for(const c of cs){
+      if(c.status!=="done" || !c.text) continue;
+      script += mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk)) + " " + c.text + "\n";
+      if(c.trans) script += "> " + c.trans + "\n";
+      script += "\n";
+    }
   }
-  const fname = (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_")+".md";
-  const file = new File([t], fname, {type:"text/markdown"});
-  // 공유가 되면 공유가 낫다. 바로 카톡이나 메일로 보낼 수 있다.
-  if(navigator.canShare && navigator.canShare({files:[file]})){
-    try{ await navigator.share({ files:[file], title:n.title }); return; }catch(e){ if(e.name==="AbortError") return; }
+  return { doc, suffix, head, script,
+           fname: (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_") + ".md" };
+}
+
+/* 실제로 보낸다. 되는 길을 차례로 시도한다. */
+async function sendText(title, text){
+  if(NativeShare){                                  // 폰: 안드로이드 공유창
+    try{ await NativeShare.share({ title, text }); return true; }
+    catch(e){ if(!/취소|cancel/i.test(e.message||"")) toast(e.message || "보내지 못했다", 5000); return true; }
   }
-  if(await saveOut(fname, "text/markdown", t)) return;
-  try{ await navigator.clipboard.writeText(t); toast("회의록을 클립보드에 복사했다."); }
-  catch(e){
-    const u = URL.createObjectURL(file), a = document.createElement("a");
-    a.href=u; a.download=file.name; a.click(); URL.revokeObjectURL(u);
+  if(navigator.share){                              // 컴퓨터 브라우저
+    try{ await navigator.share({ title, text }); return true; }
+    catch(e){ if(e.name === "AbortError") return true; }
   }
+  try{ await navigator.clipboard.writeText(text); toast("클립보드에 복사했다. 붙여넣기 해라.", 4000); return true; }
+  catch(e){ return false; }
+}
+
+async function exportNote(){
+  const n = await get("notes", openId);
+  const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
+  const p = exportPieces(n, cs);
+
+  sheet("보내기", [
+    p.doc ? { label:"회의록만 보내기", sub:"카톡·잘로에 붙는다. 대개 이것이면 된다.",
+              go: ()=> sendText(n.title, p.head + p.doc) } : null,
+    { label:"전사 원본까지 보내기", sub:"말한 것을 전부 포함한다. 길다.",
+      go: ()=> sendText(n.title, p.head + (p.doc ? p.doc+"\n\n———\n\n" : "") + "전사 원본\n\n" + p.script) },
+    { label:"파일로 저장", sub:"다운로드 폴더에 " + p.fname,
+      go: async ()=>{
+        const t = p.head + (p.doc ? p.doc+"\n\n---\n\n" : "") + "## 전사 원본\n\n" + p.script;
+        if(await saveOut(p.fname, "text/markdown", t)) return;
+        const f = new File([t], p.fname, {type:"text/markdown"});
+        const u = URL.createObjectURL(f), a = document.createElement("a");
+        a.href=u; a.download=p.fname; a.click(); URL.revokeObjectURL(u);
+      } }
+  ].filter(Boolean));
+}
+
+/* 고르게 하는 작은 창. 안드로이드에서 confirm 창이 안 뜨는 경우가 있어 직접 그린다. */
+function sheet(title, items){
+  const old = $("picksheet"); if(old) old.remove();
+  const d = document.createElement("div");
+  d.id = "picksheet";
+  d.innerHTML =
+    '<div class="scrim on" data-x="1"></div>'+
+    '<div class="sheet on">'+
+      '<div class="grab"></div>'+
+      '<div class="pickhead">'+esc(title)+'</div>'+
+      items.map((it,i)=>
+        '<button class="pickrow" data-i="'+i+'"><b>'+esc(it.label)+'</b>'+
+        (it.sub?'<span>'+esc(it.sub)+'</span>':'')+'</button>').join("")+
+      '<button class="bigbtn ghost" data-x="1" style="width:100%;margin:12px 0 0">그만두기</button>'+
+    '</div>';
+  document.body.appendChild(d);
+  const close = ()=> d.remove();
+  d.querySelectorAll("[data-x]").forEach(b=> b.onclick = close);
+  d.querySelectorAll("[data-i]").forEach(b=> b.onclick = async ()=>{
+    close(); try{ await items[+b.dataset.i].go(); }catch(e){ toast(e.message||"실패", 5000); }
+  });
 }
 
 async function deleteNote(){

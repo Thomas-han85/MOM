@@ -24,9 +24,16 @@ function ok(msg) { console.log("✓ " + msg); }
 
 if (!fs.existsSync(APP)) fail("android/ 가 없다. 먼저 `npx cap add android` 를 실행할 것.");
 
+/* 플러그인 목록은 여기 한 곳에만 적는다.
+   예전에는 이 이름들이 다섯 군데에 흩어져 있었다. 새 플러그인을 더할 때
+   한 군데를 빠뜨리면, 빌드는 멀쩡히 되는데 앱에서만 그 기능이 없었다.
+   무엇이 잘못됐는지 알아내기 아주 어려운 종류의 실수다. */
+const PLUGINS = ["RecorderPlugin", "TtsPlugin", "SaverPlugin", "SharePlugin"];
+const SOURCES = ["RecorderService.java", ...PLUGINS.map(p => p + ".java")];
+
 /* ---------- 1. 자바 소스 복사 ---------- */
 fs.mkdirSync(JAVA_DIR, { recursive: true });
-for (const f of ["RecorderService.java", "RecorderPlugin.java", "TtsPlugin.java", "SaverPlugin.java"]) {
+for (const f of SOURCES) {
   fs.copyFileSync(path.join(ROOT, "native", f), path.join(JAVA_DIR, f));
   ok("복사 " + f);
 }
@@ -35,18 +42,19 @@ for (const f of ["RecorderService.java", "RecorderPlugin.java", "TtsPlugin.java"
 const mainJava = path.join(JAVA_DIR, "MainActivity.java");
 const mainKt = path.join(JAVA_DIR, "MainActivity.kt");
 
+const regJava = PLUGINS.map(p => `        registerPlugin(${p}.class);`).join("\n");
+const regKt   = PLUGINS.map(p => `        registerPlugin(${p}::class.java)`).join("\n");
+
 if (fs.existsSync(mainJava)) {
   let src = fs.readFileSync(mainJava, "utf8");
-  if (src.includes("RecorderPlugin.class") && src.includes("TtsPlugin.class") && src.includes("SaverPlugin.class")) {
-    ok("MainActivity 이미 등록됨");
+  const missing = PLUGINS.filter(p => !src.includes(p + ".class"));
+  if (!missing.length) {
+    ok("MainActivity 이미 등록됨 (" + PLUGINS.length + "개)");
   } else if (/public\s+void\s+onCreate\s*\(/.test(src)) {
-    let ins = "";
-    if (!src.includes("RecorderPlugin.class")) ins += "\n        registerPlugin(RecorderPlugin.class);";
-    if (!src.includes("TtsPlugin.class"))      ins += "\n        registerPlugin(TtsPlugin.class);";
-    if (!src.includes("SaverPlugin.class"))    ins += "\n        registerPlugin(SaverPlugin.class);";
+    const ins = missing.map(p => `\n        registerPlugin(${p}.class);`).join("");
     src = src.replace(/(public\s+void\s+onCreate\s*\([^)]*\)\s*\{)/, "$1" + ins);
     fs.writeFileSync(mainJava, src);
-    ok("MainActivity onCreate 에 registerPlugin 삽입");
+    ok("MainActivity onCreate 에 registerPlugin 삽입: " + missing.join(", "));
   } else {
     // Capacitor 기본 MainActivity 는 onCreate 가 비어 있다. 통째로 교체한다.
     fs.writeFileSync(mainJava,
@@ -58,9 +66,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(RecorderPlugin.class);
-        registerPlugin(TtsPlugin.class);
-        registerPlugin(SaverPlugin.class);
+${regJava}
         super.onCreate(savedInstanceState);
     }
 }
@@ -69,7 +75,8 @@ public class MainActivity extends BridgeActivity {
   }
 } else if (fs.existsSync(mainKt)) {
   let src = fs.readFileSync(mainKt, "utf8");
-  if (!src.includes("RecorderPlugin::class.java") || !src.includes("TtsPlugin::class.java") || !src.includes("SaverPlugin::class.java")) {
+  const missing = PLUGINS.filter(p => !src.includes(p + "::class.java"));
+  if (missing.length) {
     fs.writeFileSync(mainKt,
 `package ${PKG}
 
@@ -78,15 +85,13 @@ import com.getcapacitor.BridgeActivity
 
 class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        registerPlugin(RecorderPlugin::class.java)
-        registerPlugin(TtsPlugin::class.java)
-        registerPlugin(SaverPlugin::class.java)
+${regKt}
         super.onCreate(savedInstanceState)
     }
 }
 `);
     ok("MainActivity.kt 재작성");
-  } else ok("MainActivity.kt 이미 등록됨");
+  } else ok("MainActivity.kt 이미 등록됨 (" + PLUGINS.length + "개)");
 } else fail("MainActivity 를 찾을 수 없다: " + JAVA_DIR);
 
 /* ---------- 2.5 서명을 못 박는다 ----------
