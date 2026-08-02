@@ -579,7 +579,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-5";
+const APP_VERSION = "2026.08.02-6";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2264,8 +2264,16 @@ async function runDiarize(note, onStep){
   fd.append("diarize", "true");
   fd.append("timestamps_granularity", "word");
   // 언어는 지정하지 않는다. 한 회의에 여러 말이 섞이기 때문이다.
-  const people = (note.attendees||[]).length;
-  if(people >= 1) fd.append("num_speakers", String(Math.min(32, Math.max(2, people))));
+
+  /* num_speakers 는 "몇 명이다" 가 아니라 "최대 몇 명까지 볼 것인가" 다.
+     예전에는 여기에 등록된 참석자 수를 넣었다. 그래서 참석자 셋을 골라 두고
+     넷이 회의하면 넷째 사람이 셋 중 누군가에 흡수돼 아예 나타나지 않았다.
+     참석자 목록은 부르려고 적어 둔 것이지 그날 온 사람 전부가 아니다.
+
+     그러므로 기본은 아무것도 보내지 않는다. 그러면 알아서 센다. 최대 32명이다.
+     알아서 센 것이 틀렸을 때만 사람이 직접 일러 준다. */
+  const want = Number(note.spkCount) || 0;
+  if(want >= 2) fd.append("num_speakers", String(Math.min(32, want)));
 
   const r = await fetchT(EL_URL, { method:"POST", headers:{ "xi-api-key": CFG.eleven }, body: fd },
                          Math.max(120000, seconds*1000));
@@ -3035,6 +3043,15 @@ function wireDiar(n, cs){
   };
   const d1 = $("do-diar");   if(d1) d1.onclick = ()=> go(d1);
   const d2 = $("redo-diar"); if(d2) d2.onclick = ()=> go(d2);
+  const sn = $("spk-n");
+  if(sn) sn.onchange = async ()=>{
+    n.spkCount = Number(sn.value) || 0;
+    await put("notes", n);
+    setNote(n.spkCount
+      ? (n.script ? "사람 수를 "+n.spkCount+"명으로 두었다. [다시 분리] 를 눌러야 반영된다."
+                  : "사람 수를 "+n.spkCount+"명으로 두었다.")
+      : "알아서 세도록 되돌렸다.");
+  };
   const sv = $("spk-save");
   if(sv) sv.onclick = async ()=>{
     n.spkNames = Object.assign({}, n.spkNames);
@@ -3181,6 +3198,18 @@ async function renderDetail(){
   /* --- 원본 탭 --- */
   // 화자 분리를 마쳤으면 사람별로 갈린 스크립트를 보여 준다. 아니면 조각 그대로.
   const hasAudio = cs.some(c=>c.blob);
+  /* 사람 수는 평소에 건드릴 것이 아니다. 알아서 센 것이 틀렸을 때만 쓴다. */
+  const spkPick = (hasAudio && CFG.eleven) ?
+    '<div style="display:flex;align-items:center;gap:9px;margin-top:10px">'+
+      '<span style="font-size:12.5px;color:var(--muted);flex:0 0 auto">사람 수</span>'+
+      '<select id="spk-n" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--rule);'+
+      'border-radius:9px;background:var(--card);font-size:13.5px">'+
+        '<option value="0">자동으로 세기</option>'+
+        [2,3,4,5,6,7,8,9,10,12,15,20].map(k=>
+          '<option value="'+k+'"'+(Number(n.spkCount)===k?" selected":"")+'>'+k+'명</option>').join("")+
+      '</select>'+
+    '</div>' : "";
+
   const diarBar =
     '<div style="padding:12px 18px 0">'+
 
@@ -3191,10 +3220,12 @@ async function renderDetail(){
        : (hasAudio && CFG.eleven ?
         '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
        : ""))+
+      spkPick+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
         (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸다. 이름을 붙이면 문서에도 그 이름으로 나온다."+
-           ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤다. 맞는지 확인해 줄 것." : "")
-         : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가른다. 시간당 약 $0.22."
+           ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤다. 맞는지 확인해 줄 것." : "")+
+           (hasAudio ? " 사람 수가 실제와 다르면 아래에서 정해 주고 다시 분리해라." : "")
+         : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가른다. 시간당 약 $0.22. 사람 수는 알아서 센다."
                                   : "설정에서 ElevenLabs 키를 넣으면 화자 분리를 쓸 수 있다.")
          : "")+'</p>'+
     '</div>';
