@@ -362,10 +362,11 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         <select id="s-ttslang">
           <option value="ko-KR">한국어</option>
           <option value="vi-VN">Tiếng Việt</option>
+          <option value="km-KH">ភាសាខ្មែរ (캄보디아어)</option>
           <option value="en-US">English</option>
         </select></div>
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
-      <p class="hint">기기에 내장된 목소리를 쓴다. 무료이고 인터넷 없이도 읽는다. 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아야 한다. 베트남어는 따로 받아야 하는 기기가 많다.</p>
+      <p class="hint">기기에 내장된 목소리를 쓴다. 무료이고 인터넷 없이도 읽는다. 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아야 한다. 베트남어와 캄보디아어는 따로 받아야 하는 기기가 많다.</p>
     </div>
 
     <div class="setgroup">
@@ -495,6 +496,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <select id="r-target">
         <option value="Korean">한국어</option>
         <option value="Vietnamese">Tiếng Việt</option>
+        <option value="Khmer">ភាសាខ្មែរ (캄보디아어)</option>
         <option value="English">English</option>
         <option value="">통역 안 함</option>
       </select></div>
@@ -529,7 +531,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.07.29-2";
+const APP_VERSION = "2026.07.29-3";
 /* =====================================================================
    대역 (MeetNote) v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
@@ -995,7 +997,7 @@ async function extractTerms(brief){
 async function translateChunk(text, target, prevPair, ctxHint){
   if(!text) return "";
   const sys = [
-    "You are a simultaneous interpreter for on-site construction and business meetings in Vietnam.",
+    "You are a simultaneous interpreter for on-site construction and business meetings in Southeast Asia (Vietnam, Cambodia).",
     "Translate the user's transcript segment into "+target+".",
     "Rules: output ONLY the translation. No preamble, no notes, no quotes.",
     "Keep speaker register and technical precision. Numbers, dates, dimensions and proper nouns must survive exactly.",
@@ -1019,7 +1021,7 @@ async function translateChunk(text, target, prevPair, ctxHint){
    청크가 읽는 도중에 또 도착할 수 있으므로 큐로 순서를 지킨다.
    비용 0. 품질이 아쉬우면 나중에 OpenAI TTS 로 승격한다.
    ===================================================================== */
-const TTS_LANG = { Korean:"ko-KR", Vietnamese:"vi-VN", English:"en-US" };
+const TTS_LANG = { Korean:"ko-KR", Vietnamese:"vi-VN", Khmer:"km-KH", English:"en-US" };
 
 /* 앱 안에 들어가는 WebView 에는 웹 음성 기능(speechSynthesis)이 없다. 크롬에는 있지만
    WebView 에는 빠져 있어서 웹 방식으로는 소리가 나지 않는다. APK 에서는 네이티브
@@ -1100,6 +1102,7 @@ async function ttsTest(){
   const lang = $("s-ttslang") ? $("s-ttslang").value : "ko-KR";
   const rate = parseFloat($("s-ttsrate") ? $("s-ttsrate").value : CFG.ttsRate) || 1;
   const say = lang.startsWith("vi") ? "Đây là giọng đọc thử."
+            : lang.startsWith("km") ? "នេះគឺជាការសាកល្បងសំឡេង។"
             : lang.startsWith("en") ? "This is a voice test."
             : "소리가 들리면 정상이다.";
   if(NativeTts){
@@ -1136,12 +1139,13 @@ if("speechSynthesis" in window){
 const DOC_LANG = {
   Korean:      { label:"한국어",     heads:"결정사항 / 미결사항 / 투두리스트 / 일반요약" },
   Vietnamese:  { label:"Tiếng Việt", heads:"Quyết định / Vấn đề tồn đọng / Việc cần làm / Tóm tắt chung" },
+  Khmer:       { label:"ភាសាខ្មែរ",   heads:"សេចក្តីសម្រេច / បញ្ហាមិនទាន់ដោះស្រាយ / កិច្ចការត្រូវធ្វើ / សេចក្តីសង្ខេប" },
   English:     { label:"English",    heads:"Decisions / Open Issues / Action Items / Summary" }
 };
 async function translateDoc(text, target){
   const t = DOC_LANG[target] || DOC_LANG.Vietnamese;
   const sys = [
-    "You translate meeting minutes for a construction and business company operating in Vietnam.",
+    "You translate meeting minutes for a construction and business company operating in Southeast Asia (Vietnam, Cambodia).",
     "Translate the entire document into "+target+".",
     "Preserve the markdown structure exactly: same heading levels, same order of sections,",
     "same bullet and table layout. Translate the section headings too — use these renderings: "+t.heads+".",
@@ -2127,7 +2131,7 @@ addEventListener("online", ()=> syncDrive(false));
 
    목소리를 실제로 가르려면 서로 견주어야 하므로 회의 전체를 한 번에 봐야 한다.
    30초 조각으로는 안 된다. 그래서 회의가 끝난 뒤 오디오를 하나로 이어 붙여
-   한 번 더 보낸다. 한국어·베트남어·영어가 섞여 있어도 목소리 기준이라 갈린다.
+   한 번 더 보낸다. 여러 말이 섞여 있어도 목소리 기준이라 갈린다.
    ===================================================================== */
 const EL_URL = "https://api.elevenlabs.io/v1/speech-to-text";
 
