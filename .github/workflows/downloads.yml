@@ -1,0 +1,72 @@
+name: 다운로드 수 보기
+
+# 릴리스마다 APK 를 몇 번 내려받았는지 센다.
+#
+# Actions 탭 → "다운로드 수 보기" → Run workflow 를 누르면 된다.
+# 결과는 그 실행의 Summary 에 표로 나온다.
+#
+# 왜 이렇게 하는가: 이 숫자는 깃허브 화면 어디에도 안 나온다. API 로만 나온다.
+# 매번 API 주소를 열어 눈으로 찾는 대신 여기서 한 번에 센다.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * 1"   # 매주 월요일 아침(한국시간 9시)에 한 번
+
+permissions:
+  contents: read
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 세기
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 릴리스가 많아 쪽으로 나뉜다. --paginate 로 전부 가져온다.
+          gh api --paginate "repos/$REPO/releases" > all.json
+
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, itertools
+
+          data = json.load(open("all.json"))
+          # --paginate 는 쪽마다 배열을 주므로 겹쳐 있을 수 있다. 평평하게 편다.
+          rels = data if isinstance(data, list) else [data]
+          rels = list(itertools.chain.from_iterable(
+              r if isinstance(r, list) else [r] for r in rels))
+
+          rows, total = [], 0
+          for r in rels:
+              for a in r.get("assets", []):
+                  if not a.get("name","").endswith(".apk"):
+                      continue
+                  c = a.get("download_count", 0)
+                  total += c
+                  rows.append((r.get("tag_name",""), a["name"], c,
+                               (r.get("published_at") or "")[:10]))
+
+          rows.sort(key=lambda x: -x[2])
+          got = [r for r in rows if r[2] > 0]
+
+          print("# APK 내려받은 횟수\n")
+          print(f"- 릴리스 **{len(rels)}개**, APK **{len(rows)}개**")
+          print(f"- 한 번이라도 받아간 APK: **{len(got)}개**")
+          print(f"- 모두 합쳐 **{total}번**\n")
+          print("> 네가 직접 받은 것도 이 숫자에 들어 있다. 그만큼 빼고 봐야 한다.\n")
+
+          if not got:
+              print("아직 아무도 받아가지 않았다.")
+          else:
+              print("| 태그 | 파일 | 받아간 횟수 | 올린 날 |")
+              print("|---|---|---:|---|")
+              for t, n, c, d in got:
+                  print(f"| {t} | {n} | {c} | {d} |")
+
+          zero = len(rows) - len(got)
+          if got and zero:
+              print(f"\n한 번도 안 받아간 APK 가 {zero}개 더 있다. (표에서 뺐다)")
+          PY
+
+          echo "결과는 이 실행의 Summary 에 있다."
