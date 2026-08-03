@@ -587,7 +587,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-9";
+const APP_VERSION = "2026.08.02-10";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -863,6 +863,39 @@ function nearSame(a, b){
   return s.length >= 8 && l.includes(s) && s.length / l.length > 0.8;
 }
 
+/* 받아쓴 말이 우리가 보낸 프롬프트 안에 통째로 들어 있으면, 들은 것이 아니라
+   넘겨받은 글을 되뱉은 것이다. nearSame 과 달리 길이 비율은 따지지 않는다.
+   긴 꼬리에서 짧은 한 토막만 되뱉는 일이 잦기 때문이다.
+   너무 짧은 말까지 버리면 "네, 알겠습니다" 같은 진짜 대답이 사라지므로 하한을 둔다. */
+function echoOfPrompt(out, prompt){
+  const o = normText(out), p = normText(prompt);
+  return o.length >= 12 && p.length >= 12 && p.includes(o);
+}
+
+/* 우리가 방금 읽어 준 말을 적어 둔다.
+   이어폰 없이 스피커로 들으면 그 소리를 마이크가 다시 주워 담는다. 그러면
+   읽어 준 말이 회의 내용인 양 다시 전사되고, 번역되고, 또 읽힌다. 되울림이다.
+   최근에 읽은 것과 같은 말이 들어오면 회의에서 나온 말이 아니라고 본다. */
+/* 건너뛴 까닭을 화면에 그대로 적는다. 무엇이 잘못됐는지 짐작으로 캐지 않으려면
+   앱이 왜 그랬는지 스스로 말해야 한다. */
+const SKIP_WHY = {
+  quiet:  "(조용해서 건너뜀)",
+  prompt: "(앞말을 되뱉은 것이라 버림)",
+  repeat: "(앞 구간과 같은 말이라 버림)",
+  tts:    "(읽어 준 소리가 되울린 것이라 버림)"
+};
+
+let spokenLog = [];
+function noteSpoken(text){
+  spokenLog.push({ at: Date.now(), text });
+  const cut = Date.now() - 120000;
+  spokenLog = spokenLog.filter(s=>s.at > cut).slice(-12);
+}
+function spokenLately(text){
+  const cut = Date.now() - 120000;
+  return spokenLog.some(s=> s.at > cut && nearSame(text, s.text));
+}
+
 /* =====================================================================
    사전 자료 파일 읽기
    파일 종류마다 방법이 다르다. 서버가 없으므로 브라우저와 API 로만 해결한다.
@@ -1129,6 +1162,7 @@ function speakTrans(text, target){
   // 방금 읽은 것과 같은 말이면 읽지 않는다. 같은 말을 두 번 듣는 일이 없게 한다.
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
+  noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
   ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR" });
   // 처리가 밀리면 읽기가 한없이 뒤처진다. 밀린 것은 버리고 최근 것만 읽는다.
   if(ttsQueue.length > 2) ttsQueue = ttsQueue.slice(-2);
@@ -2426,22 +2460,45 @@ async function drain(){
       c.status = "sent"; await put("chunks", c); renderIfOpen(c.noteId); paintStrips();
       try{
         const sibs = (await byIndex("chunks","note",c.noteId)).sort((a,b)=>a.seq-b.seq);
-        const prev = sibs.filter(s=>s.seq < c.seq && s.text).pop();
-        const tail = prev ? prev.text.slice(-400) : "";
+        const before = sibs.filter(s=>s.seq < c.seq);
+        const recent = before.filter(s=>s.text).slice(-4);   // 최근에 말이 있던 네 구간
+        const prev = recent.length ? recent[recent.length-1] : null;
+
+        /* 되뇜의 진짜 까닭.
+
+           앞 구간의 끝말을 프롬프트로 함께 보낸다. 문장이 이어지고 고유명사 표기가
+           흔들리지 않게 하려는 것이다. 그런데 소리가 흐릿하면 모델이 그 프롬프트를
+           그대로 되뱉는다. 받아쓸 것이 마땅치 않으니 넘겨받은 글을 답으로 내놓는 것이다.
+           한 번 그러면 그 되뱉은 말이 다시 다음 프롬프트가 되어 되뇜이 스스로 이어진다.
+
+           그래서 세 가지를 한다.
+             - 꼬리를 짧게 보낸다. 400자는 통째로 되뱉기 좋은 길이다.
+             - 되뇜이 시작되면 꼬리를 아예 끊는다. 불씨를 뺀다.
+             - 돌아온 말이 보낸 프롬프트 안에 들어 있으면 되뱉은 것으로 보고 버린다. */
+        const spiral = before.slice(-2).filter(s=>s.skip==="prompt"||s.skip==="repeat").length >= 2;
+        const tail = (prev && !spiral) ? prev.text.slice(-200) : "";
 
         const ser = note.seriesId ? findSeries(note.seriesId) : null;
         const terms = [...(note.terms||[]), ...((ser && ser.terms) || [])];
 
+        c.skip = "";
         /* 조용한 구간은 보내지 않는다. 모델이 침묵을 앞말의 되뇜으로 채우기 때문이다. */
         const rms = await loudness(c.blob);
         if(rms !== null && rms < 0.004){
-          c.text = ""; c.trans = ""; c.quiet = true;
+          c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
         } else {
           const raw = await sttChunk(c.blob, tail, note.ctx, terms);
-          c.text = dedupeInside(raw);                      // 안에서 되풀이된 말을 접는다
-          if(prev && nearSame(c.text, prev.text)){         // 앞 구간과 같은 말이면 버린다
-            c.text = ""; c.trans = ""; c.echo = true;
+          let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
+
+          if(txt && tail && echoOfPrompt(txt, tail)){      // 보낸 글을 그대로 되뱉었다
+            txt = ""; c.skip = "prompt";
+          } else if(txt && recent.some(s=>nearSame(txt, s.text))){
+            txt = ""; c.skip = "repeat";                   // 앞 네 구간 중 하나와 같은 말
+          } else if(txt && spokenLately(txt)){
+            txt = ""; c.skip = "tts";                      // 우리가 읽어 준 소리를 마이크가 되주웠다
           }
+          c.text = txt;
+          if(!txt){ c.trans = ""; c.echo = true; }
         }
 
         if(note.target && c.text){
@@ -3319,7 +3376,7 @@ async function renderDetail(){
       mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+'</div><div class="body">';
     if(c.status==="done"){
       raw += '<div class="orig'+(c.text?"":" pending")+'">'+
-        esc(c.text || (c.quiet ? "(조용함)" : c.echo ? "(앞과 같은 말이라 건너뜀)" : "(무음)"))+'</div>';
+        esc(c.text || SKIP_WHY[c.skip] || (c.quiet ? "(조용함)" : c.echo ? "(같은 말이라 건너뜀)" : "(무음)"))+'</div>';
       if(c.trans) raw += '<div class="trans">'+esc(c.trans)+'</div>';
     } else if(c.status==="failed"){
       raw += '<div class="errline">'+esc(c.error||"실패")+
