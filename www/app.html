@@ -378,6 +378,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o · 정확도 우선</option>
         </select></div>
+      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 크다.
+        문서 한 건에 100~200원쯤이다. 전사(위)는 mini 로 두어도 된다 — 비싼 건 그쪽이다.</p>
       <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
         <select id="s-vision">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -587,7 +589,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-1";
+const APP_VERSION = "2026.08.05-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2069,11 +2071,49 @@ ${(parsed.common.join("\n") + "\n" + [...parsed.byName.entries()].map(([k,v])=>k
   return buildPrayerDoc(parsed, followUp);
 }
 
+/* 쓴 것을 한 번 더 본다.
+
+   사람도 회의록을 쓰고 나서 한 번 훑는다. 첫 판은 빠뜨리기 마련이다.
+   특히 숫자와 날짜와 담당자 — 이 회의록에서 제일 비싼 것들이 제일 잘 빠진다.
+   근거 자료와 회의록을 나란히 놓고 대조시키면 그 구멍이 대부분 잡힌다.
+   호출이 한 번 늘지만 문서 한 건에 몇십 원이다. 회의록이 틀린 값보다 싸다. */
+async function reviewDoc(note, doc, source, onStep){
+  try{
+    if(onStep) onStep();
+    const carryAt = doc.indexOf("---CARRY---");
+    const body = carryAt >= 0 ? doc.slice(0, carryAt) : doc;
+    const tail = carryAt >= 0 ? "\n" + doc.slice(carryAt) : "";
+    const out = await callDocModel(
+`아래에 회의 기록(근거)과, 그것으로 만든 회의록 초안이 있다.
+초안을 근거와 대조해서 고친 완성본을 내라.
+
+대조할 것:
+- 숫자·날짜·금액·기한이 근거와 다르면 근거대로 고쳐라. 단위를 바꾸지 마라.
+- 근거에 있는 결정·할 일이 초안에 빠졌으면 넣어라.
+- 근거에 없는 내용이 초안에 있으면 빼라.
+- 같은 항목이 두 절에 겹쳐 있으면 맞는 자리 하나에만 남겨라.
+- 담당자와 기한이 근거에 나오는데 "미지정" 으로 돼 있으면 채워라.
+
+절 구성과 형식은 그대로 두어라. 고칠 것이 없으면 초안을 그대로 내라.
+설명이나 고친 목록을 붙이지 말고 완성된 회의록만 내라.
+
+---근거---
+${source.slice(0, 24000)}
+
+---초안---
+${body}`, 12000);
+    // 검수가 문서를 반토막 냈다면 믿지 않는다. 초안이 낫다.
+    return (out && out.length > body.length * 0.6) ? out + tail : doc;
+  }catch(e){ return doc; }   // 검수가 실패해도 초안은 살아야 한다
+}
+
 async function makeMinutes(note, fullText, onStep, cache){
   const S = docSize(note);
   // 짧은 회의는 한 번에 처리하는 편이 흐름이 매끄럽다.
-  if(fullText.length <= S.seg * 2)
-    return callDocModel(minutesPrompt(note, fullText), 12000);
+  if(fullText.length <= S.seg * 2){
+    const draft = await callDocModel(minutesPrompt(note, fullText), 12000);
+    return reviewDoc(note, draft, fullText, ()=> onStep && onStep(2, 2));
+  }
 
   const parts = splitParts(fullText, S.seg);
   const digests = [];
@@ -2094,6 +2134,9 @@ async function makeMinutes(note, fullText, onStep, cache){
     return k >= 0 ? d.slice(k) : d;
   }).join("\n\n");
   let headDoc = await callDocModel(reducePrompt(note, brief), 12000);
+  /* 앞부분(결정·미결·할 일)을 구간 기록과 대조한다. 구간 기록은 이미 원문에
+     충실하게 만든 것이라, 여기에 대면 합칠 때 빠진 것이 드러난다. */
+  headDoc = await reviewDoc(note, headDoc, brief, ()=> onStep && onStep(parts.length+1, parts.length+1));
 
   // 오간 이야기는 줄이지 않고 그대로 일반요약 자리에 놓는다.
   const story = digests.map((d,i)=>{
