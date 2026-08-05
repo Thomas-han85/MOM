@@ -8,6 +8,12 @@
 <style>
   html,body{margin:0;height:100%;background:#F7F6F3;color:#1C1B19;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo",sans-serif}
+  /* 어두운 기기에서 여는 순간 흰 화면이 번쩍이지 않게 한다 */
+  @media (prefers-color-scheme: dark){
+    html,body{background:#16181A;color:#E9E7E2}
+    #boot p{color:#8A867E}
+    #boot button{background:#1E2124;border-color:#33373B;color:#E9E7E2}
+  }
   #boot{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:30px}
   #boot h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em}
   #boot p{margin:0;font-size:13.5px;color:#8B877E;text-align:center;line-height:1.6;max-width:300px}

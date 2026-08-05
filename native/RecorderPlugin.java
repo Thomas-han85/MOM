@@ -120,6 +120,31 @@ public class RecorderPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * 화면 밝기를 바닥까지 내린다. 끄지는 않는다.
+     *
+     * 녹음 중에는 화면이 꺼지면 전사가 멈추므로 켜 두어야 한다. 그런데 화면을
+     * 봐야 해서 켜 두는 것이 아니다. 그래서 켜 둔 채로 밝기만 최소로 내린다.
+     * 화면이 새까맣게 덮여 있으므로 볼 것도 없다. 배터리는 이쪽에서 크게 준다.
+     *
+     * 이 창에만 적용되는 밝기다. 앱을 나가면 저절로 기기 설정으로 돌아간다.
+     */
+    @PluginMethod
+    public void screenDim(PluginCall call) {
+        final boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        final android.app.Activity act = getActivity();
+        if (act == null) { call.resolve(); return; }
+        act.runOnUiThread(() -> {
+            android.view.Window w = act.getWindow();
+            android.view.WindowManager.LayoutParams lp = w.getAttributes();
+            lp.screenBrightness = on
+                    ? 0.01f   // 거의 꺼진 것처럼 어둡게
+                    : android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
+            w.setAttributes(lp);
+        });
+        call.resolve();
+    }
+
     @PluginMethod
     public void pause(PluginCall call) {
         if (RecorderService.instance != null) RecorderService.instance.pause();
