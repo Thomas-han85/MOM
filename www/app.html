@@ -587,7 +587,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-12";
+const APP_VERSION = "2026.08.02-13";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -973,14 +973,29 @@ function stripOverlap(cur, prev){
   return cur;
 }
 
-/* 길잡이 글을 되뱉은 문장만 덜어 낸다.
-   구간을 통째로 버리면 그 안에 섞인 진짜 말까지 사라진다. */
-function stripPromptEcho(text, prompt){
-  if(!text || !prompt) return text;
+/* 버릴 문장만 골라 덜어 낸다.
+
+   한 구간에 버릴 말과 살릴 말이 함께 들어 있는 일이 흔하다. 실제로
+   "(앱이 읽어 준 한국어) 5 ngày, 127FS" 처럼 되울림과 진짜 발언이 한 구간에
+   섞여 있었다. 구간을 통째로 버리면 뒤의 진짜 발언까지 사라진다. */
+function keepGood(text, bad){
+  if(!text) return text;
   const ss = sentences(text);
-  if(ss.length <= 1) return echoOfPrompt(text, prompt) ? "" : text;
-  const kept = ss.filter(s => !echoOfPrompt(s, prompt));
-  return kept.join(" ").trim();
+  if(ss.length <= 1) return bad(text) ? "" : text;
+  return ss.filter(s => !bad(s)).join(" ").trim();
+}
+
+/* 자막 뭉치를 학습한 흔적이 그대로 튀어나오는 문장들.
+   조용한 구간에서 자주 나온다. 회의에서 나올 리 없는 말이다. */
+const JUNK = [
+  /subscribe/i, /구독/, /좋아요\s*(와|and)?\s*구독/, /시청해\s*주셔서/,
+  /감사합니다\s*$/, /다음\s*(영상|시간)에/, /kênh\s+\S+/i, /video\s+hấp dẫn/i,
+  /thanks for watching/i, /please like and/i, /字幕/, /请关注/, /訂閱/
+];
+function junkLine(text){
+  const t = String(text||"").trim();
+  if(t.length < 6) return false;
+  return JUNK.some(re => re.test(t));
 }
 
 /* 이 회의에 있을 수 없는 글자로 돌아온 구간을 가려낸다.
@@ -1014,18 +1029,40 @@ const SKIP_WHY = {
   repeat: "(앞 구간과 같은 말이라 버림)",
   trim:   "",   // 겹친 앞머리만 덜어 냈다. 남은 말은 그대로 있으므로 알릴 것이 없다.
   tts:    "(읽어 준 소리가 되울린 것이라 버림)",
-  foreign:"(이 회의에 없는 말이라 버림 · 지어낸 것)"
+  foreign:"(이 회의에 없는 말이라 버림 · 지어낸 것)",
+  junk:   "(자막 투의 지어낸 말이라 버림)"
 };
 
 let spokenLog = [];
+let ttsEchoes = 0;      // 되울림을 몇 번 잡았나
+let ttsSuspended = false;
+
+/* 되울림은 한두 번으로 끝나지 않는다. 읽어 준 말이 마이크로 들어와 다시 전사되고,
+   그것이 또 번역돼 또 읽힌다. 고리가 스스로 돈다. 그래서 오래 기억해야 한다.
+   실제 회의에서 같은 문장이 10분 넘게 되돌아온 적이 있다. */
 function noteSpoken(text){
   spokenLog.push({ at: Date.now(), text });
-  const cut = Date.now() - 120000;
-  spokenLog = spokenLog.filter(s=>s.at > cut).slice(-12);
+  const cut = Date.now() - 600000;
+  spokenLog = spokenLog.filter(s=>s.at > cut).slice(-80);
 }
 function spokenLately(text){
-  const cut = Date.now() - 120000;
+  const cut = Date.now() - 600000;
   return spokenLog.some(s=> s.at > cut && nearSame(text, s.text));
+}
+
+/* 되울림이 거듭되면 읽어주기를 스스로 멈춘다.
+
+   고리를 끊지 않으면 회의록이 앱이 뱉은 말로 뒤덮인다. 실제로 한 회의에서
+   같은 문장이 열 번 넘게 박혔다. 통역 자막은 그대로 보이니 회의는 이어갈 수 있다.
+   설정을 바꾸지는 않는다. 이 녹음 동안만 멈춘다. */
+function ttsEchoSeen(){
+  ttsEchoes++;
+  if(ttsSuspended || ttsEchoes < 3) return;
+  ttsSuspended = true;
+  ttsStop();
+  toast("읽어 주는 소리가 마이크로 되들어오고 있다. 이 녹음 동안 읽어주기를 멈춘다. "+
+        "이어폰을 쓰면 계속 들을 수 있다.", 9000);
+  paintStrips();
 }
 
 /* =====================================================================
@@ -1290,7 +1327,7 @@ const TTS_OK = !!NativeTts || HAS_WEB_TTS;
 
 let ttsQueue = [], ttsBusy = false, ttsLast = "";
 function speakTrans(text, target){
-  if(CFG.tts!=="1" || !text || !TTS_OK) return;
+  if(CFG.tts!=="1" || !text || !TTS_OK || ttsSuspended) return;
   // 방금 읽은 것과 같은 말이면 읽지 않는다. 같은 말을 두 번 듣는 일이 없게 한다.
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
@@ -2711,17 +2748,21 @@ async function drain(){
             if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "repeat"; }
           }
 
-          if(txt && prompt){
-            const kept = stripPromptEcho(txt, prompt);     // 되뱉은 문장만 덜어 낸다
-            if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "prompt"; }
-          }
+          /* 버릴 문장만 하나씩 덜어 낸다. 남은 진짜 발언은 반드시 살린다. */
+          const sift = (bad, why) => {
+            if(!txt) return;
+            const kept = keepGood(txt, bad);
+            if(kept === txt) return;
+            if(why === "tts") ttsEchoSeen();
+            txt = kept; c.skip = kept ? "trim" : why;
+          };
+          sift(s => spokenLately(s), "tts");            // 우리가 읽어 준 소리가 되들어왔다
+          if(prompt) sift(s => echoOfPrompt(s, prompt), "prompt");
+          sift(foreignScript, "foreign");               // 이 회의에 있을 수 없는 글자
+          sift(junkLine, "junk");                       // 자막 뭉치에서 튀어나온 말
 
-          if(txt && foreignScript(txt)){
-            txt = ""; c.skip = "foreign";                  // 이 회의에 있을 수 없는 글자
-          } else if(txt && recent.some(s=>nearSame(txt, s.text))){
-            txt = ""; c.skip = "repeat";                   // 앞 네 구간 중 하나와 같은 말
-          } else if(txt && spokenLately(txt)){
-            txt = ""; c.skip = "tts";                      // 우리가 읽어 준 소리를 마이크가 되주웠다
+          if(txt && recent.some(s=>nearSame(txt, s.text))){
+            txt = ""; c.skip = "repeat";                // 앞 네 구간과 통째로 같은 말
           }
           c.text = txt;
           if(!txt){ c.trans = ""; c.echo = true; }
@@ -3085,6 +3126,8 @@ async function startRecording(){
        이유로 버려졌다. 앞에서 한창 말하는데 앱은 같은 말만 되풀이하던 까닭이다. */
     try{ if(Native.clearCache) await Native.clearCache(); }catch(e){}
     recStartAt = Date.now();
+    // 지난 회의의 되울림 기록은 이번 회의와 상관없다
+    spokenLog = []; ttsEchoes = 0; ttsSuspended = false;
 
     nativeSub = await Native.addListener("chunk", async ev => {
       await takeChunk(noteId, status, ev);
