@@ -587,7 +587,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-11";
+const APP_VERSION = "2026.08.02-12";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -983,6 +983,25 @@ function stripPromptEcho(text, prompt){
   return kept.join(" ").trim();
 }
 
+/* 이 회의에 있을 수 없는 글자로 돌아온 구간을 가려낸다.
+
+   조용하거나 웅성거리는 구간에서 모델이 엉뚱한 말을 지어낼 때, 중국어나 일본어
+   자막 투의 문장으로 나오는 일이 잦다. 실제로 한국어·베트남어·영어로 진행한
+   회의록에 "现在请关注系统", "對,狗也要慢慢跟著佢行" 같은 줄이 섞여 있었다.
+   회의에서 나온 말일 리가 없다.
+
+   이 앱이 다루는 말은 한국어·베트남어·크메르어·영어다. 한글 없이 한자나 가나가
+   글자의 절반을 넘으면 회의에서 나온 말이 아니라고 본다.
+   (중국어나 일본어를 다루게 되면 이 검사를 풀어야 한다.) */
+function foreignScript(text){
+  const s = String(text || "");
+  const letters = (s.match(/\p{L}/gu) || []).length;
+  if(letters < 6) return false;
+  if(/[가-힯]/.test(s)) return false;                 // 한글이 있으면 우리 말이다
+  const cjk = (s.match(/[一-鿿぀-ヿ]/g) || []).length;
+  return cjk / letters > 0.5;
+}
+
 /* 우리가 방금 읽어 준 말을 적어 둔다.
    이어폰 없이 스피커로 들으면 그 소리를 마이크가 다시 주워 담는다. 그러면
    읽어 준 말이 회의 내용인 양 다시 전사되고, 번역되고, 또 읽힌다. 되울림이다.
@@ -994,7 +1013,8 @@ const SKIP_WHY = {
   prompt: "(앞말을 되뱉은 것이라 버림)",
   repeat: "(앞 구간과 같은 말이라 버림)",
   trim:   "",   // 겹친 앞머리만 덜어 냈다. 남은 말은 그대로 있으므로 알릴 것이 없다.
-  tts:    "(읽어 준 소리가 되울린 것이라 버림)"
+  tts:    "(읽어 준 소리가 되울린 것이라 버림)",
+  foreign:"(이 회의에 없는 말이라 버림 · 지어낸 것)"
 };
 
 let spokenLog = [];
@@ -2664,9 +2684,21 @@ async function drain(){
         const prompt = spiral ? "" : sttPrompt(note.ctx, terms);
 
         c.skip = "";
-        /* 조용한 구간은 보내지 않는다. 모델이 침묵을 앞말의 되뇜으로 채우기 때문이다. */
+        /* 조용한 구간은 보내지 않는다. 모델은 침묵을 침묵으로 두지 않고
+           그럴듯한 말을 지어내 채운다.
+
+           기준을 하나로 못 박아 둘 수는 없다. 조용한 사무실과 웅성거리는 현장은
+           바닥 소리부터 다르다. 그래서 이 회의에서 실제로 말이 있던 구간들의
+           크기를 모아 가운뎃값을 잡고, 그 4분의 1에 못 미치면 말이 없던 것으로 본다.
+           예전의 붙박이 기준은 아래쪽 한계로만 남긴다. */
         const rms = await loudness(c.blob);
-        if(rms !== null && rms < 0.004){
+        c.rms = rms;
+        const levels = before.filter(s=>s.text && typeof s.rms === "number")
+                             .map(s=>s.rms).sort((a,b)=>a-b);
+        const typical = levels.length >= 5 ? levels[Math.floor(levels.length/2)] : 0;
+        const floor = Math.max(0.004, typical * 0.25);
+
+        if(rms !== null && rms < floor){
           c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
         } else {
           const raw = await sttChunk(c.blob, prompt);
@@ -2684,7 +2716,9 @@ async function drain(){
             if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "prompt"; }
           }
 
-          if(txt && recent.some(s=>nearSame(txt, s.text))){
+          if(txt && foreignScript(txt)){
+            txt = ""; c.skip = "foreign";                  // 이 회의에 있을 수 없는 글자
+          } else if(txt && recent.some(s=>nearSame(txt, s.text))){
             txt = ""; c.skip = "repeat";                   // 앞 네 구간 중 하나와 같은 말
           } else if(txt && spokenLately(txt)){
             txt = ""; c.skip = "tts";                      // 우리가 읽어 준 소리를 마이크가 되주웠다
