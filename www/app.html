@@ -656,7 +656,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-10";
+const APP_VERSION = "2026.08.05-11";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1990,11 +1990,14 @@ ${carry ? "\n## 지난 회의 후속\n" : ""}
 ## 미결사항
 결론이 나지 않았거나 보류된 것. 항목마다 왜 안 끝났는지, 무엇이 있어야 결론이 나는지 적는다.
 - 사안 — 막힌 이유 — 결론에 필요한 것
+"막힌 이유: 필요하다" 처럼 사안을 되풀이하는 말은 금지다. 이유가 기록에 없으면 "이유 언급 없음" 이라고 써라.
 
 ## 투두리스트
 사람이 움직여야 하는 일만. 담당자와 기한을 세 칸 다 채운다. 중복은 합친다.
 - 담당자 — 할 일 — 기한
-정해지지 않았으면 "미지정" 이라고 쓴다. 빈칸으로 두거나 항목을 빼지 마라.
+담당자 칸에는 사람 이름이나 회사 이름만 쓴다. 정해지지 않았으면 "미지정".
+"담당자" 라는 낱말을 그 칸에 그대로 쓰는 것은 금지다.
+기한도 날짜가 없으면 "미지정". 빈칸으로 두거나 항목을 빼지 마라.
 근거 없이 이름이나 날짜를 지어내지 마라.
 
 ## 확인 필요
@@ -2286,6 +2289,21 @@ ${body}`, 12000);
   }catch(e){ return doc; }   // 검수가 실패해도 초안은 살아야 한다
 }
 
+/* 한 장 요약 안에 절 이름을 소제목으로 단 베낌이 있는지 보고, 있으면 걷어낸다.
+   이 절들은 요약 아래에 원본이 그대로 실리므로 요약 안에 있으면 무조건 중복이다. */
+const RESERVED_HEADS = ["지난 회의 후속","결정사항","미결사항","투두리스트","확인 필요","한 장 요약","상세 기록"];
+function copiedSections(text){
+  return (String(text||"").match(/^###?\s+(.+)$/gm) || [])
+    .some(h => RESERVED_HEADS.some(r => normText(h.replace(/^#+\s*/,"")) === normText(r)));
+}
+function stripReserved(text){
+  const parts = String(text||"").split(/\n(?=###?\s)/);
+  return parts.filter(p=>{
+    const m = /^###?\s+([^\n]+)/.exec(p);
+    return !(m && RESERVED_HEADS.some(r => normText(m[1]) === normText(r)));
+  }).join("\n").trim();
+}
+
 /* "## 이름" 절을 통째로 들어낸다. 다음 "## " 절 직전까지가 그 절이다. */
 function cutSection(text, name){
   const re = new RegExp("(^|\\n)##\\s*" + name + "\\s*[\\s\\S]*?(?=\\n##\\s|$)", "g");
@@ -2424,32 +2442,47 @@ async function makeMinutes(note, fullText, onStep, cache){
 
   // 앞부분(결정·미결·할 일) — 구간 기록과 대조해 빠진 것을 잡는다
   if(onStep) onStep(parts.length+2, total);
-  let headDoc = cache && await cache.get("head");
+  let headDoc = cache && await cache.get("head2");
   if(!headDoc){
     headDoc = await callDocModel(reducePrompt(note, brief), 12000);
     headDoc = await reviewDoc(note, headDoc, brief, null);
-    if(cache) await cache.set("head", headDoc);
+    if(cache) await cache.set("head2", headDoc);
   }
 
   /* 한 장 요약 — 따로 부른다. 앞부분을 만든 호출은 본문을 못 보므로
-     회의를 관통하는 요약을 쓸 수 없다. 목적이 다르면 호출도 다르다. */
-  if(onStep) onStep(parts.length+3, total);
-  let onePage = cache && await cache.get("one");
-  if(!onePage){
-    onePage = await callDocModel(
-`아래 회의 기록으로 "한 장 요약" 을 만든다. 안 읽은 사람이 30초 안에 회의를 파악하는 글이다.
+     회의를 관통하는 요약을 쓸 수 없다. 목적이 다르면 호출도 다르다.
 
+     처음에는 핵심 절을 앞에 놓고 요약을 시켰더니, 모델이 요약을 쓰는 대신
+     그 절들을 소제목만 ### 으로 바꿔 통째로 베껴 왔다. 그래서 회의록에
+     같은 내용이 이중으로 실렸다. 지금은 상세 기록을 주 재료로 앞에 두고,
+     절 이름을 소제목으로 쓰는 것을 금지하고, 그래도 베껴 오면 걸러낸 뒤
+     한 번 더 시킨다. (캐시 열쇠가 one2 인 것은 베낀 결과가 one 에 저장돼
+     다시 만들기를 눌러도 그대로 나오던 일이 있었기 때문이다.) */
+  if(onStep) onStep(parts.length+3, total);
+  const onePrompt = (warn) =>
+`아래 상세 기록을 읽고 "한 장 요약" 을 새로 써라. 안 읽은 사람이 30초 안에 회의를 파악하는 글이다.
+${warn ? "\n경고: 조금 전 너는 아래 참고 절을 그대로 베꼈다. 베끼지 말고 상세 기록을 근거로 새로 써라.\n" : ""}
+- 소제목은 회의에서 실제로 다룬 주제 이름이다 (예: "수술실 시공", "전기 인입").
+  "지난 회의 후속" "결정사항" "미결사항" "투두리스트" "확인 필요" 를 소제목으로 쓰는 것을 금지한다.
+  그 절들은 이 요약 아래에 이미 그대로 실린다. 여기 옮겨 적으면 같은 내용이 두 번 나온다.
 - 주제별 "### 소제목" + 소제목마다 1~3개 항목. 전체 1,500자 이내.
-- 결정된 것과 기한이 우선이다. 논의 과정은 쓰지 않는다.
-- 숫자·날짜·금액·담당자는 아래 기록 그대로. 없는 내용을 만들지 마라.
+- 항목은 완결된 문장으로: 무엇이 어떻게 되었고 다음이 무엇인지.
+- 숫자·날짜·금액·담당자는 기록 그대로. 없는 내용을 만들지 마라.
 - 소제목과 항목만 내라. 머리말이나 맺음말을 붙이지 마라.
 
----핵심 절 (결정·미결·할 일)---
-${headDoc.slice(0, 6000)}
+---상세 기록 (주 재료)---
+${detail.slice(0, 16000)}
 
----상세 기록---
-${detail.slice(0, 16000)}`, 4000);
-    if(cache) await cache.set("one", onePage);
+---참고: 확정된 결정과 기한 (베끼지 말 것)---
+${headDoc.slice(0, 4000)}`;
+
+  let onePage = cache && await cache.get("one2");
+  if(!onePage){
+    onePage = await callDocModel(onePrompt(false), 4000);
+    if(copiedSections(onePage))                     // 그래도 베꼈다 — 경고를 붙여 한 번 더
+      onePage = await callDocModel(onePrompt(true), 4000);
+    onePage = stripReserved(onePage);               // 남은 베낌은 걸러낸다
+    if(cache) await cache.set("one2", onePage);
   }
 
   const carryAt = headDoc.indexOf("---CARRY---");
