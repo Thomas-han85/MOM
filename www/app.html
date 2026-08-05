@@ -587,7 +587,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-10";
+const APP_VERSION = "2026.08.02-11";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -642,7 +642,29 @@ if(!Array.isArray(CFG.people)) CFG.people = [];
 if(!CFG.trans)  CFG.trans  = "gpt-4o-mini";
 if(!CFG.vision) CFG.vision = "gpt-4o-mini";
 if(!Array.isArray(CFG.series)) CFG.series = [];
-const saveCfg = () => store.set("meetnote_cfg", JSON.stringify(CFG));
+/* 시리즈와 참석자에 "언제 고쳤는지" 를 찍는다.
+
+   두 기기가 같은 시리즈를 고쳤을 때 어느 쪽을 남길지 정하려면 이 값이 있어야 한다.
+   고치는 자리가 열 군데가 넘어서 하나하나 찍게 하면 반드시 하나를 빠뜨린다.
+   그래서 저장할 때 지난번과 달라진 것만 찾아 저절로 찍는다. */
+const bare = o => { const c = Object.assign({}, o); delete c.u; return JSON.stringify(c); };
+let cfgSnap = new Map();
+function stampEdits(){
+  const now = Date.now();
+  let any = false;
+  for(const [list, key] of [[CFG.series,"id"], [CFG.people,"name"]]){
+    for(const x of (list || [])){
+      const k = x && x[key]; if(!k) continue;
+      const id = key + ":" + k, s = bare(x);
+      if(cfgSnap.get(id) !== s){ x.u = now; cfgSnap.set(id, s); any = true; }
+    }
+  }
+  if(any) CFG.sharedU = now;
+}
+function saveCfg(){
+  stampEdits();
+  store.set("meetnote_cfg", JSON.stringify(CFG));
+}
 
 /* ---------- IndexedDB ---------- */
 let db;
@@ -690,19 +712,33 @@ function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d
 /* =====================================================================
    API
    ===================================================================== */
-async function sttChunk(blob, prevTail, ctxHint, terms){
+/* 전사에 함께 보내는 길잡이 글을 짓는다.
+
+   여기 넣은 것은 무엇이든 되뱉힐 수 있다. 소리가 흐릿하면 모델이 받아쓸 것을
+   찾지 못하고 넘겨받은 글을 그대로 답으로 내놓기 때문이다. 실제 회의에서
+   "9월 15일 하수 처리 시스템 화재 안전 검사 최종 보고서" 라는 길잡이가
+   "15월 9일 …" 로 뒤집힌 채 열 번 넘게 전사문에 박혔다.
+
+   그래서 두 가지를 바꿨다.
+     - 앞 구간의 끝말은 더 이상 보내지 않는다. 이것이 되뇜의 씨앗이었다.
+       문장이 조금 덜 매끄러워지는 대신 없는 말이 지어지지 않는다.
+     - 회의 맥락은 짧게 자른다. 길수록 되뱉을 거리가 늘어난다.
+   고유명사 목록은 남긴다. 낱말 나열이라 문장으로 되뱉히는 일이 드물다. */
+function sttPrompt(ctxHint, terms){
+  const uniq = terms && terms.length
+    ? Array.from(new Map(terms.map(t=>[String(t).toLowerCase(), t])).values()) : [];
+  const termLine = uniq.length ? uniq.slice(-40).join(", ") + "." : "";
+  const ctx = String(ctxHint || "").trim().replace(/\s+/g," ").slice(0, 160);
+  return [termLine, ctx].filter(Boolean).join(" ").slice(-500);
+}
+
+async function sttChunk(blob, prompt){
   if(!CFG.oai) throw new Error("OpenAI 키가 없다. 설정에서 입력할 것.");
   const fd = new FormData();
   const ext = (blob.type.includes("wav")?"wav":blob.type.includes("mp4")||blob.type.includes("mp4a")?"mp4":"webm");
   fd.append("file", blob, "seg."+ext);
   fd.append("model", CFG.stt);
   fd.append("response_format","json");
-  // 앞 청크의 꼬리를 프롬프트로 넘겨 문장 연결과 고유명사 표기를 안정시킨다
-  // 시리즈에 누적된 고유명사를 앞에 둔다. 회의를 거듭할수록 인식률이 올라가는 지점.
-  const uniq = terms && terms.length
-    ? Array.from(new Map(terms.map(t=>[String(t).toLowerCase(), t])).values()) : [];
-  const termLine = uniq.length ? uniq.join(", ") + "." : "";
-  const prompt = [termLine, ctxHint||"", prevTail||""].filter(Boolean).join(" ").slice(-880);
   if(prompt) fd.append("prompt", prompt);
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions",{
     method:"POST", headers:{ Authorization:"Bearer "+CFG.oai }, body:fd
@@ -830,17 +866,25 @@ async function loudness(blob){
 const normText = s => (s||"").replace(/[\s.,!?…·"'"'()\[\]]/g,"").toLowerCase();
 
 /* 한 구간 안에서 되풀이되는 말을 한 번만 남긴다. */
+const sentences = t => (t||"").split(/(?<=[.!?。])\s+|\n+/).filter(s=>s.trim());
+
 function dedupeInside(text){
   if(!text) return text;
   // 문장 단위로 끊어 이어지는 같은 문장을 접는다
-  const parts = text.split(/(?<=[.!?。])\s+|\n+/).filter(s=>s.trim());
+  const parts = sentences(text);
   const out = [];
+  /* 한 구간 안에서 같은 대목이 통째로 두 번 나오는 일이 잦다. 바로 앞뿐 아니라
+     이 구간에서 이미 나온 적이 있으면 버린다. 다만 짧은 말은 사람이 실제로
+     되풀이한 것일 수 있으므로 건드리지 않는다. */
+  const seen = new Set();
   for(const p of parts){
     const k = normText(p);
     if(!k) continue;
     const last = out.length ? normText(out[out.length-1]) : "";
     if(k === last) continue;                    // 바로 앞과 같으면 버린다
     if(out.length >= 2 && k === normText(out[out.length-2]) && k === last) continue;
+    if(k.length >= 12 && seen.has(k)) continue; // 이 구간에서 이미 나온 긴 문장
+    seen.add(k);
     out.push(p.trim());
   }
   let joined = out.join(" ");
@@ -869,7 +913,74 @@ function nearSame(a, b){
    너무 짧은 말까지 버리면 "네, 알겠습니다" 같은 진짜 대답이 사라지므로 하한을 둔다. */
 function echoOfPrompt(out, prompt){
   const o = normText(out), p = normText(prompt);
-  return o.length >= 12 && p.length >= 12 && p.includes(o);
+  if(o.length < 12 || p.length < 12) return false;
+  if(p.includes(o)) return true;
+  /* 되뱉으면서 앞뒤를 흐트러뜨리는 일이 있다. 실제로 "9월 15일" 을 "15월 9일" 로
+     뒤집어 내놓은 적이 있다. 없는 달이니 회의에서 나온 말일 리가 없다.
+     그러므로 통째로 같기를 바라지 말고, 가운데가 그대로 들어 있는지를 본다. */
+  const keep = Math.max(12, Math.floor(o.length * 0.6));
+  for(let i = 0; i + keep <= o.length; i++)
+    if(p.includes(o.slice(i, i + keep))) return true;
+  return false;
+}
+
+/* 두 글이 사실상 같은지 너그럽게 본다.
+   낱말 하나가 끼어들거나 빠지는 일이 잦아 글자가 똑같기를 바랄 수 없다. */
+function roughSame(a, b){
+  if(a === b) return true;
+  const lo = Math.min(a.length, b.length), hi = Math.max(a.length, b.length);
+  if(!lo || lo / hi < 0.8) return false;        // 길이부터 너무 다르면 아니다
+  let i = 0; while(i < lo && a[i] === b[i]) i++;  // 앞에서부터 같은 만큼
+  return i / lo >= 0.5;
+}
+
+/* 앞 구간 끝과 겹치는 앞머리를 잘라내고 나머지는 살린다.
+
+   여태는 겹치면 그 구간을 통째로 버렸다. 그런데 겹치는 구간은 대개
+   "앞 구간 전체 + 새로 한 말" 꼴이다. 통째로 버리면 뒤에 붙은 새 말까지
+   함께 사라진다. 전사가 절반만 된 것처럼 보이던 까닭이 이것이다.
+   버리지 말고 겹친 만큼만 덜어 내야 한다. */
+function stripOverlap(cur, prev){
+  if(!cur || !prev) return cur;
+  const p = normText(prev);
+
+  /* 먼저 문장 단위로 덜어 낸다. 문장 경계에서 자르면 낱말이 잘려 나가지 않는다. */
+  const ss = sentences(cur);
+  if(ss.length > 1){
+    let i = 0;
+    while(i < ss.length){
+      const k = normText(ss[i]);
+      if(k.length >= 12 && (p.includes(k) || roughSame(k, p))) i++;
+      else break;
+    }
+    if(i > 0) return ss.slice(i).join(" ").trim();
+  }
+
+  /* 문장부호가 없는 구간을 위한 대비책. 낱말 수로 견준다. */
+  const cw = cur.trim().split(/\s+/), pw = prev.trim().split(/\s+/);
+  const max = Math.min(cw.length, pw.length, 150);
+  for(let n = max; n >= 6; n--){
+    const a = normText(pw.slice(pw.length - n).join(""));   // 앞 구간의 끝 n 낱말
+    const b = normText(cw.slice(0, n).join(""));            // 이 구간의 앞 n 낱말
+    if(a.length < 20 || b.length < 20) continue;
+    if(!roughSame(a, b)) continue;
+    /* 겹친 자리를 셈하다 보면 한 낱말을 더 집어삼키는 수가 있다. 앞 구간에
+       없는 낱말까지 덜어 내지 않도록 되돌린다. 한 글자라도 덜 잃는 편이 낫다. */
+    let cut = n;
+    while(cut > 0 && !p.includes(normText(cw[cut-1]))) cut--;
+    return cw.slice(cut).join(" ").trim();
+  }
+  return cur;
+}
+
+/* 길잡이 글을 되뱉은 문장만 덜어 낸다.
+   구간을 통째로 버리면 그 안에 섞인 진짜 말까지 사라진다. */
+function stripPromptEcho(text, prompt){
+  if(!text || !prompt) return text;
+  const ss = sentences(text);
+  if(ss.length <= 1) return echoOfPrompt(text, prompt) ? "" : text;
+  const kept = ss.filter(s => !echoOfPrompt(s, prompt));
+  return kept.join(" ").trim();
 }
 
 /* 우리가 방금 읽어 준 말을 적어 둔다.
@@ -882,6 +993,7 @@ const SKIP_WHY = {
   quiet:  "(조용해서 건너뜀)",
   prompt: "(앞말을 되뱉은 것이라 버림)",
   repeat: "(앞 구간과 같은 말이라 버림)",
+  trim:   "",   // 겹친 앞머리만 덜어 냈다. 남은 말은 그대로 있으므로 알릴 것이 없다.
   tts:    "(읽어 준 소리가 되울린 것이라 버림)"
 };
 
@@ -2144,6 +2256,66 @@ async function unpackNote(p){
 let syncing = false, lastSync = 0;
 const TOMB = "tombstones.json";
 
+/* =====================================================================
+   회의 시리즈와 참석자도 맞춘다
+
+   여태 드라이브에는 회의록만 올렸다. 시리즈와 참석자는 설정에 들어 있어서
+   올라가지 않았다. 그래서 폰에서 시리즈로 묶어 둔 회의가 랩탑에서는 기록만
+   보이고 시리즈는 없었다. 회의록 안에는 시리즈 번호만 적혀 있는데, 그 번호가
+   가리킬 시리즈가 랩탑에 없으니 없는 것으로 보이는 것이다.
+
+   열쇠는 올리지 않는다. 그것은 기기마다 따로 넣는 것이다.
+   ===================================================================== */
+const SHARED = "shared.json";
+
+/* 고친 시각을 적어 둔다. 두 기기가 같은 것을 고쳤을 때 나중 것을 남기려면 필요하다. */
+function touchShared(){ CFG.sharedU = Date.now(); saveCfg(); }
+
+/* 같은 것을 골라 나중에 고친 쪽을 남긴다. 한쪽에만 있는 것은 그대로 살린다. */
+function mergeBy(mine, theirs, key, gone){
+  const out = new Map();
+  for(const x of [...(theirs||[]), ...(mine||[])]){
+    const k = x && x[key];
+    if(!k || (gone && gone.has(String(k)))) continue;
+    const cur = out.get(k);
+    if(!cur || (x.u||0) >= (cur.u||0)) out.set(k, x);   // 같으면 이 기기 것을 남긴다
+  }
+  return [...out.values()];
+}
+
+async function syncShared(byName){
+  const f = byName[SHARED];
+  let remote = null;
+  if(f){ try{ remote = await dRead(f.id); }catch(e){} }
+
+  // 어느 쪽에서든 지운 것은 되살리지 않는다
+  const gone = {
+    series: new Set([...(CFG.goneSeries||[]), ...((remote&&remote.goneSeries)||[])].map(String)),
+    people: new Set([...(CFG.gonePeople||[]), ...((remote&&remote.gonePeople)||[])].map(String))
+  };
+
+  const series = mergeBy(CFG.series, remote && remote.series, "id",   gone.series);
+  const people = mergeBy(CFG.people, remote && remote.people, "name", gone.people);
+
+  const changed = JSON.stringify(series) !== JSON.stringify(CFG.series)
+               || JSON.stringify(people) !== JSON.stringify(CFG.people);
+  CFG.series = series; CFG.people = people;
+  CFG.goneSeries = [...gone.series].slice(-200);
+  CFG.gonePeople = [...gone.people].slice(-200);
+  saveCfg();
+
+  // 이 기기 것이 더 새것이거나 드라이브에 아직 없으면 올린다
+  const mineU = CFG.sharedU || 0;
+  const remoteU = f ? +((f.appProperties||{}).u || 0) : -1;
+  if(!f || mineU > remoteU || changed){
+    await dWrite(f ? f.id : null, SHARED,
+      { series, people, goneSeries: CFG.goneSeries, gonePeople: CFG.gonePeople },
+      Math.max(mineU, Date.now()));
+    CFG.sharedU = Date.now(); saveCfg();
+  }
+  return changed;
+}
+
 async function syncDrive(manual){
   if(syncing || !driveOn() || !navigator.onLine) return;
   syncing = true;
@@ -2215,11 +2387,20 @@ async function syncDrive(manual){
       store.set("mn_tombs","[]");
     }
 
+    // 시리즈와 참석자도 맞춘다. 회의록만 와서는 시리즈가 빈 채로 보인다.
+    let sharedChanged = false;
+    try{ sharedChanged = await syncShared(byName); }catch(e){}
+
     lastSync = Date.now();
     paintSync("맞췄다 · "+timeLabel(lastSync));
     await refreshList();
     if(openId) renderDetail();
-    if(manual) toast("드라이브와 맞췄다.");
+    if(sharedChanged){
+      // 설정 화면이 열려 있으면 새로 온 시리즈·참석자를 바로 비춘다
+      if($("v-settings").classList.contains("on")){ renderSeriesList(); renderPeople(); }
+      if(!recording) renderSeriesPicker($("r-series") ? $("r-series").value : "");
+    }
+    if(manual) toast(sharedChanged ? "드라이브와 맞췄다. 시리즈와 참석자도 가져왔다." : "드라이브와 맞췄다.");
   }catch(e){
     paintSync("실패 · "+(e.message||e));
     if(manual) toast(e.message||"동기화 실패", 6000);
@@ -2475,11 +2656,12 @@ async function drain(){
              - 꼬리를 짧게 보낸다. 400자는 통째로 되뱉기 좋은 길이다.
              - 되뇜이 시작되면 꼬리를 아예 끊는다. 불씨를 뺀다.
              - 돌아온 말이 보낸 프롬프트 안에 들어 있으면 되뱉은 것으로 보고 버린다. */
-        const spiral = before.slice(-2).filter(s=>s.skip==="prompt"||s.skip==="repeat").length >= 2;
-        const tail = (prev && !spiral) ? prev.text.slice(-200) : "";
-
         const ser = note.seriesId ? findSeries(note.seriesId) : null;
         const terms = [...(note.terms||[]), ...((ser && ser.terms) || [])];
+
+        /* 되뇜이 이어지면 길잡이 글을 아예 끊는다. 불씨를 뺀다. */
+        const spiral = before.slice(-2).filter(s=>s.skip==="prompt").length >= 2;
+        const prompt = spiral ? "" : sttPrompt(note.ctx, terms);
 
         c.skip = "";
         /* 조용한 구간은 보내지 않는다. 모델이 침묵을 앞말의 되뇜으로 채우기 때문이다. */
@@ -2487,12 +2669,22 @@ async function drain(){
         if(rms !== null && rms < 0.004){
           c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
         } else {
-          const raw = await sttChunk(c.blob, tail, note.ctx, terms);
+          const raw = await sttChunk(c.blob, prompt);
           let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
 
-          if(txt && tail && echoOfPrompt(txt, tail)){      // 보낸 글을 그대로 되뱉었다
-            txt = ""; c.skip = "prompt";
-          } else if(txt && recent.some(s=>nearSame(txt, s.text))){
+          /* 앞 구간과 겹치는 앞머리는 덜어 내되, 뒤에 붙은 새 말은 살린다.
+             통째로 버리면 그 새 말까지 함께 사라진다. */
+          if(txt && prev){
+            const kept = stripOverlap(txt, prev.text);
+            if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "repeat"; }
+          }
+
+          if(txt && prompt){
+            const kept = stripPromptEcho(txt, prompt);     // 되뱉은 문장만 덜어 낸다
+            if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "prompt"; }
+          }
+
+          if(txt && recent.some(s=>nearSame(txt, s.text))){
             txt = ""; c.skip = "repeat";                   // 앞 네 구간 중 하나와 같은 말
           } else if(txt && spokenLately(txt)){
             txt = ""; c.skip = "tts";                      // 우리가 읽어 준 소리를 마이크가 되주웠다
