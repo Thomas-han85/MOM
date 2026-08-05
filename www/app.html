@@ -656,7 +656,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-9";
+const APP_VERSION = "2026.08.05-10";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2286,6 +2286,29 @@ ${body}`, 12000);
   }catch(e){ return doc; }   // 검수가 실패해도 초안은 살아야 한다
 }
 
+/* "## 이름" 절을 통째로 들어낸다. 다음 "## " 절 직전까지가 그 절이다. */
+function cutSection(text, name){
+  const re = new RegExp("(^|\\n)##\\s*" + name + "\\s*[\\s\\S]*?(?=\\n##\\s|$)", "g");
+  return String(text||"").replace(re, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* 같은 "## 절" 이 두 번 나오면 뒤의 것을 버린다. 마지막 안전망이다. */
+function dedupeTopSections(doc){
+  const seen = new Set();
+  const parts = String(doc||"").split(/\n(?=## )/);
+  const out = [];
+  for(const p of parts){
+    const m = /^##\s*([^\n]+)/.exec(p);
+    if(m){
+      const k = normText(m[1]);
+      if(seen.has(k)) continue;
+      seen.add(k);
+    }
+    out.push(p);
+  }
+  return out.join("\n");
+}
+
 /* ### 소제목 단위로 갈라 같은 이름끼리 합친다.
    묶음을 나눠 병합하면 앞 묶음과 뒤 묶음이 같은 소제목을 낼 수 있다.
    모델에게 "앞에서 쓴 소제목을 그대로 다시 쓰라" 고 시켰으므로,
@@ -2365,7 +2388,8 @@ async function makeMinutes(note, fullText, onStep, cache){
   // 짧은 회의는 한 번에 처리하는 편이 흐름이 매끄럽다.
   if(fullText.length <= S.seg * 2){
     const draft = await callDocModel(minutesPrompt(note, fullText), 12000);
-    return reviewDoc(note, draft, fullText, ()=> onStep && onStep(2, 2));
+    const done = await reviewDoc(note, draft, fullText, ()=> onStep && onStep(2, 2));
+    return dedupeTopSections(done);
   }
 
   const parts = splitParts(fullText, S.seg);
@@ -2429,10 +2453,18 @@ ${detail.slice(0, 16000)}`, 4000);
   }
 
   const carryAt = headDoc.indexOf("---CARRY---");
-  const headBody = (carryAt >= 0 ? headDoc.slice(0, carryAt) : headDoc).trim();
+  let headBody = (carryAt >= 0 ? headDoc.slice(0, carryAt) : headDoc).trim();
   const carryTail = carryAt >= 0 ? "\n\n" + headDoc.slice(carryAt) : "";
-  return "## 한 장 요약\n\n" + onePage.trim() + "\n\n"
-       + headBody + "\n\n## 상세 기록\n\n" + detail + carryTail;
+
+  /* 앞부분 호출에 "한 장 요약과 상세 기록은 쓰지 마라" 고 일렀는데도
+     쓰는 경우가 있다. 그대로 붙이면 한 장 요약이 두 번 나온다.
+     지시는 지시대로 두고, 나온 것은 여기서 들어낸다. */
+  headBody = cutSection(cutSection(headBody, "한 장 요약"), "상세 기록");
+  const one = onePage.trim().replace(/^##\s*한\s*장\s*요약\s*\n+/, "");
+
+  return dedupeTopSections(
+    "## 한 장 요약\n\n" + one + "\n\n"
+    + headBody + "\n\n## 상세 기록\n\n" + detail) + carryTail;
 }
 
 /* =====================================================================
