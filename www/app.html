@@ -589,7 +589,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-3";
+const APP_VERSION = "2026.08.05-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1505,7 +1505,7 @@ const docSize = n => DOC_SIZES[(n && n.docSize) || "normal"];
 /* 지시문을 고치면 이 값을 올린다. 만들다 만 조각을 이어 쓰는 장치가 형식·분량·길이만
    보고 같으면 다시 만들지 않는데, 그 탓에 지시문을 고쳐도 옛 조각이 그대로 쓰였다.
    고친 것이 반영되지 않는 것을 오래 눈치채지 못했다. */
-const PROMPT_VER = 4;   // 지시문을 고치면 올린다. 묵은 조각이 새 지시문과 섞이면 안 된다.
+const PROMPT_VER = 5;   // 지시문을 고치면 올린다. 묵은 조각이 새 지시문과 섞이면 안 된다.
 
 function summaryPrompt(note, fullText){
   const people = attendeeBlock(note);
@@ -1670,11 +1670,20 @@ async function callDocOnce(prompt, budget){
   return ((await r.json()).choices?.[0]?.message?.content||"").trim();
 }
 
+/* 시리즈의 지난 회의록. 이번 회의를 그 뒤에 이어 붙이기 위한 것이다. */
+function prevDoc(note){
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  if(!ser || !ser.lastDoc) return null;
+  return { doc: ser.lastDoc,
+           when: [ser.lastDate, ser.lastTitle].filter(Boolean).join(" · ") || "직전 회의" };
+}
+
 function minutesPrompt(note, fullText){
   const people = attendeeBlock(note);
   const marks = (note.marks||[]).map(m=>mmss(m)).join(", ");
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
   const carry = ser && ser.carry ? ser.carry : "";
+  const prev = prevDoc(note);
   const brief = (note.brief || "").slice(0, 12000);
   const prompt =
 `아래는 회의 녹음을 전사한 원문이다. 이것을 회의록으로 정리해라.
@@ -1704,6 +1713,18 @@ ${brief}
 회의록 본문에 옮겨 적지 마라. 회의록은 어디까지나 전사문에 근거해야 한다.
 자료에 안건이나 확인 예정 항목이 있으면, 회의록 맨 앞에 "## 안건 처리 현황" 절을 두고
 항목별로 이번 회의에서 다뤄졌는지 결과를 적어라. 다뤄지지 않은 항목은 "미논의" 라고 명시해라.
+
+` : ""}${prev ? `지난 회의록 (${prev.when})
+"""
+${prev.doc}
+"""
+
+이것은 같은 시리즈의 바로 앞 회의 기록이다. 이렇게 써라.
+- 같은 사안이 이번에도 나오면 지난번에 어디까지 갔는지 알고 이어서 써라.
+  "지난 회의에서 A로 정했는데 이번에 B로 바뀌었다" 처럼 변화가 드러나게 적어라.
+- 사람 이름, 회사 이름, 현장 용어의 표기를 지난 회의록과 똑같이 맞춰라.
+- 지난 회의록의 내용을 이번 회의에서 오간 말인 것처럼 옮겨 적지 마라.
+  이번 회의록의 근거는 오직 아래 전사문이다.
 
 ` : ""}${carry ? `지난 회의에서 넘어온 미결 사항
 ${carry}
@@ -1820,9 +1841,19 @@ ${seg}`;
 function reducePrompt(note, digests){
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
   const carry = ser && ser.carry ? ser.carry : "";
+  const prev = prevDoc(note);
   return `아래는 회의를 구간별로 정리한 기록이다. 이것을 근거로 회의록의 앞부분을 만든다.
 
-${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${carry ? `지난 회의에서 넘어온 미결 사항
+${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${prev ? `지난 회의록 (${prev.when})
+"""
+${prev.doc.slice(0, 4000)}
+"""
+
+같은 시리즈의 앞 회의다. 같은 사안이 이번에도 나오면 지난번에 어디까지 갔는지 알고
+이어서 써라. 이름과 용어 표기를 지난 회의록과 맞춰라.
+다만 지난 회의록의 내용을 이번 회의에서 오간 말인 것처럼 옮겨 적지 마라.
+
+` : ""}${carry ? `지난 회의에서 넘어온 미결 사항
 ${carry}
 
 이 항목들이 이번 회의에서 다뤄졌는지 확인해 "## 지난 회의 후속" 절에 결과를 적는다.
@@ -3574,12 +3605,14 @@ function seriesRow(n){
   let note = "";
   if(s){
     const bits = [];
+    if(s.lastDoc) bits.push("지난 회의록을 읽고 이어서 쓴다");
+    if(s.carry)   bits.push("미결 사항이 넘어온다");
     if((s.voices || []).length) bits.push("목소리 " + s.voices.length + "명 기억함");
     if((s.terms  || []).length) bits.push("고유명사 " + s.terms.length + "개");
-    if(s.carry) bits.push("미결 사항이 다음 회의록으로 넘어간다");
-    note = bits.length ? bits.join(" · ") : "아직 쌓인 것이 없다.";
+    note = bits.length ? bits.join(" · ")
+                       : "아직 쌓인 것이 없다. 이 회의로 회의록을 만들면 다음 회의가 이어받는다.";
   } else {
-    note = "묶어 두면 참석자와 고유명사가 쌓이고, 화자 이름을 다음 회의가 알아본다.";
+    note = "묶어 두면 지난 회의록과 미결 사항을 이어받고, 참석자·용어·화자 이름도 쌓인다.";
   }
   return '<div class="serrow"><span>회의 시리즈</span>'
        + '<select id="d-ser">' + opts + '</select></div>'
@@ -3992,6 +4025,14 @@ async function genMinutes(n, cs, btn, target){
       const s = findSeries(n.seriesId);
       if(s){ s.count = (s.count||0)+1; s.lastAt = Date.now();
              s.ctx = n.ctx || s.ctx; s.target = n.target; s.attendees = n.attendees || [];
+             /* 지난 회의록 본문을 남겨 둔다. 미결 사항 몇 줄만으로는 다음 회의가
+                "지난번에 이 얘기가 어떻게 흘렀는지" 를 모른다. 같은 사안이 다시
+                나왔을 때 이어서 쓰려면 앞 회의록을 읽고 있어야 한다.
+                ---CARRY--- 블록은 사람이 읽는 글이 아니므로 떼고 담는다. */
+             const cut = body.indexOf("---CARRY---");
+             s.lastDoc = (cut >= 0 ? body.slice(0, cut) : body).trim().slice(0, 6000);
+             s.lastTitle = n.title;
+             s.lastDate = dayLabel(n.created);
              saveCfg(); }
     }
     renderDetail();
