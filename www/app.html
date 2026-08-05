@@ -587,7 +587,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.02-13";
+const APP_VERSION = "2026.08.02-14";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1060,8 +1060,7 @@ function ttsEchoSeen(){
   if(ttsSuspended || ttsEchoes < 3) return;
   ttsSuspended = true;
   ttsStop();
-  toast("읽어 주는 소리가 마이크로 되들어오고 있다. 이 녹음 동안 읽어주기를 멈춘다. "+
-        "이어폰을 쓰면 계속 들을 수 있다.", 9000);
+  toast("통역해 준 말이 전사에 자꾸 섞여 들어온다. 기록을 지키려고 이 녹음 동안 읽어주기를 멈춘다.", 9000);
   paintStrips();
 }
 
@@ -1477,7 +1476,7 @@ const docSize = n => DOC_SIZES[(n && n.docSize) || "normal"];
 /* 지시문을 고치면 이 값을 올린다. 만들다 만 조각을 이어 쓰는 장치가 형식·분량·길이만
    보고 같으면 다시 만들지 않는데, 그 탓에 지시문을 고쳐도 옛 조각이 그대로 쓰였다.
    고친 것이 반영되지 않는 것을 오래 눈치채지 못했다. */
-const PROMPT_VER = 3;
+const PROMPT_VER = 4;   // 지시문을 고치면 올린다. 묵은 조각이 새 지시문과 섞이면 안 된다.
 
 function summaryPrompt(note, fullText){
   const people = attendeeBlock(note);
@@ -1517,6 +1516,10 @@ ${brief}
   쓰는 것은 흔한 실패다. 마지막 대목까지 같은 밀도로 써라.
 - 회의록 형식(결정사항·투두 같은 절)을 쓰지 마라. 이 자리에는 그런 것이 없다.
 - 전사문에 없는 내용을 지어내지 마라. 없는 것을 채우지 말고, 있는 것을 빠뜨리지 마라.
+- 전사문의 흠: 같은 문장이 두세 번 반복되면 한 번 말한 것이다. 맥락 없이 튀는
+  다른 언어 한 줄이나 자막 투 문구는 전사 오류이니 무시해라. 여러 언어가 섞여 있으면
+  같은 내용이 통역으로 두 번 나온 것일 수 있다. 한 번만 반영해라.
+- 숫자·날짜·금액은 들리는 대로 정확히 옮기고 바꾸지 마라.
 
 출력 형식
 
@@ -1647,6 +1650,14 @@ function minutesPrompt(note, fullText){
   const prompt =
 `아래는 회의 녹음을 전사한 원문이다. 이것을 회의록으로 정리해라.
 
+전사문을 다룰 때 지킬 것:
+- 기계가 받아쓴 글이라 흠이 있다. 같은 문장이 두세 번 반복되면 한 번 말한 것이다.
+  맥락 없이 튀는 다른 언어 한 줄, 자막 투 문구("구독", "시청해 주셔서")는 전사 오류이니 무시해라.
+- 숫자·날짜·금액·기한은 이 회의록의 생명이다. 들리는 대로 정확히 옮기고 절대 바꾸거나
+  어림잡지 마라. 화폐 단위(tỷ, 억, $)와 날짜는 말한 그대로 둔다. 40 tỷ 를 400억으로 바꾸지 마라.
+- 여러 언어가 섞여 있으면 같은 내용이 통역으로 두 번 나온 것일 수 있다. 한 번만 반영해라.
+- 사람 이름과 회사 이름은 전사문에 나온 표기 그대로 쓴다.
+
 ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${people ? `참석자
 ${people}
 
@@ -1749,6 +1760,11 @@ function digestPrompt(note, seg, i, total){
 ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}
 전체를 줄이려 하지 마라. 전체는 나중에 따로 정리한다. 너는 이 대목만 맡으면 된다.
 분량 기준: ${S.rule}
+
+전사문의 흠을 알아 두어라: 같은 문장이 두세 번 반복되면 한 번 말한 것이다.
+맥락 없이 튀는 다른 언어 한 줄이나 자막 투 문구는 전사 오류이니 무시해라.
+여러 언어가 섞여 있으면 같은 내용이 통역으로 두 번 나온 것일 수 있다. 한 번만 반영해라.
+숫자·날짜·금액·기한은 들리는 대로 정확히 옮기고 바꾸지 마라. 화폐 단위는 말한 그대로 둔다.
 
 아래 형식 그대로 쓴다. 해당 없는 절은 "없음" 이라고 적는다.
 
@@ -2730,10 +2746,13 @@ async function drain(){
            예전의 붙박이 기준은 아래쪽 한계로만 남긴다. */
         const rms = await loudness(c.blob);
         c.rms = rms;
+        /* 기준은 넉넉히 낮게 잡는다. 멀리 앉은 사람의 작은 목소리를 조용함으로
+           잘못 판정해 버리면, 지어낸 말 하나 막자고 진짜 발언을 잃는 것이다.
+           그 손해가 훨씬 크다. 애매하면 보낸다. */
         const levels = before.filter(s=>s.text && typeof s.rms === "number")
                              .map(s=>s.rms).sort((a,b)=>a-b);
-        const typical = levels.length >= 5 ? levels[Math.floor(levels.length/2)] : 0;
-        const floor = Math.max(0.004, typical * 0.25);
+        const typical = levels.length >= 8 ? levels[Math.floor(levels.length/2)] : 0;
+        const floor = Math.max(0.004, typical * 0.12);
 
         if(rms !== null && rms < floor){
           c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
@@ -3503,24 +3522,29 @@ function wireSeriesRow(n){
     let id = el.value;
 
     if(id === "__new"){
-      const name = prompt("시리즈 이름 (예: 현장 주간회의)");
-      if(!name || !name.trim()){ el.value = n.seriesId || ""; return; }
-      const s = { id:uid(), name:name.trim(), ctx:"", attendees:[], target:"",
-                  terms:[], carry:"", count:0, lastAt:0 };
-      CFG.series.push(s); saveCfg();
-      id = s.id;
+      askText("새 시리즈 이름", "예: 현장 주간회의", async name => {
+        const s = { id:uid(), name, ctx:"", attendees:[], target:"",
+                    terms:[], carry:"", count:0, lastAt:0 };
+        CFG.series.push(s); saveCfg();
+        await attach(s.id);
+      });
+      el.value = n.seriesId || "";   // 입력창이 떠 있는 동안은 원래대로 보인다
+      return;
     }
+    await attach(id);
 
-    if(id === n.seriesId) return;
-    n.seriesId = id;
-    n.serAbsorbed = "";              // 시리즈가 바뀌었으니 다시 옮겨야 한다
-    const moved = id ? absorbIntoSeries(n) : "";
-    await put("notes", n);
+    async function attach(id){
+      if(id === n.seriesId) return;
+      n.seriesId = id;
+      n.serAbsorbed = "";            // 시리즈가 바뀌었으니 다시 옮겨야 한다
+      const moved = id ? absorbIntoSeries(n) : "";
+      await put("notes", n);
 
-    renderDetail(); syncDrive(false);
-    if(!id) toast("시리즈에서 뺐다.");
-    else toast(moved ? "시리즈에 넣었다. " + moved + " 을(를) 시리즈로 옮겼다."
-                     : "시리즈에 넣었다. 다음 회의가 이 회의를 이어받는다.", 5000);
+      renderDetail(); syncDrive(false);
+      if(!id) toast("시리즈에서 뺐다.");
+      else toast(moved ? "시리즈에 넣었다. " + moved + " 을(를) 시리즈로 옮겼다."
+                       : "시리즈에 넣었다. 다음 회의가 이 회의를 이어받는다.", 5000);
+    }
   };
 }
 
@@ -4209,6 +4233,34 @@ function sheet(title, items){
   });
 }
 
+/* 글자 하나를 받아 낸다.
+   prompt() 는 쓰지 않는다. 이 WebView 에서 confirm() 이 뜨지 않고 넘어간 적이 있고,
+   prompt() 도 같은 계열이다. 창이 안 뜨면 시리즈가 소리 없이 안 만들어졌다. */
+function askText(title, placeholder, go){
+  const old = $("picksheet"); if(old) old.remove();
+  const d = document.createElement("div");
+  d.id = "picksheet";
+  d.innerHTML =
+    '<div class="scrim on" data-x="1"></div>'+
+    '<div class="sheet on">'+
+      '<div class="grab"></div>'+
+      '<div class="pickhead">'+esc(title)+'</div>'+
+      '<input id="ask-in" type="text" placeholder="'+esc(placeholder||"")+'" '+
+        'style="width:100%;padding:13px 14px;border:1px solid var(--rule);border-radius:11px;'+
+        'background:var(--paper);font-size:16px;margin-bottom:12px">'+
+      '<button class="bigbtn" data-yes="1" style="width:100%;margin:0">만들기</button>'+
+      '<button class="bigbtn ghost" data-x="1" style="width:100%;margin:10px 0 0">그만두기</button>'+
+    '</div>';
+  document.body.appendChild(d);
+  const close = ()=> d.remove();
+  d.querySelectorAll("[data-x]").forEach(b=> b.onclick = close);
+  const inp = d.querySelector("#ask-in");
+  const yes = ()=>{ const v = inp.value.trim(); if(!v){ inp.focus(); return; } close(); go(v); };
+  d.querySelector("[data-yes]").onclick = yes;
+  inp.onkeydown = e => { if(e.key === "Enter") yes(); };
+  setTimeout(()=> inp.focus(), 60);
+}
+
 /* 되돌릴 수 없는 일을 한 번 더 묻는다.
    confirm 은 쓰지 않는다. 이 앱의 WebView 에서 뜨지 않고 넘어간 적이 있다. */
 function confirmSheet(title, body, yes, go){
@@ -4401,12 +4453,14 @@ function renderSeriesPicker(sel){
 function applySeries(){
   const el = $("r-series"), hint = $("series-hint");
   if(el.value === "__new"){
-    const name = prompt("시리즈 이름 (예: 현장 주간회의)");
-    if(!name || !name.trim()){ el.value = ""; hint.textContent=""; return; }
-    const s = { id:uid(), name:name.trim(), ctx:"", attendees:[], target:"",
-                terms:[], carry:"", count:0, lastAt:0 };
-    CFG.series.push(s); saveCfg();
-    renderSeriesPicker(s.id);
+    el.value = ""; hint.textContent = "";
+    askText("새 시리즈 이름", "예: 현장 주간회의", name => {
+      const s = { id:uid(), name, ctx:"", attendees:[], target:"",
+                  terms:[], carry:"", count:0, lastAt:0 };
+      CFG.series.push(s); saveCfg();
+      renderSeriesPicker(s.id);
+      toast("시리즈 「"+name+"」 을(를) 만들었다. 이 회의부터 여기에 쌓인다.", 4000);
+    });
     return;
   }
   const s = findSeries(el.value);
