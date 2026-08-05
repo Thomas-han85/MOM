@@ -649,7 +649,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-6";
+const APP_VERSION = "2026.08.05-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3613,6 +3613,7 @@ function migrateDocs(n){
 }
 let docPicking = false;
 let docEditing = "";   // 지금 고쳐 쓰는 중인 문서 id
+let docEditBuf = null; // 고치던 글. 화면을 다시 그려도 잃지 않게 들고 있는다
 let scriptView = true;   // 화자 분리를 마쳤으면 그쪽을 먼저 보여 준다
 
 /* 원본 탭의 화자 분리 조작들 */
@@ -4000,13 +4001,16 @@ async function renderDetail(){
        특히 이 회의록은 다음 회의로 넘어가므로, 틀린 채로 두면 그 틀림이
        다음 회의록에도 옮겨 간다. 고치는 자리는 읽는 자리 바로 옆이어야 한다. */
     const editing = docEditing === cur.id;
+    /* 고치던 글은 화면을 다시 그려도 남아 있어야 한다. 다른 문서를 잠깐 보고
+       돌아왔을 때 쓰던 것이 사라지면, 그것도 소리 없이 사라진다. */
+    const shown = (editing && docEditBuf && docEditBuf.id === cur.id) ? docEditBuf.text : body;
     doc = docChips + tabs + bar + (cur.form==="minutes" && !editing ? statBar(body) : "")+
       (editing
         ? '<div style="padding:12px 18px 0">'+
             '<textarea id="doc-edit" style="width:100%;min-height:56vh;padding:14px;'+
             'border:1px solid var(--rule);border-radius:11px;background:var(--paper);'+
             'font-size:15px;line-height:1.75;resize:vertical;font-family:inherit">'+
-            esc(body)+'</textarea>'+
+            esc(shown)+'</textarea>'+
             '<p class="hint" style="margin:8px 0 0">마크다운 그대로다. '+
             '## 은 절 제목, - 은 항목이다. 절 이름은 바꾸지 않는 편이 낫다.'+
             (vl==="__src__" ? '' : ' 지금 고치는 것은 번역본이다.')+'</p>'+
@@ -4042,9 +4046,16 @@ async function renderDetail(){
 
   /* --- 고쳐 쓰기 --- */
   const de = $("doc-edit-go");
-  if(de) de.onclick = ()=>{ docEditing = cur.id; renderDetail(); };
+  if(de) de.onclick = ()=>{ docEditing = cur.id; docEditBuf = null; renderDetail(); };
   const dc = $("doc-cancel");
-  if(dc) dc.onclick = ()=>{ docEditing = ""; renderDetail(); };
+  if(dc) dc.onclick = ()=>{
+    const box = $("doc-edit");
+    const changed = box && docEditBuf && box.value !== undefined;
+    docEditing = ""; docEditBuf = null; renderDetail();
+    if(changed) toast("고치던 것을 버렸다.");
+  };
+  const eb = $("doc-edit");
+  if(eb) eb.oninput = ()=>{ docEditBuf = { id: cur.id, text: eb.value }; };
   const ds = $("doc-save");
   if(ds) ds.onclick = async ()=>{
     const box = $("doc-edit"); if(!box || !cur) return;
@@ -4075,7 +4086,7 @@ async function renderDetail(){
       }
     }
 
-    docEditing = "";
+    docEditing = ""; docEditBuf = null;
     await put("notes", n);
     renderDetail(); syncDrive(false);
     toast(toSeries ? "고쳤다. 다음 회의가 이 고친 회의록을 이어받는다."
