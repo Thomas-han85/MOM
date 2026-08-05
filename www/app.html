@@ -649,7 +649,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-7";
+const APP_VERSION = "2026.08.05-8";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -4004,7 +4004,17 @@ async function renderDetail(){
     /* 고치던 글은 화면을 다시 그려도 남아 있어야 한다. 다른 문서를 잠깐 보고
        돌아왔을 때 쓰던 것이 사라지면, 그것도 소리 없이 사라진다. */
     const shown = (editing && docEditBuf && docEditBuf.id === cur.id) ? docEditBuf.text : body;
+    /* 긴 회의록은 맨 아래까지 한참 내려야 한다. 읽다가 고칠 데를 발견했을 때
+       바로 누를 수 있게 위에도 하나 둔다. 아래 것과 같은 일을 한다. */
+    const topEdit = editing ? "" :
+      '<div style="display:flex;justify-content:flex-end;padding:8px 18px 0">'+
+        '<button class="linkbtn" id="doc-edit-top" '+
+        'style="padding:6px 13px;border:1px solid var(--rule);border-radius:999px;'+
+        'font-size:12.5px">고쳐 쓰기</button>'+
+      '</div>';
+
     doc = docChips + tabs + bar + (cur.form==="minutes" && !editing ? statBar(body) : "")+
+      topEdit +
       (editing
         ? '<div style="padding:12px 18px 0">'+
             '<textarea id="doc-edit" style="width:100%;min-height:56vh;padding:14px;'+
@@ -4045,8 +4055,11 @@ async function renderDetail(){
   if(dp) dp.onclick = async ()=>{ n.draft = null; await put("notes", n); renderDetail(); };
 
   /* --- 고쳐 쓰기 --- */
+  const startEdit = ()=>{ docEditing = cur.id; docEditBuf = null; renderDetail(); scrollTo(0,0); };
   const de = $("doc-edit-go");
-  if(de) de.onclick = ()=>{ docEditing = cur.id; docEditBuf = null; renderDetail(); };
+  if(de) de.onclick = startEdit;
+  const dt = $("doc-edit-top");
+  if(dt) dt.onclick = startEdit;
   const dc = $("doc-cancel");
   if(dc) dc.onclick = ()=>{
     const box = $("doc-edit");
