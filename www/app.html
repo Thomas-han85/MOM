@@ -589,7 +589,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-4";
+const APP_VERSION = "2026.08.05-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1675,6 +1675,7 @@ function prevDoc(note){
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
   if(!ser || !ser.lastDoc) return null;
   return { doc: ser.lastDoc,
+           checked: !!ser.lastChecked,   // 사람이 고쳐서 확인한 기록인가
            when: [ser.lastDate, ser.lastTitle].filter(Boolean).join(" · ") || "직전 회의" };
 }
 
@@ -1714,7 +1715,7 @@ ${brief}
 자료에 안건이나 확인 예정 항목이 있으면, 회의록 맨 앞에 "## 안건 처리 현황" 절을 두고
 항목별로 이번 회의에서 다뤄졌는지 결과를 적어라. 다뤄지지 않은 항목은 "미논의" 라고 명시해라.
 
-` : ""}${prev ? `지난 회의록 (${prev.when})
+` : ""}${prev ? `지난 회의록 (${prev.when})${prev.checked ? " — 사람이 확인한 기록이다" : " — 기계가 쓴 뒤 사람이 확인하지 않은 기록이다. 틀린 데가 있을 수 있으니 이번 전사문과 어긋나면 전사문을 따라라"}
 """
 ${prev.doc}
 """
@@ -3508,6 +3509,7 @@ function migrateDocs(n){
   if(n.docs.length) n.openDoc = n.docs[0].id;
 }
 let docPicking = false;
+let docEditing = "";   // 지금 고쳐 쓰는 중인 문서 id
 let scriptView = true;   // 화자 분리를 마쳤으면 그쪽을 먼저 보여 준다
 
 /* 원본 탭의 화자 분리 조작들 */
@@ -3605,7 +3607,8 @@ function seriesRow(n){
   let note = "";
   if(s){
     const bits = [];
-    if(s.lastDoc) bits.push("지난 회의록을 읽고 이어서 쓴다");
+    if(s.lastDoc) bits.push(s.lastChecked ? "지난 회의록(확인됨)을 이어받는다"
+                                          : "지난 회의록을 이어받는다 · 아직 사람이 확인 안 함");
     if(s.carry)   bits.push("미결 사항이 넘어온다");
     if((s.voices || []).length) bits.push("목소리 " + s.voices.length + "명 기억함");
     if((s.terms  || []).length) bits.push("고유명사 " + s.terms.length + "개");
@@ -3888,8 +3891,27 @@ async function renderDetail(){
     const bar = rawLen ? '<div class="statbar"><span class="stat">전사문 '+rawLen.toLocaleString()+'자</span>'+
       '<span class="stat'+(pct<15?" warn":"")+'">'+(cur.body||"").length.toLocaleString()+
       '자 · 원문의 '+pct+'%</span></div>' : "";
-    doc = docChips + tabs + bar + (cur.form==="minutes" ? statBar(body) : "")+
-      '<div class="doc">'+md(body)+'</div>'+
+    /* 고쳐 쓰기.
+
+       기계가 쓴 회의록은 틀린 데가 있다. 사람이 고칠 수 있어야 한다.
+       특히 이 회의록은 다음 회의로 넘어가므로, 틀린 채로 두면 그 틀림이
+       다음 회의록에도 옮겨 간다. 고치는 자리는 읽는 자리 바로 옆이어야 한다. */
+    const editing = docEditing === cur.id;
+    doc = docChips + tabs + bar + (cur.form==="minutes" && !editing ? statBar(body) : "")+
+      (editing
+        ? '<div style="padding:12px 18px 0">'+
+            '<textarea id="doc-edit" style="width:100%;min-height:56vh;padding:14px;'+
+            'border:1px solid var(--rule);border-radius:11px;background:var(--paper);'+
+            'font-size:15px;line-height:1.75;resize:vertical;font-family:inherit">'+
+            esc(body)+'</textarea>'+
+            '<p class="hint" style="margin:8px 0 0">마크다운 그대로다. '+
+            '## 은 절 제목, - 은 항목이다. 절 이름은 바꾸지 않는 편이 낫다.'+
+            (vl==="__src__" ? '' : ' 지금 고치는 것은 번역본이다.')+'</p>'+
+            '<button class="bigbtn" id="doc-save" style="width:100%;margin:12px 0 0">고친 것 저장</button>'+
+            '<button class="bigbtn ghost" id="doc-cancel" style="width:100%;margin:10px 0 0">그만두기</button>'+
+          '</div>'
+        : '<div class="doc">'+md(body)+'</div>')+
+      (editing ? '' :
       '<div style="padding:0 18px 6px">'+
         '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
         '다른 언어로 만들기 · 직원 공유용</label>'+
@@ -3899,8 +3921,9 @@ async function renderDetail(){
             DOC_LANG[L].label+((cur.i18n||{})[L]?" ✓":"")+'</button>').join("")+
         '</div>'+
       '</div>'+
-      '<button class="bigbtn ghost" id="regen">이 문서 다시 만들기</button>'+
-      '<button class="bigbtn ghost" id="deldoc" style="margin-top:0">이 문서 지우기</button>';
+      '<button class="bigbtn" id="doc-edit-go">고쳐 쓰기</button>'+
+      '<button class="bigbtn ghost" id="regen" style="margin-top:0">이 문서 다시 만들기</button>'+
+      '<button class="bigbtn ghost" id="deldoc" style="margin-top:0">이 문서 지우기</button>');
   } else {
     doc = '<div class="empty">문서가 없다.</div>';
   }
@@ -3913,6 +3936,48 @@ async function renderDetail(){
   });
   const dp = $("drop-draft");
   if(dp) dp.onclick = async ()=>{ n.draft = null; await put("notes", n); renderDetail(); };
+
+  /* --- 고쳐 쓰기 --- */
+  const de = $("doc-edit-go");
+  if(de) de.onclick = ()=>{ docEditing = cur.id; renderDetail(); };
+  const dc = $("doc-cancel");
+  if(dc) dc.onclick = ()=>{ docEditing = ""; renderDetail(); };
+  const ds = $("doc-save");
+  if(ds) ds.onclick = async ()=>{
+    const box = $("doc-edit"); if(!box || !cur) return;
+    const val = box.value.trim();
+    if(!val){ toast("내용이 비었다. 지우려면 '이 문서 지우기' 를 써라.", 5000); return; }
+
+    const vl2 = (cur.viewLang && cur.viewLang !== "__src__") ? cur.viewLang : null;
+    if(vl2){ cur.i18n = Object.assign({}, cur.i18n); cur.i18n[vl2] = val; }
+    else    { cur.body = val; }
+    cur.editedAt = Date.now();
+
+    // 첫 문서를 고쳤으면 내보내기가 쓰는 값도 함께 맞춘다
+    if(!vl2 && n.docs[0] && n.docs[0].id === cur.id) n.summary = val;
+
+    /* 고친 것이 시리즈로 넘어가야 한다. 안 그러면 내가 바로잡은 회의록 대신
+       기계가 쓴 첫 판이 다음 회의로 옮겨 간다. 고친 보람이 없다. */
+    let toSeries = false;
+    if(!vl2 && n.seriesId && cur.form === "minutes"){
+      const s = findSeries(n.seriesId);
+      if(s){
+        const cut = val.indexOf("---CARRY---");
+        s.lastDoc = (cut >= 0 ? val.slice(0, cut) : val).trim().slice(0, 6000);
+        s.lastTitle = n.title; s.lastDate = dayLabel(n.created);
+        s.lastChecked = true;  // 사람이 읽고 고쳤다
+        absorbCarry(n, val);   // 미결 사항도 고친 글에서 다시 뽑는다
+        saveCfg();
+        toSeries = true;
+      }
+    }
+
+    docEditing = "";
+    await put("notes", n);
+    renderDetail(); syncDrive(false);
+    toast(toSeries ? "고쳤다. 다음 회의가 이 고친 회의록을 이어받는다."
+                   : "고쳤다.", 4500);
+  };
   const nd = $("pane-doc").querySelector("[data-newdoc]");
   if(nd) nd.onclick = ()=>{ docPicking = true; renderDetail(); };
   const dd = $("deldoc");
@@ -4033,6 +4098,7 @@ async function genMinutes(n, cs, btn, target){
              s.lastDoc = (cut >= 0 ? body.slice(0, cut) : body).trim().slice(0, 6000);
              s.lastTitle = n.title;
              s.lastDate = dayLabel(n.created);
+             s.lastChecked = false;   // 아직 사람이 안 봤다
              saveCfg(); }
     }
     renderDetail();
