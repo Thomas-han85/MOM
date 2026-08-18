@@ -90,13 +90,13 @@ function check(){
       return r.text();
     })
     .then(function(text){
-      if(!sane(text)) return { status:"bad", message:"받은 파일이 온전하지 않다. 갱신하지 않았다." };
+      if(!sane(text)) return { status:"bad", message:"받은 파일이 온전하지 않습니다. 갱신하지 않았습니다." };
       var v = versionOf(text);
       if(v === window.__mnUpdate.current) {
         window.__mnUpdate.checked = true;
         return { status:"latest", version:v };
       }
-      if(!ls.set(K_APP, text)) return { status:"bad", message:"저장 공간이 부족하다." };
+      if(!ls.set(K_APP, text)) return { status:"bad", message:"저장 공간이 부족합니다." };
       ls.set(K_VER, v);
       window.__mnUpdate.pending = v;
       window.__mnUpdate.checked = true;
@@ -152,7 +152,7 @@ function boot(){
   // 지난 기동이 끝까지 못 갔다. 받아 온 것이 문제였을 가능성이 크다.
   if(ls.get(K_FLAG) === "1"){
     ls.del(K_APP); ls.del(K_VER); ls.del(K_FLAG);
-    msg("지난번 실행이 실패해서 설치된 버전으로 되돌린다…");
+    msg("지난번 실행이 실패해서 설치된 버전으로 되돌립니다…");
   }
 
   var cached = ls.get(K_APP);
@@ -160,10 +160,10 @@ function boot(){
 
   ls.del(K_APP); ls.del(K_VER);
   loadBundled().then(function(html){
-    if(!sane(html)) throw new Error("앱 파일이 손상됐다");
+    if(!sane(html)) throw new Error("앱 파일이 손상됐습니다");
     run(html, false);
   }).catch(function(e){
-    msg("앱을 열지 못했다. " + (e.message || e));
+    msg("앱을 열지 못했습니다. " + (e.message || e));
     var b = document.createElement("button");
     b.textContent = "다시 시도";
     b.onclick = function(){ location.reload(); };

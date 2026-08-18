@@ -38,11 +38,11 @@ public class SharePlugin extends Plugin {
         String text  = call.getString("text", "");
 
         if (text == null || text.trim().isEmpty()) {
-            call.reject("보낼 내용이 없다.");
+            call.reject("보낼 내용이 없습니다.");
             return;
         }
         if (text.length() > MAX_CHARS) {
-            text = text.substring(0, MAX_CHARS) + "\n\n…(너무 길어 여기까지만 보냈다)";
+            text = text.substring(0, MAX_CHARS) + "\n\n…(너무 길어 여기까지만 보냈습니다)";
         }
 
         try {
@@ -63,7 +63,7 @@ public class SharePlugin extends Plugin {
             r.put("shared", true);
             call.resolve(r);
         } catch (Exception e) {
-            call.reject("보내지 못했다: " + e.getMessage());
+            call.reject("보내지 못했습니다: " + e.getMessage());
         }
     }
 }

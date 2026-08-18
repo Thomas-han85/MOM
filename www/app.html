@@ -376,7 +376,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>열쇠</h3>
-      <p class="lead">각자 자기 열쇠를 쓴다. 쓴 만큼 그 계정으로 결제된다. 열쇠는 이 기기에만 저장되고 어디로도 보내지 않는다.</p>
+      <p class="lead">각자 자기 열쇠를 씁니다. 쓴 만큼 그 계정으로 결제됩니다. 열쇠는 이 기기에만 저장되고 어디로도 보내지 않습니다.</p>
       <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 통역, 회의록</label>
         <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
       <div class="field"><label for="s-eleven">ElevenLabs API 키 (선택) · 화자 분리
@@ -386,28 +386,28 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>쓴 돈</h3>
-      <p class="lead">두 곳에서 각각 가져온다. OpenAI 는 실제 청구된 금액, ElevenLabs 는 이번 달 쓴 양이다.
-        앱이 어림한 값이 아니라 그 회사가 계산한 값이다.</p>
+      <p class="lead">두 곳에서 각각 가져옵니다. OpenAI 는 실제 청구된 금액, ElevenLabs 는 이번 달 쓴 양입니다.
+        앱이 어림한 값이 아니라 그 회사가 계산한 값입니다.</p>
       <div id="cost-box" class="costbox">아직 확인하지 않았다.</div>
       <button class="bigbtn ghost" id="s-cost-now" style="width:100%;margin:0 0 14px">지금 확인</button>
 
       <div class="field"><label for="s-oaiadmin">OpenAI 관리자 열쇠 · 청구액 조회용
           <button type="button" id="s-oaiadmin-show" class="linkbtn">보기</button></label>
         <input id="s-oaiadmin" type="password" autocomplete="off" placeholder="sk-admin-..."></div>
-      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없다. 다른 열쇠가 따로 있다.
-        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 만들어 여기에 넣는다.
-        안 넣어도 앱은 그대로 돌아가고, ElevenLabs 쪽만 보인다.</p>
+      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없습니다. 다른 열쇠가 따로 있습니다.
+        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 만들어 여기에 넣습니다.
+        안 넣어도 앱은 그대로 돌아가고, ElevenLabs 쪽만 보입니다.</p>
 
-      <div class="field"><label for="s-budget">월 한도 · 달러 · 비워 두면 알리지 않는다</label>
+      <div class="field"><label for="s-budget">월 한도 · 달러 · 비워 두면 알리지 않습니다</label>
         <input id="s-budget" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 20"></div>
-      <p class="hint">두 곳 다 달러로 청구하므로 달러로 적는다. 한도의 80% 와 100% 에서 첫 화면에 한 줄로 알린다.
-        <strong>녹음이나 회의록을 막지는 않는다.</strong> 회의 도중에 갑자기 멈추면 안 되기 때문이다.
-        실제로 돈이 나가는 것을 막으려면 OpenAI 쪽에서 결제 한도를 걸어야 한다.</p>
+      <p class="hint">두 곳 다 달러로 청구하므로 달러로 적습니다. 한도의 80% 와 100% 에서 첫 화면에 한 줄로 알립니다.
+        <strong>녹음이나 회의록을 막지는 않습니다.</strong> 회의 도중에 갑자기 멈추면 안 되기 때문입니다.
+        실제로 돈이 나가는 것을 막으려면 OpenAI 쪽에서 결제 한도를 걸어야 합니다.</p>
     </div>
 
     <div class="setgroup">
       <h3>정리 품질</h3>
-      <p class="lead">기본은 전부 mini 다. 시간당 약 $0.22. 특정 단계 결과가 아쉬우면 그 항목만 올린다.</p>
+      <p class="lead">기본은 전부 mini 입니다. 시간당 약 $0.22. 특정 단계 결과가 아쉬우면 그 항목만 올립니다.</p>
       <div class="field"><label for="s-stt">전사</label>
         <select id="s-stt">
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분</option>
@@ -424,8 +424,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o · 정확도 우선</option>
         </select></div>
-      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 크다.
-        문서 한 건에 100~200원쯤이다. 전사(위)는 mini 로 두어도 된다 — 비싼 건 그쪽이다.</p>
+      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 큽니다.
+        문서 한 건에 100~200원쯤입니다. 전사(위)는 mini 로 두어도 됩니다 — 비싼 건 그쪽입니다.</p>
       <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
         <select id="s-vision">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -435,9 +435,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>녹음</h3>
-      <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 통역이 정확해진다</label>
+      <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 통역이 정확해집니다</label>
         <select id="s-chunk">
-          <option value="10000">10초 · 대화용 · 문장이 자주 잘린다</option>
+          <option value="10000">10초 · 대화용 · 문장이 자주 잘립니다</option>
           <option value="15000">15초 · 대화용</option>
           <option value="20000">20초 · 회의 중 균형점</option>
           <option value="30000" selected>30초 · 회의록 품질 우선</option>
@@ -446,12 +446,12 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         </select></div>
       <div class="field"><label for="s-awake">녹음 중 화면 켜 두기</label>
         <select id="s-awake">
-          <option value="1">켜기 · 자막이 끊기지 않는다</option>
-          <option value="0">끄기 · 배터리를 아낀다</option>
+          <option value="1">켜기 · 자막이 끊기지 않습니다</option>
+          <option value="0">끄기 · 배터리를 아낍니다</option>
         </select></div>
-      <p class="hint">화면이 꺼지면 전사와 통역이 멈춘다. 녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리한다.
-        <strong>배터리가 걱정되면 이것을 끄지 말고, 녹음 중 아래쪽 [절전] 을 눌러라.</strong>
-        화면을 새까맣게 덮어 배터리를 아끼면서 전사는 그대로 돈다.</p>
+      <p class="hint">화면이 꺼지면 전사와 통역이 멈춥니다. 녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리합니다.
+        <strong>배터리가 걱정되면 이것을 끄지 말고, 녹음 중 아래쪽 [절전] 을 눌러 주세요.</strong>
+        화면을 새까맣게 덮어 배터리를 아끼면서 전사는 그대로 돕니다.</p>
     </div>
 
     <div class="setgroup">
@@ -462,12 +462,12 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="light">밝게</option>
           <option value="dark">어둡게</option>
         </select></div>
-      <p class="hint">고르면 바로 바뀐다. 저장을 안 눌러도 된다.</p>
+      <p class="hint">고르면 바로 바뀝니다. 저장을 안 눌러도 됩니다.</p>
     </div>
 
     <div class="setgroup">
       <h3>읽어주는 목소리</h3>
-      <p class="lead">켜고 끄는 것은 녹음할 때 회의마다 고른다. 여기서는 목소리만 맞춘다.</p>
+      <p class="lead">켜고 끄는 것은 녹음할 때 회의마다 고릅니다. 여기서는 목소리만 맞춥니다.</p>
       <div class="field"><label for="s-ttsrate">읽기 속도</label>
         <select id="s-ttsrate">
           <option value="0.8">0.8배 · 천천히</option>
@@ -483,19 +483,19 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="en-US">English</option>
         </select></div>
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
-      <p class="hint">기기에 내장된 목소리를 쓴다. 무료이고 인터넷 없이도 읽는다. 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아야 한다. 베트남어와 캄보디아어는 따로 받아야 하는 기기가 많다.</p>
+      <p class="hint">기기에 내장된 목소리를 씁니다. 무료이고 인터넷 없이도 읽습니다. 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아 주세요. 베트남어와 캄보디아어는 따로 받아야 하는 기기가 많습니다.</p>
     </div>
 
     <div class="setgroup">
       <h3>용어집</h3>
-      <p class="lead">통역과 번역에서 이 표기를 강제한다. 현장 용어가 매번 다르게 나오는 것을 막는다.</p>
+      <p class="lead">통역과 번역에서 이 표기를 강제합니다. 현장 용어가 매번 다르게 나오는 것을 막습니다.</p>
       <div class="field">
         <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
     </div>
 
     <div class="setgroup">
       <h3>폰과 컴퓨터 연동</h3>
-      <p class="lead">구글 드라이브에 회의록 글자만 올려 두 기기가 같은 내용을 본다. 오디오는 올리지 않는다. 안 써도 앱은 잘 돌아간다.</p>
+      <p class="lead">구글 드라이브에 회의록 글자만 올려 두 기기가 같은 내용을 봅니다. 오디오는 올리지 않습니다. 안 써도 앱은 잘 돌아갑니다.</p>
       <p class="hint" id="g-state">연결 안 됨</p>
       <div class="field"><label for="s-gcid">구글 클라이언트 ID</label>
         <input id="s-gcid" type="text" autocomplete="off" placeholder="....apps.googleusercontent.com"></div>
@@ -511,8 +511,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>백업</h3>
-      <p class="lead">회의록은 이 기기에만 있다. 앱을 지우면 사라진다. 가끔 내보내 두는 편이 낫다.
-        녹음이 끝날 때마다 글자만 담은 백업이 하루 한 번 다운로드 폴더에 저절로 내려간다.</p>
+      <p class="lead">회의록은 이 기기에만 있습니다. 앱을 지우면 사라집니다. 가끔 내보내 두시는 편이 좋습니다.
+        녹음이 끝날 때마다 글자만 담은 백업이 하루 한 번 다운로드 폴더에 저절로 내려갑니다.</p>
       <p class="hint" id="stor-state">저장공간 확인 중…</p>
       <button class="bigbtn ghost" id="s-trim" style="width:100%;margin:0 0 10px">녹음 파일 비우기</button>
       <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
@@ -576,7 +576,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <label for="r-text">회의록 · 메모 원문
         <button type="button" id="text-file" class="linkbtn">파일에서 불러오기</button>
       </label>
-      <textarea id="r-text" style="min-height:150px" placeholder="이미 있는 회의록이나 메모를 붙여넣어라.&#10;PDF · Word · 엑셀 · 사진도 불러올 수 있다.&#10;정해진 형식으로 다시 정리해 준다."></textarea>
+      <textarea id="r-text" style="min-height:150px" placeholder="이미 있는 회의록이나 메모를 붙여넣어 주세요.&#10;PDF · Word · 엑셀 · 사진도 불러올 수 있습니다.&#10;정해진 형식으로 다시 정리해 드립니다."></textarea>
     </div>
     <div class="field">
       <label for="r-brief">사전 자료 (선택)
@@ -584,8 +584,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       </label>
       <textarea id="r-brief" placeholder="안건, 지난 회의록, 참고 문서를 붙여넣거나 파일에서 불러와라.&#10;여기 나온 고유명사가 전사 정확도를 크게 올린다."></textarea>
     </div>
-    <p class="hint">PDF · Word · 엑셀 · 텍스트 · 사진을 읽는다. 스캔된 PDF 와 종이 회의록,
-      화이트보드 사진도 읽는다. 읽은 뒤 내용을 직접 고칠 수 있다.</p>
+    <p class="hint">PDF · Word · 엑셀 · 텍스트 · 사진을 읽습니다. 스캔된 PDF 와 종이 회의록,
+      화이트보드 사진도 읽습니다. 읽은 뒤 내용을 직접 고칠 수 있습니다.</p>
     <input type="file" id="briefin" accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.xlsm,.xls,image/*" style="display:none">
     <div class="field"><label for="r-ctx">대화 상황 · 주제 (선택)</label>
       <textarea id="r-ctx" placeholder="현장 주간회의. 공정 진척과 하자 처리 논의."></textarea></div>
@@ -595,8 +595,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <details class="fold" id="fold-people">
       <summary>참석자 관리</summary>
       <div class="inner">
-        <p class="hint">회의록에서 발언을 사람에게 붙일 때 쓴다. 말투와 자주 쓰는 말이
-          구체적일수록 정확해진다. 화자 분리를 켜면 이것 없이도 갈리지만, 이름을 맞히는 데는 도움이 된다.</p>
+        <p class="hint">회의록에서 발언을 사람에게 붙일 때 씁니다. 말투와 자주 쓰는 말이
+          구체적일수록 정확해집니다. 화자 분리를 켜면 이것 없이도 갈리지만, 이름을 맞히는 데는 도움이 됩니다.</p>
         <div id="people-list"></div>
         <button class="bigbtn ghost" id="p-add" style="width:100%;margin:0">참석자 추가</button>
       </div>
@@ -605,8 +605,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <details class="fold" id="fold-series">
       <summary>회의 시리즈 관리</summary>
       <div class="inner">
-        <p class="hint">정기회의는 시리즈로 묶는다. 참석자와 고유명사가 누적되고, 지난 회의의
-          미결 사항이 다음 회의록으로 넘어간다. 화자 분리를 쓰면 목소리도 기억한다.</p>
+        <p class="hint">정기회의는 시리즈로 묶습니다. 참석자와 고유명사가 누적되고, 지난 회의의
+          미결 사항이 다음 회의록으로 넘어갑니다. 화자 분리를 쓰면 목소리도 기억합니다.</p>
         <div id="series-list"></div>
       </div>
     </details>
@@ -623,15 +623,15 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         <option value="0">끄기</option>
         <option value="1">켜기 · 이어폰 권장</option>
       </select></div>
-    <div class="field"><label for="r-diar">화자 분리 · 누가 말했는지 가른다</label>
+    <div class="field"><label for="r-diar">화자 분리 · 누가 말했는지 가릅니다</label>
       <select id="r-diar">
         <option value="1">켜기 · 시간당 약 $0.22</option>
         <option value="0">끄기</option>
       </select></div>
     <div class="field"><label for="r-keepaudio">끝난 뒤 녹음 파일</label>
       <select id="r-keepaudio">
-        <option value="0">지운다 · 저장공간을 아낀다</option>
-        <option value="1">남긴다 · 1시간에 약 115MB</option>
+        <option value="0">지움 · 저장공간을 아낍니다</option>
+        <option value="1">남김 · 1시간에 약 115MB</option>
       </select></div>
     <p class="hint" id="mode-hint"></p>
     <div class="timer" id="timer" style="display:none">00:00</div>
@@ -647,7 +647,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <div class="dimmer" id="dimmer">
   <div class="r"></div>
   <div class="t" id="dim-timer">0:00</div>
-  <div class="s" id="dim-note">녹음 중 · 화면만 어둡게 했다</div>
+  <div class="s" id="dim-note">녹음 중 · 화면만 어둡게 했습니다</div>
   <button class="stopbtn" id="dim-off">화면 켜기</button>
 </div>
 
@@ -656,7 +656,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-12";
+const APP_VERSION = "2026.08.05-13";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -712,8 +712,8 @@ const store = {
       if(!storeBroken){
         storeBroken = true;
         setTimeout(()=>{ try{
-          toast("이 브라우저가 설정을 저장하지 못한다. 창을 닫으면 열쇠가 지워진다. "+
-                "시크릿 창이거나, 브라우저가 종료할 때 사이트 데이터를 지우도록 돼 있는지 확인해라.", 12000);
+          toast("이 브라우저가 설정을 저장하지 못합니다. 창을 닫으면 열쇠가 지워집니다. "+
+                "시크릿 창인지, 브라우저가 종료할 때 사이트 데이터를 지우도록 돼 있는지 확인해 주세요.", 12000);
         }catch(_){} }, 1500);
       }
       return false;
@@ -799,8 +799,8 @@ function paintDim(){
   const t = $("dim-timer"); if(t) t.textContent = mmss(elapsed());
   const n = $("dim-note");
   if(n) n.textContent = recording
-    ? (paused ? "일시정지 중 · 화면만 어둡게 했다" : "녹음 중 · 화면만 어둡게 했다")
-    : "녹음이 끝났다";
+    ? (paused ? "일시정지 중 · 화면만 어둡게 했습니다" : "녹음 중 · 화면만 어둡게 했습니다")
+    : "녹음이 끝났습니다";
 }
 
 /* ---------- IndexedDB ---------- */
@@ -870,7 +870,7 @@ function sttPrompt(ctxHint, terms){
 }
 
 async function sttChunk(blob, prompt){
-  if(!CFG.oai) throw new Error("OpenAI 키가 없다. 설정에서 입력할 것.");
+  if(!CFG.oai) throw new Error("OpenAI 키가 없습니다. 설정에서 입력해 주세요.");
   const fd = new FormData();
   const ext = (blob.type.includes("wav")?"wav":blob.type.includes("mp4")||blob.type.includes("mp4a")?"mp4":"webm");
   fd.append("file", blob, "seg."+ext);
@@ -950,7 +950,7 @@ async function trimAudio(){
   const s = await storageInfo();
   if(s && s.quota && s.used > s.quota * 0.75){
     await freeAudio(s.used - s.quota * 0.5);
-    toast("저장공간이 모자라 오래된 녹음을 지웠다. 회의록은 그대로다.", 5000);
+    toast("저장공간이 모자라 오래된 녹음을 지웠습니다. 회의록은 그대로입니다.", 5000);
   }
 }
 
@@ -1197,7 +1197,7 @@ function ttsEchoSeen(){
   if(ttsSuspended || ttsEchoes < 3) return;
   ttsSuspended = true;
   ttsStop();
-  toast("통역해 준 말이 전사에 자꾸 섞여 들어온다. 기록을 지키려고 이 녹음 동안 읽어주기를 멈춘다.", 9000);
+  toast("통역해 드린 말이 전사에 자꾸 섞여 들어옵니다. 기록을 지키기 위해 이 녹음 동안 읽어주기를 멈춥니다.", 9000);
   paintStrips();
 }
 
@@ -1215,14 +1215,14 @@ function ttsEchoSeen(){
 const b64of = file => new Promise((res, rej) => {
   const r = new FileReader();
   r.onload = () => res(String(r.result).split(",")[1]);
-  r.onerror = () => rej(new Error("파일을 읽지 못했다"));
+  r.onerror = () => rej(new Error("파일을 읽지 못했습니다"));
   r.readAsDataURL(file);
 });
 
 const textOf = file => new Promise((res, rej) => {
   const r = new FileReader();
   r.onload = () => res(String(r.result));
-  r.onerror = () => rej(new Error("파일을 읽지 못했다"));
+  r.onerror = () => rej(new Error("파일을 읽지 못했습니다"));
   r.readAsText(file);
 });
 
@@ -1243,7 +1243,7 @@ async function loadLib(srcs, globalName){
     try { await loadOne(src); if (window[globalName]) return window[globalName]; }
     catch (e) { /* 다음 후보로 */ }
   }
-  throw new Error("라이브러리를 불러오지 못했다. 인터넷 연결을 확인할 것.");
+  throw new Error("라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.");
 }
 
 const LIB = {
@@ -1259,7 +1259,7 @@ const LIB = {
 
 /** 이미지 한 장의 글자를 옮겨 적는다. 사진 파일과 PDF 렌더링 결과가 함께 쓴다. */
 async function ocrBase64(b64, mime){
-  if(!CFG.oai) throw new Error("OpenAI 키가 필요하다.");
+  if(!CFG.oai) throw new Error("OpenAI 키가 필요합니다.");
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + CFG.oai },
@@ -1273,7 +1273,7 @@ async function ocrBase64(b64, mime){
       ] }]
     })
   });
-  if(!r.ok) throw new Error("이미지를 읽지 못했다 (" + r.status + ")");
+  if(!r.ok) throw new Error("이미지를 읽지 못했습니다 (" + r.status + ")");
   return ((await r.json()).choices?.[0]?.message?.content || "").trim();
 }
 
@@ -1307,7 +1307,7 @@ async function readPdf(file){
   // 글자가 거의 없으면 스캔본으로 보고 이미지로 읽는다.
   if(thin > scan * 0.6){
     const cap = Math.min(total, 15);
-    toast("스캔된 PDF 다. " + cap + "쪽을 이미지로 읽는다. 시간이 걸린다.");
+    toast("스캔된 PDF 입니다. " + cap + "쪽을 이미지로 읽습니다. 시간이 걸립니다.");
     const out = [];
     for(let i = 1; i <= cap; i++){
       const pg = await doc.getPage(i);
@@ -1344,7 +1344,7 @@ async function readXlsx(file){
     const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false }).trim();
     if(csv) parts.push("## 시트: " + name + "\n" + csv);
   }
-  if(!parts.length) throw new Error("엑셀에 내용이 없다.");
+  if(!parts.length) throw new Error("엑셀에 내용이 없습니다.");
   return parts.join("\n\n").slice(0, 40000);
 }
 
@@ -1361,10 +1361,10 @@ async function fileToText(file){
   if (/\.(txt|md|csv|json|log)$/.test(name) || type.startsWith("text/"))
                                                       return await textOf(file);
   if (name.endsWith(".hwp") || name.endsWith(".hwpx"))
-    throw new Error("한글 파일은 읽을 수 없다. PDF 로 내보내거나 화면을 사진으로 찍어 올려라.");
+    throw new Error("한글 파일은 읽을 수 없습니다. PDF 로 내보내거나 화면을 사진으로 찍어 올려 주세요.");
   if (name.endsWith(".doc"))
-    throw new Error("구형 .doc 는 읽을 수 없다. .docx 나 PDF 로 저장해서 올려라.");
-  throw new Error("읽을 수 없는 형식이다. PDF, Word, 엑셀, 텍스트, 사진만 된다.");
+    throw new Error("구형 .doc 는 읽을 수 없습니다. .docx 나 PDF 로 저장해서 올려 주세요.");
+  throw new Error("읽을 수 없는 형식입니다. PDF, Word, 엑셀, 텍스트, 사진만 됩니다.");
 }
 
 /** 사전 자료 칸에 파일 내용을 붙인다. */
@@ -1374,12 +1374,12 @@ async function loadBriefFile(file, targetId){
   const btn = $(targetId === "d-brief" ? "d-brief-file"
               : targetId === "r-text"  ? "text-file" : "brief-file");
   if(btn) btn.textContent = "읽는 중…";
-  toast("파일을 읽는 중이다. 잠시 기다려라.");
+  toast("파일을 읽는 중입니다. 잠시 기다려 주세요.");
   try{
     const text = await fileToText(file);
-    if(!text){ toast("파일에서 글자를 찾지 못했다."); return; }
+    if(!text){ toast("파일에서 글자를 찾지 못했습니다."); return; }
     box.value = (box.value.trim() ? box.value.trim() + "\n\n---\n\n" : "") + text;
-    toast(file.name + " 를 읽었다. 내용을 확인하고 고칠 수 있다.");
+    toast(file.name + " 를 읽었습니다. 내용을 확인하고 고칠 수 있습니다.");
   }catch(e){
     toast(e.message || "파일을 읽지 못했다.");
   }finally{
@@ -1514,7 +1514,7 @@ function ttsWarmup(){
 /* 설정에서 눌러 소리가 실제로 나는지 확인한다. */
 async function ttsTest(){
   if(!TTS_OK){
-    toast(NATIVE ? "음성 기능이 없는 APK 다. 새 APK 를 설치해야 한다."
+    toast(NATIVE ? "음성 기능이 없는 APK 입니다. 새 APK 를 설치해야 합니다."
                  : "이 브라우저는 음성 읽기를 지원하지 않는다.", 5000);
     return;
   }
@@ -1541,7 +1541,7 @@ async function ttsTest(){
   const vs = speechSynthesis.getVoices()
     .filter(v => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0,2).toLowerCase()));
   if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
-  else toast("이 언어 음성이 기기에 없다. 안드로이드 설정 → 언어 → 음성 합성에서 받아야 한다.", 5000);
+  else toast("이 언어 음성이 기기에 없습니다. 안드로이드 설정 → 언어 → 음성 합성에서 받아 주세요.", 5000);
   u.onerror = e => toast("재생 실패: "+(e.error||"알 수 없음"));
   speechSynthesis.speak(u);
 }
@@ -1591,10 +1591,10 @@ async function translateDoc(text, target){
    그래서 만들기 전에 형식을 고르게 한다.
    ===================================================================== */
 const DOC_FORMS = {
-  minutes: { label:"회의록", hint:"결정사항 · 미결사항 · 투두 · 요약으로 나눈다. 업무 회의용." },
-  summary: { label:"기타 요약", hint:"정해진 틀 없이 오간 내용을 주제별로 정리한다. 강의 · 모임 · 인터뷰처럼 결정과 투두가 없는 자리에 쓴다." },
-  byperson:{ label:"참석자별", hint:"누가 무슨 말을 했는지 사람별로 모은다. 돌아가며 이야기하는 자리에 쓴다. 전사문에 화자 표시가 없어 참석자 프로필로 추정하며, 근거가 약하면 '발언자 불명' 으로 남긴다." },
-  prayer:  { label:"기도회", hint:"공통 기도제목과 사람별 기도제목으로 나눈다. 돌아가며 나누는 자리에 맞춘 형식이다. 정기 모임이면 지난주 제목이 이번에 어떻게 됐는지도 함께 적는다." }
+  minutes: { label:"회의록", hint:"결정사항 · 미결사항 · 투두 · 요약으로 나눕니다. 업무 회의용." },
+  summary: { label:"기타 요약", hint:"정해진 틀 없이 오간 내용을 주제별로 정리합니다. 강의 · 모임 · 인터뷰처럼 결정과 투두가 없는 자리에 씁니다." },
+  byperson:{ label:"참석자별", hint:"누가 무슨 말을 했는지 사람별로 모읍니다. 돌아가며 이야기하는 자리에 씁니다. 전사문에 화자 표시가 없으면 참석자 프로필로 추정하며, 근거가 약하면 '발언자 불명' 으로 남깁니다." },
+  prayer:  { label:"기도회", hint:"공통 기도제목과 사람별 기도제목으로 나눕니다. 돌아가며 나누는 자리에 맞춘 형식입니다. 정기 모임이면 지난주 제목이 이번에 어떻게 됐는지도 함께 적습니다." }
 };
 
 /* 분량은 자리마다 다르다. 기도회 기록은 촘촘해야 하고 주간회의 요약은 짧아야 한다.
@@ -1602,11 +1602,14 @@ const DOC_FORMS = {
    쓰게 되어 결과가 길어진다. 지시보다 이쪽이 확실하다. */
 const DOC_SIZES = {
   brief:  { label:"간결", seg:9000, cap:3000,
-            rule:"핵심만 남긴다. 곁가지와 잡담은 뺀다. 원문의 15~20% 정도가 알맞다." },
+            rule:"핵심만 남긴다. 곁가지와 잡담은 뺀다. 원문의 15~20% 정도가 알맞다.",
+            desc:"핵심만 남깁니다. 곁가지와 잡담은 뺍니다. 원문의 15~20% 정도." },
   normal: { label:"보통", seg:4500, cap:4000,
-            rule:"중요한 이야기는 구체적으로, 스쳐 간 이야기는 한 줄로. 원문의 35~45% 정도가 알맞다." },
+            rule:"중요한 이야기는 구체적으로, 스쳐 간 이야기는 한 줄로. 원문의 35~45% 정도가 알맞다.",
+            desc:"중요한 이야기는 구체적으로, 스쳐 간 이야기는 한 줄로. 원문의 35~45% 정도." },
   full:   { label:"상세", seg:2500, cap:4000,
-            rule:"이 구간에 나온 말은 하나도 빠짐없이 다룬다. 원문의 70% 이상이어도 좋다." }
+            rule:"이 구간에 나온 말은 하나도 빠짐없이 다룬다. 원문의 70% 이상이어도 좋다.",
+            desc:"나온 말을 하나도 빠짐없이 다룹니다. 원문의 70% 이상이어도 좋습니다." }
 };
 const docSize = n => DOC_SIZES[(n && n.docSize) || "normal"];
 
@@ -2545,20 +2548,20 @@ async function fetchT(url, opt, ms){
   try{
     return await fetch(url, Object.assign({}, opt, { signal: ctl.signal }));
   }catch(e){
-    if(e.name === "AbortError") throw new Error("응답이 없다. 인터넷 연결을 확인할 것.");
+    if(e.name === "AbortError") throw new Error("응답이 없습니다. 인터넷 연결을 확인해 주세요.");
     throw e;
   }finally{ clearTimeout(t); }
 }
 
 /* --- 로그인 (기기 흐름) --- */
 async function gStartLink(onCode, onWait){
-  if(!CFG.gcid || !CFG.gcsec) throw new Error("구글 클라이언트 ID 와 시크릿을 먼저 넣어라.");
+  if(!CFG.gcid || !CFG.gcsec) throw new Error("구글 클라이언트 ID 와 시크릿을 먼저 넣어 주세요.");
   if(!/\.apps\.googleusercontent\.com$/.test(CFG.gcid))
-    throw new Error("클라이언트 ID 가 이상하다. '....apps.googleusercontent.com' 으로 끝나야 한다.");
+    throw new Error("클라이언트 ID 가 이상합니다. '....apps.googleusercontent.com' 으로 끝나야 합니다.");
   /* 시크릿 형식은 클라이언트 유형마다 다르다. GOCSPX- 로 시작하는 것도 있고 아닌 것도
      있다. 생김새로 판단하지 말고, 사람이 흔히 저지르는 것만 걸러 준다. */
   if(CFG.gcsec.length < 16 || /\s/.test(CFG.gcsec))
-    throw new Error("시크릿이 너무 짧거나 공백이 섞였다. 앞뒤 공백 없이 통째로 넣을 것.");
+    throw new Error("시크릿이 너무 짧거나 공백이 섞여 있습니다. 앞뒤 공백 없이 통째로 넣어 주세요.");
   const r = await fetchT(G.DEV, { method:"POST",
     headers:{"Content-Type":"application/x-www-form-urlencoded"},
     body: form({ client_id:CFG.gcid, scope:G.SCOPE }) });
@@ -2591,25 +2594,25 @@ async function gStartLink(onCode, onWait){
     }catch(e){
       // 잠깐 끊긴 것일 수 있다. 몇 번은 그냥 다시 물어본다.
       if(++hiccups < 8) continue;
-      throw new Error("통신이 계속 끊긴다. 인터넷을 확인하고 다시 시도할 것.");
+      throw new Error("통신이 계속 끊깁니다. 인터넷을 확인하고 다시 시도해 주세요.");
     }
     if(t.error === "authorization_pending") continue;
     if(t.error === "slow_down"){ wait += 5000; continue; }
-    if(t.error === "expired_token") throw new Error("코드가 만료됐다. 다시 시도할 것.");
+    if(t.error === "expired_token") throw new Error("코드가 만료됐습니다. 다시 시도해 주세요.");
     // 자주 나오는 것은 원인을 짚어 준다. 영문 그대로면 무엇을 고쳐야 할지 알 수 없다.
     if(t.error === "invalid_client")
-      throw new Error("클라이언트 ID 나 시크릿이 틀렸다. 두 칸을 다시 확인할 것. (invalid_client)");
+      throw new Error("클라이언트 ID 나 시크릿이 틀렸습니다. 두 칸을 다시 확인해 주세요. (invalid_client)");
     if(t.error === "access_denied")
-      throw new Error("승인 화면에서 거부됐다. 다시 시도해 '허용' 을 누를 것. (access_denied)");
+      throw new Error("승인 화면에서 거부됐습니다. 다시 시도해 '허용' 을 눌러 주세요. (access_denied)");
     if(t.error === "unauthorized_client")
-      throw new Error("이 클라이언트는 기기 흐름을 쓸 수 없다. 유형이 'TV 및 제한된 입력 장치' 인지 확인할 것.");
+      throw new Error("이 클라이언트는 기기 흐름을 쓸 수 없습니다. 유형이 'TV 및 제한된 입력 장치' 인지 확인해 주세요.");
     throw new Error("연결 실패: "+(t.error||"알 수 없음")+" · "+(t.error_description||""));
   }
-  throw new Error("시간이 지났다. 다시 시도할 것.");
+  throw new Error("시간이 지났습니다. 다시 시도해 주세요.");
 }
 
 async function gToken(){
-  if(!gStore.ref) throw new Error("구글에 연결돼 있지 않다.");
+  if(!gStore.ref) throw new Error("구글에 연결돼 있지 않습니다.");
   if(gStore.acc && Date.now() < gStore.exp) return gStore.acc;
   const r = await fetchT(G.TOK, { method:"POST",
     headers:{"Content-Type":"application/x-www-form-urlencoded"},
@@ -2650,7 +2653,7 @@ async function dFolder(){
   const c = await fetchT(G.API+"/files?fields=id", { method:"POST",
     headers:{ Authorization:"Bearer "+t, "Content-Type":"application/json" },
     body: JSON.stringify({ name:G.FOLDER, mimeType:"application/vnd.google-apps.folder" }) });
-  if(!c.ok) throw new Error("폴더를 만들지 못했다 "+c.status);
+  if(!c.ok) throw new Error("폴더를 만들지 못했습니다 "+c.status);
   const id = (await c.json()).id;
   store.set("mn_g_folder", id);
   return id;
@@ -2786,7 +2789,7 @@ async function syncDrive(manual){
   paintSync("맞추는 중…");
   // 어딘가에서 매달려도 이 시각이 지나면 손을 놓는다. 화면이 영영 멈춰 있으면 안 된다.
   const guard = setTimeout(()=>{
-    if(syncing){ syncing = false; paintSync("시간이 지나 멈췄다. 다시 눌러 볼 것."); }
+    if(syncing){ syncing = false; paintSync("시간이 지나 멈췄습니다. 다시 눌러 봐 주세요."); }
   }, 120000);
   try{
     const files = await dList();
@@ -2856,7 +2859,7 @@ async function syncDrive(manual){
     try{ sharedChanged = await syncShared(byName); }catch(e){}
 
     lastSync = Date.now();
-    paintSync("맞췄다 · "+timeLabel(lastSync));
+    paintSync("맞췄습니다 · "+timeLabel(lastSync));
     await refreshList();
     if(openId) renderDetail();
     if(sharedChanged){
@@ -2864,7 +2867,7 @@ async function syncDrive(manual){
       if($("v-settings").classList.contains("on")){ renderSeriesList(); renderPeople(); }
       if(!recording) renderSeriesPicker($("r-series") ? $("r-series").value : "");
     }
-    if(manual) toast(sharedChanged ? "드라이브와 맞췄다. 시리즈와 참석자도 가져왔다." : "드라이브와 맞췄다.");
+    if(manual) toast(sharedChanged ? "드라이브와 맞췄습니다. 시리즈와 참석자도 가져왔습니다." : "드라이브와 맞췄습니다.");
   }catch(e){
     paintSync("실패 · "+(e.message||e));
     if(manual) toast(e.message||"동기화 실패", 6000);
@@ -2915,7 +2918,7 @@ async function mergeAudio(chunks, onStep){
     }catch(e){ /* 못 읽는 조각은 건너뛴다 */ }
   }
   ac.close();
-  if(!total) throw new Error("이을 오디오가 없다. 녹음이 이미 지워졌을 수 있다.");
+  if(!total) throw new Error("이을 오디오가 없습니다. 녹음이 이미 지워졌을 수 있습니다.");
   const all = new Float32Array(total);
   let o = 0;
   for(const p of parts){ all.set(p, o); o += p.length; }
@@ -2936,10 +2939,10 @@ function wordsToTurns(words){
 }
 
 async function runDiarize(note, onStep){
-  if(!CFG.eleven) throw new Error("ElevenLabs 키가 없다. 설정에서 넣을 것.");
+  if(!CFG.eleven) throw new Error("ElevenLabs 키가 없습니다. 설정에서 넣어 주세요.");
   const cs = (await byIndex("chunks","note",note.id)).sort((a,b)=>a.seq-b.seq);
   const withAudio = cs.filter(c=>c.blob);
-  if(!withAudio.length) throw new Error("오디오가 남아 있지 않다. 설정에서 '화자 분리용 오디오 보관' 을 켠 뒤 녹음한 회의만 된다.");
+  if(!withAudio.length) throw new Error("오디오가 남아 있지 않습니다. 설정에서 '화자 분리용 오디오 보관' 을 켠 뒤 녹음한 회의만 됩니다.");
 
   if(onStep) onStep("오디오를 잇는 중…");
   const { blob, seconds } = await mergeAudio(withAudio, (i,t)=> onStep && onStep("오디오를 잇는 중… "+i+"/"+t));
@@ -2972,18 +2975,18 @@ async function runDiarize(note, onStep){
     try{ const j = JSON.parse(raw); code = j.detail?.code || ""; msg = j.detail?.message || ""; }catch(e){}
     if(code === "quota_exceeded"){
       const m = /You have (\d+) credits remaining/.exec(msg);
-      throw new Error("ElevenLabs 사용량을 다 썼다"
+      throw new Error("ElevenLabs 사용량을 다 썼습니다"
         + (m ? " (남은 크레딧 " + Number(m[1]).toLocaleString("ko-KR") + ")" : "") + ". "
-        + "이 회의 소리는 보관돼 있으니 사용량이 다시 채워지면 그때 눌러도 된다. "
-        + "채워지는 날은 설정 → 쓴 돈에서 보인다. 계속 쓰려면 elevenlabs.io 에서 요금제에 가입해라.");
+        + "이 회의 소리는 보관돼 있으니 사용량이 다시 채워지면 그때 누르셔도 됩니다. "
+        + "채워지는 날은 설정 → 쓴 돈에서 보입니다. 계속 쓰려면 elevenlabs.io 에서 요금제에 가입해 주세요.");
     }
     if(r.status === 401)
-      throw new Error("ElevenLabs 열쇠가 막혔다. 설정에서 열쇠를 확인하고, 열쇠를 만들 때 '음성 텍스트 변환' 을 접근으로 켰는지 봐라.");
+      throw new Error("ElevenLabs 열쇠가 막혔습니다. 설정에서 열쇠를 확인하고, 열쇠를 만들 때 '음성 텍스트 변환' 을 접근으로 켰는지 봐 주세요.");
     throw new Error("화자 분리 실패 " + r.status + " · " + raw.slice(0, 160));
   }
   const d = await r.json();
   const turns = wordsToTurns(d.words);
-  if(!turns.length) throw new Error("결과가 비어 있다.");
+  if(!turns.length) throw new Error("결과가 비어 있습니다.");
 
   note.script = turns;
   note.scriptLang = d.language_code || "";
@@ -3227,7 +3230,7 @@ addEventListener("offline", paintStrips);
 async function retryChunk(id){
   const c = await get("chunks", id);
   if(!c) return;
-  if(!c.blob){ toast("오디오가 지워져서 다시 시도할 수 없다."); return; }
+  if(!c.blob){ toast("오디오가 지워져서 다시 시도할 수 없습니다."); return; }
   c.status="pending"; c.retry=0; c.error="";
   await put("chunks", c); renderIfOpen(c.noteId); drain();
 }
@@ -3326,7 +3329,7 @@ async function sweepChunks(){
       await takeChunk(activeNote.id, status, { name:f.name, seq:(m?+m[1]:-1), offsetMs:null });
       took++;
     }
-    if(took) toast("밀린 구간 "+took+"개를 가져왔다.");
+    if(took) toast("밀린 구간 "+took+"개를 가져왔습니다.");
     drain();
   }catch(e){}
   finally{ sweeping = false; }
@@ -3379,7 +3382,7 @@ async function togglePause(){
  */
 async function createTextNote(){
   const src = $("r-text").value.trim();
-  if(!src){ toast("정리할 내용을 넣어라."); return; }
+  if(!src){ toast("정리할 내용을 넣어 주세요."); return; }
 
   const title = $("r-title").value.trim();
   const note = {
@@ -3424,7 +3427,7 @@ async function createTextNote(){
   $("r-text").value = "";
   openNote(note.id);
   refreshList();
-  toast("이제 문서 탭에서 회의록 만들기를 누르면 된다.");
+  toast("이제 문서 탭에서 회의록 만들기를 누르시면 됩니다.");
 }
 
 /** 회의 중 중요한 순간을 찍어 둔다. 회의록 작성 때 이 구간이 우선 반영된다. */
@@ -3447,9 +3450,9 @@ async function markMoment(){
 let onlineTabStream = null, onlineMicStream = null, onlineCtx = null;
 
 async function captureOnline(){
-  if(NATIVE) throw new Error("온라인 회의는 컴퓨터 브라우저에서만 된다. 폰은 다른 앱 소리를 녹음할 수 없다.");
+  if(NATIVE) throw new Error("온라인 회의는 컴퓨터 브라우저에서만 됩니다. 폰은 다른 앱 소리를 녹음할 수 없습니다.");
   if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia)
-    throw new Error("이 브라우저는 탭 소리 공유를 지원하지 않는다. 크롬이나 엣지를 쓸 것.");
+    throw new Error("이 브라우저는 탭 소리 공유를 지원하지 않습니다. 크롬이나 엣지를 쓸 것.");
 
   // 1) 회의 탭 소리. 화면은 쓰지 않지만 브라우저가 요구해서 같이 받는다.
   const disp = await navigator.mediaDevices.getDisplayMedia({
@@ -3458,7 +3461,7 @@ async function captureOnline(){
   });
   if(!disp.getAudioTracks().length){
     disp.getTracks().forEach(t=>t.stop());
-    throw new Error("소리가 안 잡혔다. 공유 창에서 '탭 오디오도 공유'를 켜고 다시 할 것.");
+    throw new Error("소리가 안 잡혔습니다. 공유 창에서 '탭 오디오도 공유'를 켜고 다시 해 주세요.");
   }
   disp.getVideoTracks().forEach(t=>t.stop());   // 화면은 즉시 놓는다. 소리만 쓴다.
   onlineTabStream = disp;
@@ -3469,7 +3472,7 @@ async function captureOnline(){
     mic = await navigator.mediaDevices.getUserMedia({ audio:{
       echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
     onlineMicStream = mic;
-  }catch(e){ toast("마이크 없이 회의 소리만 담는다."); }
+  }catch(e){ toast("마이크 없이 회의 소리만 담습니다."); }
 
   // 3) 둘을 한 줄기로 합친다.
   const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -3482,7 +3485,7 @@ async function captureOnline(){
   const tab = disp.getAudioTracks()[0];
   if(tab) tab.onended = () => { if(recording && mode==="online") stopRecording(); };
 
-  toast(mic ? "회의 소리와 마이크를 함께 담는다." : "회의 소리만 담는다.");
+  toast(mic ? "회의 소리와 마이크를 함께 담습니다." : "회의 소리만 담습니다.");
   return dest.stream;
 }
 
@@ -3508,7 +3511,7 @@ async function startRecording(){
     try{
       stream = await navigator.mediaDevices.getUserMedia({ audio:{
         echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
-    }catch(e){ toast("마이크를 쓸 수 없다. 브라우저 권한을 확인할 것."); return; }
+    }catch(e){ toast("마이크를 쓸 수 없습니다. 브라우저 권한을 확인해 주세요."); return; }
   }
 
   const title = $("r-title").value.trim();
@@ -3568,7 +3571,7 @@ async function startRecording(){
         silenceHoldMs: 700
       });
     }catch(e){
-      toast(e.message || "녹음을 시작할 수 없다.");
+      toast(e.message || "녹음을 시작할 수 없습니다.");
       recording = false; clearInterval(tickTimer);
       dropSubs();
       $("btn-rec").innerHTML = '<span class="dot"></span> 녹음 시작';
@@ -3581,7 +3584,7 @@ async function startRecording(){
   }
   keepAwake(true);   // 화면이 꺼지면 전사가 멈춘다
   if(CFG.awake !== "1")
-    toast("화면 켜 두기가 꺼져 있다. 화면이 꺼지면 자막이 멈추고, 켜면 밀린 것을 몰아서 처리한다.", 6000);
+    toast("화면 켜 두기가 꺼져 있습니다. 화면이 꺼지면 자막이 멈추고, 켜면 밀린 것을 몰아서 처리합니다.", 6000);
   // 시트를 닫고 전사 화면을 연다. 구간이 전사될 때마다 여기에 바로 쌓인다.
   enterLiveView();
   refreshList();
@@ -3682,14 +3685,14 @@ async function finishRecording(){
   /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
      회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
   if(done && done.wantDiar && CFG.eleven){
-    toast("화자를 가르는 중… 노트에서 진행을 볼 수 있다.", 4000);
+    toast("화자를 가르는 중입니다… 노트에서 진행을 볼 수 있습니다.", 4000);
     try{
       await runDiarize(done, msg => { const e=$("diar-note"); if(e) e.textContent = msg; });
-      toast("화자를 갈랐다.");
+      toast("화자를 갈랐습니다.");
       if(openId===done.id) renderDetail();
     }catch(e){ toast("화자 분리 실패: "+(e.message||e), 6000); }
   } else if(!modeDoes().live){
-    toast("녹음을 저장했다. 전사하려면 노트에서 '지금 전사'를 눌러라.");
+    toast("녹음을 저장했습니다. 전사하려면 노트에서 '지금 전사'를 눌러 주세요.");
   }
   syncDrive(false);
 }
@@ -3713,13 +3716,13 @@ function encodeWAV(samples, rate){
 }
 
 async function importFile(file){
-  toast("오디오를 읽는 중…");
+  toast("오디오를 읽는 중입니다…");
   let decoded;
   try{
     const ac = new (window.AudioContext||window.webkitAudioContext)();
     decoded = await ac.decodeAudioData(await file.arrayBuffer());
     ac.close();
-  }catch(e){ toast("이 파일은 읽을 수 없다. m4a, mp3, wav로 변환해 볼 것."); return; }
+  }catch(e){ toast("이 파일은 읽을 수 없습니다. m4a, mp3, wav 로 변환해 보세요."); return; }
 
   const RATE = 16000;
   const off = new OfflineAudioContext(1, Math.ceil(decoded.duration*RATE), RATE);
@@ -3742,7 +3745,7 @@ async function importFile(file){
     s++;
   }
   closeSheet(); openNote(note.id); refreshList();
-  toast(s + "개 구간으로 나눴다. 순서대로 전사한다.");
+  toast(s + "개 구간으로 나눴습니다. 순서대로 전사합니다.");
 }
 
 /* =====================================================================
@@ -3757,8 +3760,8 @@ async function refreshList(){
   const chunks = await all("chunks");
   const box = $("list");
   if(!notes.length){
-    box.innerHTML = '<div class="empty"><strong>아직 기록이 없다</strong>'+
-      '아래 버튼으로 회의를 녹음하거나, 이미 있는 녹음 파일을 불러와 전사할 수 있다.</div>';
+    box.innerHTML = '<div class="empty"><strong>아직 기록이 없습니다</strong>'+
+      '아래 버튼으로 회의를 녹음하거나, 이미 있는 녹음 파일을 불러와 전사할 수 있습니다.</div>';
     return;
   }
   let html = "", day = "";
@@ -3786,7 +3789,7 @@ async function refreshList(){
 function paintStrips(){
   const s = $("net-strip");
   if(!navigator.onLine){
-    s.innerHTML = '<div class="strip warn"><span class="dot"></span>오프라인 — 연결되면 남은 구간을 자동으로 전사한다</div>';
+    s.innerHTML = '<div class="strip warn"><span class="dot"></span>오프라인 — 연결되면 남은 구간을 자동으로 전사합니다</div>';
   } else if(working){
     s.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중</div>';
   } else s.innerHTML = budgetStrip();
@@ -3831,7 +3834,7 @@ function wireDiar(n, cs){
     try{
       await runDiarize(n, setNote);
       scriptView = true;
-      toast("화자를 갈랐다.");
+      toast("화자를 갈랐습니다.");
       renderDetail(); syncDrive(false);
     }catch(e){ setNote(e.message || "실패"); toast(e.message||"화자 분리 실패", 6000); btn.disabled = false; }
   };
@@ -3842,9 +3845,9 @@ function wireDiar(n, cs){
     n.spkCount = Number(sn.value) || 0;
     await put("notes", n);
     setNote(n.spkCount
-      ? (n.script ? "사람 수를 "+n.spkCount+"명으로 두었다. [다시 분리] 를 눌러야 반영된다."
-                  : "사람 수를 "+n.spkCount+"명으로 두었다.")
-      : "알아서 세도록 되돌렸다.");
+      ? (n.script ? "사람 수를 "+n.spkCount+"명으로 두었습니다. [다시 분리] 를 눌러야 반영됩니다."
+                  : "사람 수를 "+n.spkCount+"명으로 두었습니다.")
+      : "알아서 세도록 되돌렸습니다.");
   };
   const sv = $("spk-save");
   if(sv) sv.onclick = async ()=>{
@@ -3856,7 +3859,7 @@ function wireDiar(n, cs){
     });
     learnVoices(n);   // 시리즈가 이 목소리를 기억한다
     await put("notes", n); renderDetail(); syncDrive(false);
-    toast(n.seriesId ? "저장했다. 다음 회의부터 이 사람들을 알아본다." : "저장했다.", 4000);
+    toast(n.seriesId ? "저장했습니다. 다음 회의부터 이 사람들을 알아봅니다." : "저장했다.", 4000);
   };
 }
 
@@ -3915,15 +3918,15 @@ function seriesRow(n){
   let note = "";
   if(s){
     const bits = [];
-    if(s.lastDoc) bits.push(s.lastChecked ? "지난 회의록(확인됨)을 이어받는다"
-                                          : "지난 회의록을 이어받는다 · 아직 사람이 확인 안 함");
-    if(s.carry)   bits.push("미결 사항이 넘어온다");
-    if((s.voices || []).length) bits.push("목소리 " + s.voices.length + "명 기억함");
+    if(s.lastDoc) bits.push(s.lastChecked ? "지난 회의록(확인됨)을 이어받습니다"
+                                          : "지난 회의록을 이어받습니다 · 아직 확인 전");
+    if(s.carry)   bits.push("미결 사항이 넘어옵니다");
+    if((s.voices || []).length) bits.push("목소리 " + s.voices.length + "명 기억");
     if((s.terms  || []).length) bits.push("고유명사 " + s.terms.length + "개");
     note = bits.length ? bits.join(" · ")
-                       : "아직 쌓인 것이 없다. 이 회의로 회의록을 만들면 다음 회의가 이어받는다.";
+                       : "아직 쌓인 것이 없습니다. 이 회의로 회의록을 만들면 다음 회의가 이어받습니다.";
   } else {
-    note = "묶어 두면 지난 회의록과 미결 사항을 이어받고, 참석자·용어·화자 이름도 쌓인다.";
+    note = "묶어 두면 지난 회의록과 미결 사항을 이어받고, 참석자·용어·화자 이름도 쌓입니다.";
   }
   return '<div class="serrow"><span>회의 시리즈</span>'
        + '<select id="d-ser">' + opts + '</select></div>'
@@ -3955,9 +3958,9 @@ function wireSeriesRow(n){
       await put("notes", n);
 
       renderDetail(); syncDrive(false);
-      if(!id) toast("시리즈에서 뺐다.");
-      else toast(moved ? "시리즈에 넣었다. " + moved + " 을(를) 시리즈로 옮겼다."
-                       : "시리즈에 넣었다. 다음 회의가 이 회의를 이어받는다.", 5000);
+      if(!id) toast("시리즈에서 뺐습니다.");
+      else toast(moved ? "시리즈에 넣었습니다. " + moved + " 을(를) 시리즈로 옮겼습니다."
+                       : "시리즈에 넣었습니다. 다음 회의가 이 회의를 이어받습니다.", 5000);
     }
   };
 }
@@ -3967,7 +3970,7 @@ function draftHint(n, fm, sz, len){
   const kept = d && d.form===fm && d.size===sz && d.len===len && d.pv===PROMPT_VER
                && Object.values(d.kv || {}).filter(Boolean).length;
   return (kept ? '<p class="hint" style="padding:0 18px">만들다 멈춘 조각 '+kept+
-      '개가 남아 있다. 다시 누르면 그다음부터 이어서 한다. '+
+      '개가 남아 있습니다. 다시 누르면 그다음부터 이어서 합니다. '+
       '<button type="button" id="drop-draft" class="linkbtn">버리고 새로</button></p>' : "")
     + (n.docError ? '<p class="hint" style="padding:0 18px;color:var(--danger)">'+
        esc(n.docError)+'</p>' : "");
@@ -4024,11 +4027,11 @@ async function renderDetail(){
        : ""))+
       spkPick+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
-        (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸다. 이름을 붙이면 문서에도 그 이름으로 나온다."+
-           ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤다. 맞는지 확인해 줄 것." : "")+
-           (hasAudio ? " 사람 수가 실제와 다르면 아래에서 정해 주고 다시 분리해라." : "")
-         : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가른다. 시간당 약 $0.22. 사람 수는 알아서 센다."
-                                  : "설정에서 ElevenLabs 키를 넣으면 화자 분리를 쓸 수 있다.")
+        (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸습니다. 이름을 붙이면 문서에도 그 이름으로 나옵니다."+
+           ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤습니다. 맞는지 확인해 주세요." : "")+
+           (hasAudio ? " 사람 수가 실제와 다르면 아래에서 정하고 다시 분리해 주세요." : "")
+         : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가릅니다. 시간당 약 $0.22. 사람 수는 알아서 셉니다."
+                                  : "설정에서 ElevenLabs 키를 넣으면 화자 분리를 쓸 수 있습니다.")
          : "")+'</p>'+
     '</div>';
 
@@ -4039,7 +4042,7 @@ async function renderDetail(){
     const spks = [...new Set(n.script.map(t=>t.spk))];
     return '<div style="padding:14px 18px 4px">'+
       '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:8px">'+
-      '화자 이름 · 적어 두면 문서에도 이 이름으로 나온다</label>'+
+      '화자 이름 · 적어 두면 문서에도 이 이름으로 나옵니다</label>'+
       spks.map(s=>{
         const sample = ((n.script.find(t=>t.spk===s&&t.text.length>10)||n.script.find(t=>t.spk===s)||{}).text||"").slice(0,42);
         const guessed = (n.spkGuess||[]).includes(s);
@@ -4073,11 +4076,11 @@ async function renderDetail(){
     wireDiar(n, cs);
   } else {
   if(!cs.length) raw += recording
-    ? '<div class="empty"><strong>듣고 있다</strong>첫 구간은 약 '+
-      Math.round(+CFG.chunk/1000)+'초 뒤에 올라온다. 이후 같은 간격으로 이어진다.'+
-      (n.target ? '' : '<br>통역할 언어를 "통역 안 함"으로 두어 통역과 읽어주기는 하지 않는다.')+
+    ? '<div class="empty"><strong>듣고 있습니다</strong>첫 구간은 약 '+
+      Math.round(+CFG.chunk/1000)+'초 뒤에 올라옵니다. 이후 같은 간격으로 이어집니다.'+
+      (n.target ? '' : '<br>통역할 언어를 "통역 안 함"으로 두어 통역과 읽어주기는 하지 않습니다.')+
       '</div>'
-    : '<div class="empty">구간이 없다.</div>';
+    : '<div class="empty">구간이 없습니다.</div>';
   for(const c of cs){
     raw += '<div class="seg '+c.status+'"><div class="gutter"><span class="mark"></span>'+
       mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+'</div><div class="body">';
@@ -4118,19 +4121,19 @@ async function renderDetail(){
       // 참석자별 문서는 이름이 붙어 있어야 값어치가 있다. 어디서 붙이는지 알려 준다.
       ((fm==="byperson"||fm==="prayer") ? (n.script
         ? (Object.keys(n.spkNames||{}).length
-            ? '<p class="hint">화자 '+Object.keys(n.spkNames).length+'명에 이름이 붙어 있다. 그 이름으로 정리한다.</p>'
-            : '<p class="hint" style="color:var(--warn)">아직 이름을 안 붙였다. '+
-              '<strong>원본 탭 → 화자별 기록</strong> 에서 이름을 적고 저장하면 그 이름으로 정리한다. '+
+            ? '<p class="hint">화자 '+Object.keys(n.spkNames).length+'명에 이름이 붙어 있습니다. 그 이름으로 정리합니다.</p>'
+            : '<p class="hint" style="color:var(--warn)">아직 이름을 붙이지 않았습니다. '+
+              '<strong>원본 탭 → 화자별 기록</strong> 에서 이름을 적고 저장하면 그 이름으로 정리합니다. '+
               '안 붙이면 "화자 1, 화자 2" 로 나온다.</p>')
-        : '<p class="hint" style="color:var(--warn)">화자 분리를 아직 안 했다. '+
+        : '<p class="hint" style="color:var(--warn)">화자 분리를 아직 하지 않았습니다. '+
           '<strong>원본 탭</strong> 에서 먼저 화자를 가르면 훨씬 정확해진다. '+
-          '지금 만들면 말투로 추정만 한다.</p>') : "")+
+          '지금 만들면 말투로 추정만 합니다.</p>') : "")+
       '<label style="display:block;font-size:12.5px;color:var(--muted);margin:14px 0 8px">분량</label>'+
       '<div class="segctl">'+
         Object.keys(DOC_SIZES).map(k=>'<button data-size="'+k+'"'+(k===sz?' class="on"':'')+'>'+
           DOC_SIZES[k].label+'</button>').join("")+
       '</div>'+
-      '<p class="hint" style="margin-top:8px">'+DOC_SIZES[sz].rule+'</p>'+
+      '<p class="hint" style="margin-top:8px">'+(DOC_SIZES[sz].desc||DOC_SIZES[sz].rule)+'</p>'+
     '</div>';
   /* 전사문과 결과물의 길이를 나란히 보여 준다. 요약이 짧다고 느낄 때, 전사문이
      원래 짧은 것인지 정리가 뭉갠 것인지 이것으로 갈린다. */
@@ -4166,15 +4169,15 @@ async function renderDetail(){
   if(picking){
     doc = docChips +
       '<div class="empty" style="padding:26px 34px 6px">'+
-        (docs.length ? '<strong>새 문서 만들기</strong>형식과 분량을 고른다. 앞서 만든 문서는 그대로 남는다.'
-                     : '<strong>아직 정리하지 않았다</strong>'+
-          (cs.length ? (doneAll ? '전사가 끝났다. 형식을 고르고 아래 버튼을 눌러라.'
-                                : '전사가 끝나면 정리할 수 있다.')
-                     : '구간이 없다.'))+
+        (docs.length ? '<strong>새 문서 만들기</strong>형식과 분량을 고릅니다. 앞서 만든 문서는 그대로 남습니다.'
+                     : '<strong>아직 정리하지 않았습니다</strong>'+
+          (cs.length ? (doneAll ? '전사가 끝났습니다. 형식을 고르고 아래 버튼을 눌러 주세요.'
+                                : '전사가 끝나면 정리할 수 있습니다.')
+                     : '구간이 없습니다.'))+
       '</div>'+ lenBar + formPicker +
       '<div style="padding:0 18px 4px">'+
         '<label style="display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px">'+
-        '사전 자료 · 안건이나 지난 회의록을 넣으면 정리에 반영된다'+
+        '사전 자료 · 안건이나 지난 회의록을 넣으면 정리에 반영됩니다'+
         '<button type="button" id="d-brief-file" class="linkbtn">파일에서 불러오기</button></label>'+
         '<textarea id="d-brief" style="width:100%;min-height:84px;padding:11px 13px;'+
         'border:1px solid var(--rule);border-radius:10px;background:var(--paper);'+
@@ -4225,9 +4228,9 @@ async function renderDetail(){
             'border:1px solid var(--rule);border-radius:11px;background:var(--paper);'+
             'font-size:15px;line-height:1.75;resize:vertical;font-family:inherit">'+
             esc(shown)+'</textarea>'+
-            '<p class="hint" style="margin:8px 0 0">마크다운 그대로다. '+
-            '## 은 절 제목, - 은 항목이다. 절 이름은 바꾸지 않는 편이 낫다.'+
-            (vl==="__src__" ? '' : ' 지금 고치는 것은 번역본이다.')+'</p>'+
+            '<p class="hint" style="margin:8px 0 0">마크다운 그대로입니다. '+
+            '## 은 절 제목, - 은 항목입니다. 절 이름은 바꾸지 않는 편이 좋습니다.'+
+            (vl==="__src__" ? '' : ' 지금 고치는 것은 번역본입니다.')+'</p>'+
             '<button class="bigbtn" id="doc-save" style="width:100%;margin:12px 0 0">고친 것 저장</button>'+
             '<button class="bigbtn ghost" id="doc-cancel" style="width:100%;margin:10px 0 0">그만두기</button>'+
           '</div>'
@@ -4246,7 +4249,7 @@ async function renderDetail(){
       '<button class="bigbtn ghost" id="regen" style="margin-top:0">이 문서 다시 만들기</button>'+
       '<button class="bigbtn ghost" id="deldoc" style="margin-top:0">이 문서 지우기</button>');
   } else {
-    doc = '<div class="empty">문서가 없다.</div>';
+    doc = '<div class="empty">문서가 없습니다.</div>';
   }
   $("pane-doc").innerHTML = doc;
   const dbf = $("d-brief-file");
@@ -4269,7 +4272,7 @@ async function renderDetail(){
     const box = $("doc-edit");
     const changed = box && docEditBuf && box.value !== undefined;
     docEditing = ""; docEditBuf = null; renderDetail();
-    if(changed) toast("고치던 것을 버렸다.");
+    if(changed) toast("고치던 것을 버렸습니다.");
   };
   const eb = $("doc-edit");
   if(eb) eb.oninput = ()=>{ docEditBuf = { id: cur.id, text: eb.value }; };
@@ -4277,7 +4280,7 @@ async function renderDetail(){
   if(ds) ds.onclick = async ()=>{
     const box = $("doc-edit"); if(!box || !cur) return;
     const val = box.value.trim();
-    if(!val){ toast("내용이 비었다. 지우려면 '이 문서 지우기' 를 써라.", 5000); return; }
+    if(!val){ toast("내용이 비어 있습니다. 지우려면 '이 문서 지우기' 를 써 주세요.", 5000); return; }
 
     const vl2 = (cur.viewLang && cur.viewLang !== "__src__") ? cur.viewLang : null;
     if(vl2){ cur.i18n = Object.assign({}, cur.i18n); cur.i18n[vl2] = val; }
@@ -4306,17 +4309,17 @@ async function renderDetail(){
     docEditing = ""; docEditBuf = null;
     await put("notes", n);
     renderDetail(); syncDrive(false);
-    toast(toSeries ? "고쳤다. 다음 회의가 이 고친 회의록을 이어받는다."
-                   : "고쳤다.", 4500);
+    toast(toSeries ? "고쳤습니다. 다음 회의가 이 고친 회의록을 이어받습니다."
+                   : "고쳤습니다.", 4500);
   };
   const nd = $("pane-doc").querySelector("[data-newdoc]");
   if(nd) nd.onclick = ()=>{ docPicking = true; renderDetail(); };
   const dd = $("deldoc");
   if(dd) dd.onclick = ()=>{
     if(!cur) return;
-    confirmSheet("이 문서를 지운다",
-      DOC_FORMS[cur.form].label + " 을(를) 지운다. 전사문과 나머지 " + (docs.length-1) +
-      "개 문서는 그대로 남는다. 필요하면 다시 만들 수 있다.",
+    confirmSheet("이 문서를 지웁니다",
+      DOC_FORMS[cur.form].label + " 을(를) 지웁니다. 전사문과 나머지 " + (docs.length-1) +
+      "개 문서는 그대로 남습니다. 필요하면 다시 만들 수 있습니다.",
       "지운다", ()=> deleteDoc(n, cur.id));
   };
   // 형식 전환. 이미 만든 글은 지우지 않는다. 다시 만들기를 눌러야 바뀐다.
@@ -4337,7 +4340,7 @@ async function renderDetail(){
   // 다른 언어로 번역. 이미 있으면 다시 만들지 묻는다.
   $("pane-doc").querySelectorAll("[data-tr]").forEach(b=> b.onclick = async ()=>{
     const L = b.dataset.tr;
-    if(!CFG.oai){ toast("OpenAI 키가 없다."); return; }
+    if(!CFG.oai){ toast("OpenAI 키가 없습니다."); return; }
     if(!cur) return;
     if((cur.i18n||{})[L] && !confirm(DOC_LANG[L].label+" 문서가 이미 있다. 다시 만들까?")){
       cur.viewLang = L; await put("notes", n); renderDetail(); return;
@@ -4371,7 +4374,7 @@ async function genMinutes(n, cs, btn, target){
     ? n.script.map(t=>"["+mmss(t.t)+"] "+spkName(n, t.spk)+": "+t.text).join("\n")
     : cs.filter(c=>c.status==="done"&&c.text)
         .map(c=>"["+mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+"] "+c.text).join("\n");
-  if(!full){ toast("전사된 내용이 없다."); return; }
+  if(!full){ toast("전사된 내용이 없습니다."); return; }
   // 다시 만들기는 그 문서의 형식과 분량을 그대로 쓴다. 새로 만들 때만 고른 값을 쓴다.
   const fm = target ? target.form : (n.docForm || "minutes");
   const sz = target ? target.size : (n.docSize || "normal");
@@ -4438,7 +4441,7 @@ async function genMinutes(n, cs, btn, target){
     // 토스트는 곧 사라진다. 무엇이 잘못됐는지는 화면에 남아 있어야 한다.
     n.docError = (e.message||String(e)) + " (" + new Date().toLocaleTimeString("ko-KR") + ")";
     await put("notes", n);
-    toast("멈췄다. 만들어 둔 조각은 남아 있으니 다시 누르면 이어서 한다.", 6000);
+    toast("멈췄습니다. 만들어 둔 조각은 남아 있으니 다시 누르면 이어서 합니다.", 6000);
     btn.disabled=false; renderDetail();
   }finally{
     n.docSize = prevSize;
@@ -4551,8 +4554,8 @@ async function paintStorage(){
   const el = $("stor-state"); if(!el) return;
   const mb = b => (b/1024/1024).toFixed(0) + "MB";
   if(storeBroken){
-    el.textContent = "이 브라우저가 설정을 저장하지 못한다. 창을 닫으면 열쇠와 설정이 지워진다. "+
-      "시크릿 창인지, 브라우저가 종료할 때 사이트 데이터를 지우도록 돼 있는지 확인해라.";
+    el.textContent = "이 브라우저가 설정을 저장하지 못합니다. 창을 닫으면 열쇠와 설정이 지워집니다. "+
+      "시크릿 창인지, 브라우저가 종료할 때 사이트 데이터를 지우도록 돼 있는지 확인해 주세요.";
     el.style.color = "var(--danger)";
     return;
   }
@@ -4616,14 +4619,14 @@ async function exportBackup(){
   }
   const u = URL.createObjectURL(file), a = document.createElement("a");
   a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);
-  toast("백업 " + notes.length + "건을 내보냈다.");
+  toast("백업 " + notes.length + "건을 내보냈습니다.");
 }
 
 async function importBackup(file){
   let d;
   try{ d = JSON.parse(await file.text()); }
-  catch(e){ toast("백업 파일을 읽지 못했다."); return; }
-  if(!d || d.kind !== "meetnote-backup"){ toast("이 앱의 백업 파일이 아니다."); return; }
+  catch(e){ toast("백업 파일을 읽지 못했습니다."); return; }
+  if(!d || d.kind !== "meetnote-backup"){ toast("이 앱의 백업 파일이 아닙니다."); return; }
 
   const haveNotes = new Set((await all("notes")).map(n=>n.id));
   const haveChunks = new Set((await all("chunks")).map(c=>c.id));
@@ -4649,7 +4652,7 @@ async function importBackup(file){
   saveCfg(); renderPeople(); renderSeriesList();
 
   await refreshList();
-  toast("회의록 " + addedN + "건, 구간 " + addedC + "개를 가져왔다. 중복은 건너뛰었다.");
+  toast("회의록 " + addedN + "건, 구간 " + addedC + "개를 가져왔습니다. 중복은 건너뛰었습니다.");
 }
 
 /* ---------- 내보내기 / 삭제 ---------- */
@@ -4711,7 +4714,7 @@ async function sendText(title, text){
     try{ await navigator.share({ title, text }); return true; }
     catch(e){ if(e.name === "AbortError") return true; }
   }
-  try{ await navigator.clipboard.writeText(text); toast("클립보드에 복사했다. 붙여넣기 해라.", 4000); return true; }
+  try{ await navigator.clipboard.writeText(text); toast("클립보드에 복사했습니다. 붙여넣기 해 주세요.", 4000); return true; }
   catch(e){ return false; }
 }
 
@@ -4721,9 +4724,9 @@ async function exportNote(){
   const p = exportPieces(n, cs);
 
   sheet("보내기", [
-    p.doc ? { label:"회의록만 보내기", sub:"카톡·잘로에 붙는다. 대개 이것이면 된다.",
+    p.doc ? { label:"회의록만 보내기", sub:"카톡·잘로에 붙습니다. 대개 이것이면 됩니다.",
               go: ()=> sendText(n.title, p.head + p.doc) } : null,
-    { label:"전사 원본까지 보내기", sub:"말한 것을 전부 포함한다. 길다.",
+    { label:"전사 원본까지 보내기", sub:"말한 것을 전부 포함합니다. 깁니다.",
       go: ()=> sendText(n.title, p.head + (p.doc ? p.doc+"\n\n———\n\n" : "") + "전사 원본\n\n" + p.script) },
     { label:"파일로 저장", sub:"다운로드 폴더에 " + p.fname,
       go: async ()=>{
@@ -4833,16 +4836,16 @@ async function askDelete(){
   const items = [];
   if(cur) items.push({
     label: "이 문서만 지우기",
-    sub: DOC_FORMS[cur.form].label + " · 전사문과 나머지 " + (docs.length-1) + "개 문서는 그대로 남는다",
+    sub: DOC_FORMS[cur.form].label + " · 전사문과 나머지 " + (docs.length-1) + "개 문서는 그대로 남습니다",
     go: ()=> deleteDoc(n, cur.id)
   });
   items.push({
     label: "회의 전체 지우기",
-    sub: "전사문, 녹음, 문서 " + docs.length + "개를 모두 지운다. 되돌릴 수 없다.",
+    sub: "전사문, 녹음, 문서 " + docs.length + "개를 모두 지웁니다. 되돌릴 수 없습니다.",
     danger: true,
-    go: ()=> confirmSheet("회의 전체를 지운다",
+    go: ()=> confirmSheet("회의 전체를 지웁니다",
                           "「" + n.title + "」 의 전사문과 문서 " + docs.length +
-                          "개가 모두 사라진다. 되돌릴 수 없다.",
+                          "개가 모두 사라집니다. 되돌릴 수 없습니다.",
                           "지운다", deleteNote)
   });
   sheet("무엇을 지울까", items);
@@ -4854,7 +4857,7 @@ async function deleteDoc(n, id){
   n.summary = n.docs.length ? n.docs[0].body : "";
   await put("notes", n);
   renderDetail(); syncDrive(false);
-  toast(n.docs.length ? "문서를 지웠다. 나머지 "+n.docs.length+"개는 그대로다." : "문서를 지웠다. 전사문은 남아 있다.", 4000);
+  toast(n.docs.length ? "문서를 지웠습니다. 나머지 "+n.docs.length+"개는 그대로입니다." : "문서를 지웠습니다. 전사문은 남아 있습니다.", 4000);
 }
 
 async function deleteNote(){
@@ -4862,7 +4865,7 @@ async function deleteNote(){
   for(const c of cs) await del("chunks", c.id);
   await del("notes", openId);
   markDeleted(openId);   // 다른 기기에서 되살아나지 않게 지운 사실을 남긴다
-  openId=null; show("v-list"); refreshList(); toast("지웠다.");
+  openId=null; show("v-list"); refreshList(); toast("지웠습니다.");
   syncDrive(false);
 }
 
@@ -4874,7 +4877,7 @@ async function deleteNote(){
 function renderPeople(){
   const box = $("people-list");
   if(!CFG.people.length){
-    box.innerHTML = '<p class="hint" style="margin-bottom:12px">아직 등록된 참석자가 없다.</p>';
+    box.innerHTML = '<p class="hint" style="margin-bottom:12px">아직 등록된 참석자가 없습니다.</p>';
     return;
   }
   box.innerHTML = CFG.people.map((p,i)=>
@@ -4897,8 +4900,8 @@ function renderPeople(){
   box.querySelectorAll("[data-kill]").forEach(b=>{
     b.onclick = () => {
       const i = +b.dataset.kill;
-      confirmSheet("참석자를 지운다",
-        "「"+((CFG.people[i]||{}).name || "이름 없음")+"」 을(를) 목록에서 뺀다. 이미 만든 회의록은 그대로다.",
+      confirmSheet("참석자를 지웁니다",
+        "「"+((CFG.people[i]||{}).name || "이름 없음")+"」 을(를) 목록에서 뺍니다. 이미 만든 회의록은 그대로입니다.",
         "지운다", ()=>{ CFG.people.splice(i,1); saveCfg(); renderPeople(); });
     };
   });
@@ -4907,7 +4910,7 @@ function renderPeople(){
 function renderAttendeePicker(selected){
   const box = $("r-people");
   if(!CFG.people.length){
-    box.innerHTML = '<span class="none">설정에서 참석자를 먼저 등록하면 여기서 고를 수 있다.</span>';
+    box.innerHTML = '<span class="none">설정에서 참석자를 먼저 등록하면 여기서 고를 수 있습니다.</span>';
     return;
   }
   box.innerHTML = CFG.people.map((p,i)=>
@@ -4952,7 +4955,7 @@ async function primeTerms(noteId, brief){
       s.terms = merged.slice(-TERM_CAP); saveCfg();
     }
   }
-  toast("사전 자료에서 고유명사 " + terms.length + "개를 인식에 반영했다.");
+  toast("사전 자료에서 고유명사 " + terms.length + "개를 인식에 반영했습니다.");
 }
 
 /* =====================================================================
@@ -4985,7 +4988,7 @@ function applySeries(){
                   terms:[], carry:"", count:0, lastAt:0 };
       CFG.series.push(s); saveCfg();
       renderSeriesPicker(s.id);
-      toast("시리즈 「"+name+"」 을(를) 만들었다. 이 회의부터 여기에 쌓인다.", 4000);
+      toast("시리즈 「"+name+"」 을(를) 만들었습니다. 이 회의부터 여기에 쌓입니다.", 4000);
     });
     return;
   }
@@ -5001,14 +5004,14 @@ function applySeries(){
   const bits = [];
   if(s.count) bits.push(s.count + "회차");
   if(s.terms && s.terms.length) bits.push("고유명사 " + s.terms.length + "개 학습됨");
-  if(s.carry) bits.push("지난 회의 미결 사항이 이어진다");
+  if(s.carry) bits.push("지난 회의 미결 사항이 이어집니다");
   hint.textContent = bits.join(" · ");
 }
 
 function renderSeriesList(){
   const box = $("series-list");
   if(!CFG.series.length){
-    box.innerHTML = '<p class="hint" style="margin-bottom:12px">아직 시리즈가 없다. 녹음할 때 만들 수 있다.</p>';
+    box.innerHTML = '<p class="hint" style="margin-bottom:12px">아직 시리즈가 없습니다. 녹음할 때 만들 수 있습니다.</p>';
     return;
   }
   box.innerHTML = CFG.series.map((s,i)=>
@@ -5016,8 +5019,8 @@ function renderSeriesList(){
       '<div class="row"><b>'+esc(s.name)+'</b><em>'+s.count+'회</em>'+
       '<button class="kill" data-skill="'+i+'">삭제</button></div>'+
       '<label>다음 회의로 넘길 미결 사항</label>'+
-      '<textarea data-sf="carry" placeholder="회의록을 만들면 자동으로 채워진다">'+esc(s.carry)+'</textarea>'+
-      '<label>학습된 고유명사 · 쉼표로 구분. 잘못 인식된 말은 여기서 지운다</label>'+
+      '<textarea data-sf="carry" placeholder="회의록을 만들면 자동으로 채워집니다">'+esc(s.carry)+'</textarea>'+
+      '<label>학습된 고유명사 · 쉼표로 구분. 잘못 인식된 말은 여기서 지웁니다</label>'+
       '<textarea data-sf="terms">'+esc((s.terms||[]).join(", "))+'</textarea>'+
     '</div>').join("");
 
@@ -5032,10 +5035,10 @@ function renderSeriesList(){
   box.querySelectorAll("[data-skill]").forEach(b=>{
     b.onclick = () => {
       const i = +b.dataset.skill, s = CFG.series[i];
-      confirmSheet("「"+s.name+"」 시리즈를 지운다",
+      confirmSheet("「"+s.name+"」 시리즈를 지웁니다",
         "쌓아 둔 고유명사 "+((s.terms||[]).length)+"개와 기억한 목소리 "+((s.voices||[]).length)+
-        "명이 사라진다. 이미 만든 회의록은 그대로 남는다.",
-        "지운다", ()=>{ CFG.series.splice(i,1); saveCfg(); renderSeriesList(); toast("시리즈를 지웠다."); });
+        "명이 사라집니다. 이미 만든 회의록은 그대로 남습니다.",
+        "지운다", ()=>{ CFG.series.splice(i,1); saveCfg(); renderSeriesList(); toast("시리즈를 지웠습니다."); });
     };
   });
 }
@@ -5077,12 +5080,12 @@ function absorbCarry(note, raw){
 
 /* ---------- 시트 ---------- */
 const HINTS = {
-  full:"회의 중에는 자막과 통역이 뜨고, 끝나면 화자를 갈라 회의록까지 만든다. 대부분의 회의는 이것으로 한다.",
-  trans:"회의 중 자막과 통역만 본다. 끝나면 화자를 갈라 기록으로 남기되 회의록은 만들지 않는다. 나중에 필요하면 문서 탭에서 만들 수 있다.",
-  doc:"자막을 띄우지 않고 녹음만 한다. 끝나면 화자를 갈라 한 번에 전사한다. 조각 전사를 건너뛰므로 값이 절반이다. 통역이 필요 없는 자리에 쓴다.",
-  online:"줌·팀즈·미트 같은 화상회의용. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담는다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜬다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켤 것.",
-  file:"기기에 있는 녹음 파일을 불러온다. 길면 자동으로 잘라서 순서대로 전사한다.",
-  text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리한다. 녹음하지 않는다."
+  full:"회의 중에는 자막과 통역이 뜨고, 끝나면 화자를 갈라 회의록까지 만듭니다. 대부분의 회의는 이것으로 합니다.",
+  trans:"회의 중 자막과 통역만 봅니다. 끝나면 화자를 갈라 기록으로 남기되 회의록은 만들지 않습니다. 나중에 필요하면 문서 탭에서 만들 수 있습니다.",
+  doc:"자막을 띄우지 않고 녹음만 합니다. 끝나면 화자를 갈라 한 번에 전사합니다. 조각 전사를 건너뛰므로 값이 절반입니다. 통역이 필요 없는 자리에 씁니다.",
+  online:"줌·팀즈·미트 같은 화상회의용입니다. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담습니다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜹니다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켜 주세요.",
+  file:"기기에 있는 녹음 파일을 불러옵니다. 길면 자동으로 잘라서 순서대로 전사합니다.",
+  text:"이미 있는 회의록이나 메모를 정해진 형식으로 다시 정리합니다. 녹음하지 않습니다."
 };
 /* 모드마다 무엇을 하는지 한자리에 모아 둔다. 여기저기 흩어 두면 어긋난다. */
 const MODE_DOES = {
@@ -5115,7 +5118,7 @@ function setMode(m){
 }
 
 /* ---------- 이벤트 ---------- */
-$("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 넣어라."); show("v-settings"); return; }
+$("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 넣어 주세요."); show("v-settings"); return; }
   $("r-title").value=""; $("r-brief").value=""; $("r-text").value="";
   // 회의마다 고르는 것들. 지난번 고른 값을 되살려 매번 다시 고르지 않게 한다.
   $("r-tts").value = CFG.tts || "0";
@@ -5123,9 +5126,9 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-keepaudio").value = CFG.keepAudio || "0";
   renderSeriesPicker(""); renderPeople(); renderSeriesList();
   setMode("full"); openSheet(); };
-$("scrim").onclick = ()=>{ if(recording){ toast("녹음 중이다. 종료 후 닫아라."); return; } closeSheet(); };
+$("scrim").onclick = ()=>{ if(recording){ toast("녹음 중입니다. 종료 후 닫아 주세요."); return; } closeSheet(); };
 document.querySelectorAll(".segctl button").forEach(b=>b.onclick=()=>{
-  if(recording){ toast("녹음 중에는 바꿀 수 없다."); return; } setMode(b.dataset.mode); });
+  if(recording){ toast("녹음 중에는 바꿀 수 없습니다."); return; } setMode(b.dataset.mode); });
 $("btn-rec").onclick = ()=>{
   if(mode==="file"){ $("filein").click(); return; }
   if(mode==="text"){ createTextNote(); return; }
@@ -5153,7 +5156,7 @@ $("l-mark").onclick  = markMoment;
 $("l-pause").onclick = togglePause;
 $("l-dim").onclick = ()=>{
   setDim(true);
-  toast("화면만 어둡게 했다. 녹음과 전사는 그대로 돈다. 아무 데나 누르면 돌아온다.", 5000);
+  toast("화면만 어둡게 했습니다. 녹음과 전사는 그대로 돕니다. 아무 데나 누르면 돌아옵니다.", 5000);
 };
 $("dimmer").onclick = ()=> setDim(false);
 $("l-stop").onclick  = stopRecording;
@@ -5195,8 +5198,8 @@ async function fetchOpenAICost(){
             + "?start_time=" + start + "&bucket_width=1d&limit=31";
   const r = await fetchT(url, { headers:{ Authorization:"Bearer " + key } }, 20000);
 
-  if(r.status === 401) throw new Error("관리자 열쇠가 맞지 않는다. sk-admin- 으로 시작하는 열쇠인지 확인해라.");
-  if(r.status === 403) throw new Error("이 열쇠에는 청구액을 볼 권한이 없다. 관리자 열쇠로 다시 만들어라.");
+  if(r.status === 401) throw new Error("관리자 열쇠가 맞지 않습니다. sk-admin- 으로 시작하는 열쇠인지 확인해 주세요.");
+  if(r.status === 403) throw new Error("이 열쇠에는 청구액을 볼 권한이 없습니다. 관리자 열쇠로 다시 만들어 주세요.");
   if(!r.ok) throw new Error("OpenAI 응답 " + r.status);
 
   const j = await r.json();
@@ -5224,7 +5227,7 @@ async function fetchElevenUsage(){
   const r = await fetchT("https://api.elevenlabs.io/v1/user/subscription",
                          { headers:{ "xi-api-key": key } }, 20000);
   if(r.status === 401)
-    throw new Error("열쇠에 조회 권한이 없다. ElevenLabs 열쇠를 다시 만들 때 'User' 항목도 접근으로 켜라.");
+    throw new Error("열쇠에 조회 권한이 없습니다. ElevenLabs 열쇠를 다시 만들 때 'User' 항목도 접근으로 켜 주세요.");
   if(!r.ok) throw new Error("ElevenLabs 응답 " + r.status);
 
   const j = await r.json();
@@ -5258,7 +5261,7 @@ async function loadCosts(force){
 function paintCosts(c, note){
   const box = $("cost-box"); if(!box) return;
   if(note){ box.innerHTML = esc(note); return; }
-  if(!c){ box.textContent = "아직 확인하지 않았다."; return; }
+  if(!c){ box.textContent = "아직 확인하지 않았습니다."; return; }
 
   let h = "";
 
@@ -5267,7 +5270,7 @@ function paintCosts(c, note){
   if(c.oaiErr){
     h += '<div class="bad">'+esc(c.oaiErr)+'</div>';
   } else if(!c.oai || c.oai.skip){
-    h += '관리자 열쇠를 넣으면 실제 청구액이 여기 나온다.';
+    h += '관리자 열쇠를 넣으면 실제 청구액이 여기 나옵니다.';
   } else {
     h += '<span class="big">'+usdS(c.oai.usd)+'</span>';
     if(c.oai.days && c.oai.days.length){
@@ -5275,7 +5278,7 @@ function paintCosts(c, note){
       for(const d of c.oai.days)
         h += '<div class="row"><span>'+esc(dayLabel(d.at))+'</span><b>'+usdS(d.usd)+'</b></div>';
       h += '</div>';
-    } else h += '<div>이번 달에는 아직 쓴 것이 없다.</div>';
+    } else h += '<div>이번 달에는 아직 쓴 것이 없습니다.</div>';
   }
   h += '</div>';
 
@@ -5284,7 +5287,7 @@ function paintCosts(c, note){
   if(c.elErr){
     h += '<div class="bad">'+esc(c.elErr)+'</div>';
   } else if(!c.el || c.el.skip){
-    h += '열쇠를 넣지 않았다. 화자 분리를 안 쓰면 이 칸은 비어 있는 것이 맞다.';
+    h += '열쇠를 넣지 않았습니다. 화자 분리를 안 쓰면 이 칸은 비어 있는 것이 맞습니다.';
   } else {
     const pct = c.el.limit ? Math.min(100, Math.round(c.el.used / c.el.limit * 100)) : 0;
     h += '<span class="big">'+pct+'%<small>'+c.el.used.toLocaleString("ko-KR")
@@ -5325,7 +5328,7 @@ async function checkCosts(force){
     paintCosts(c);
     warnBudget(c);
   }catch(e){
-    paintCosts(null, "확인하지 못했다. " + (e.message || e));
+    paintCosts(null, "확인하지 못했습니다. " + (e.message || e));
   }
 }
 
@@ -5346,8 +5349,8 @@ function warnBudget(c){
   CFG.budgetWarned = mark; saveCfg();
 
   toast(step >= 100
-    ? "이번 달 " + usdS(usd) + " 썼다. 정한 한도 " + usdS(limit) + " 를 넘었다."
-    : "이번 달 " + usdS(usd) + " 썼다. 한도의 " + Math.round(pct) + "% 다.", 8000);
+    ? "이번 달 " + usdS(usd) + " 썼습니다. 정한 한도 " + usdS(limit) + " 를 넘었습니다."
+    : "이번 달 " + usdS(usd) + " 썼습니다. 한도의 " + Math.round(pct) + "% 입니다.", 8000);
   paintStrips();
 }
 
@@ -5385,7 +5388,7 @@ $("btn-settings").onclick = ()=>{
   $("s-eleven").value=CFG.eleven||"";
   $("s-oaiadmin").value=CFG.oaiAdmin||"";
   $("s-budget").value=CFG.budgetUsd||"";
-  paintSync(lastSync ? "맞췄다 · "+timeLabel(lastSync) : "");
+  paintSync(lastSync ? "맞췄습니다 · "+timeLabel(lastSync) : "");
   paintStorage();
   paintCosts(CFG.costCache);   // 저장해 둔 값을 먼저 띄우고
   checkCosts(false);           // 오래됐으면 조용히 새로 가져온다
@@ -5394,7 +5397,7 @@ $("btn-settings").onclick = ()=>{
 $("s-cost-now").onclick = async ()=>{
   const b = $("s-cost-now");
   if(!CFG.oaiAdmin && !CFG.eleven){
-    toast("관리자 열쇠나 ElevenLabs 열쇠를 먼저 넣고 저장해라.", 5000); return;
+    toast("관리자 열쇠나 ElevenLabs 열쇠를 먼저 넣고 저장해 주세요.", 5000); return;
   }
   b.disabled = true; b.textContent = "확인 중…";
   paintCosts(null, "확인 중…");
@@ -5418,13 +5421,13 @@ $("g-link").onclick = async ()=>{
   const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
   const paintBox = (d, note) =>
     '<strong style="display:block;font-size:15px;color:var(--ink);margin-bottom:6px">'+
-    '다른 기기나 브라우저에서 아래 주소를 열고 코드를 넣어라</strong>' +
+    '다른 기기나 브라우저에서 아래 주소를 열고 코드를 넣어 주세요</strong>' +
     '<div style="margin:8px 0">주소: <strong>'+esc(d.verification_url)+'</strong></div>' +
     '<div style="font-size:28px;font-weight:700;letter-spacing:.08em;color:var(--ink);'+
     'user-select:all;-webkit-user-select:all">'+esc(d.user_code)+'</div>' +
     '<div style="margin-top:10px" id="g-wait">'+note+'</div>' +
-    '<div style="margin-top:8px"><strong>이 화면을 벗어나지 마라.</strong> 앱이 승인을 기다리는 중이라, '+
-    '앱을 나가거나 화면이 꺼지면 승인해도 연결되지 않는다.</div>';
+    '<div style="margin-top:8px"><strong>이 화면을 벗어나지 마세요.</strong> 앱이 승인을 기다리는 중이라, '+
+    '앱을 나가거나 화면이 꺼지면 승인해도 연결되지 않습니다.</div>';
   let dev = null;
   try{
     await gStartLink(
@@ -5436,7 +5439,7 @@ $("g-link").onclick = async ()=>{
           + (hiccups ? " · 통신이 " + hiccups + "번 끊겼다" : "");
       });
     box.style.display = "none";
-    toast("구글에 연결했다.");
+    toast("구글에 연결했습니다.");
     paintSync("");
     syncDrive(true);
   }catch(e){
@@ -5468,17 +5471,17 @@ $("s-gcsec-show").onclick = ()=>{
   b.textContent = on ? "숨기기" : "보기";
 };
 $("g-sync").onclick = ()=>{
-  if(!driveOn()){ toast("먼저 구글에 연결해라."); return; }
+  if(!driveOn()){ toast("먼저 구글에 연결해 주세요."); return; }
   syncDrive(true);
 };
 $("g-unlink").onclick = ()=>{
-  confirmSheet("구글 연결을 끊는다",
-    "이 기기의 회의록은 지워지지 않는다. 다시 이으려면 코드를 넣어 승인해야 한다.",
-    "끊는다", ()=>{ gUnlink(); paintSync(""); toast("연결을 끊었다."); });
+  confirmSheet("구글 연결을 끊습니다",
+    "이 기기의 회의록은 지워지지 않습니다. 다시 이으려면 코드를 넣어 승인해야 합니다.",
+    "끊는다", ()=>{ gUnlink(); paintSync(""); toast("연결을 끊었습니다."); });
 };
 $("s-trim").onclick = async ()=>{
   const n = await freeAudio(Number.MAX_SAFE_INTEGER);
-  toast("녹음 " + Math.round(n/1024/1024) + "MB 를 비웠다. 회의록은 그대로다.", 5000);
+  toast("녹음 " + Math.round(n/1024/1024) + "MB 를 비웠습니다. 회의록은 그대로입니다.", 5000);
   paintStorage();
 };
 $("s-export").onclick = exportBackup;
@@ -5501,7 +5504,7 @@ $("s-save").onclick = ()=>{
   CFG.budgetUsd = nb;
   if(recording) keepAwake(CFG.awake==="1");
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
-  saveCfg(); toast("저장했다."); show(openId?"v-detail":"v-list"); drain();
+  saveCfg(); toast("저장했습니다."); show(openId?"v-detail":"v-list"); drain();
 };
 addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.returnValue=""; } });
 
@@ -5555,9 +5558,9 @@ function paintUpdateState(){
   const el = $("up-state");
   if(!el) return;
   const U = window.__mnUpdate;
-  if(!U){ el.textContent = "현재 버전 " + APP_VERSION + " · 브라우저로 열어서 자동 업데이트가 없다."; return; }
-  if(U.pending) el.textContent = "새 버전 " + U.pending + " 을 받아 뒀다. 아래 '지금 적용'을 누르면 바로 바뀐다.";
-  else el.textContent = "현재 버전 " + APP_VERSION + (U.checked ? " · 최신이다." : "");
+  if(!U){ el.textContent = "현재 버전 " + APP_VERSION + " · 브라우저로 열어서 자동 업데이트가 없습니다."; return; }
+  if(U.pending) el.textContent = "새 버전 " + U.pending + " 을 받아 뒀습니다. 아래 '지금 적용'을 누르면 바로 바뀝니다.";
+  else el.textContent = "현재 버전 " + APP_VERSION + (U.checked ? " · 최신입니다." : "");
   const ap = $("up-apply");
   if(ap) ap.style.display = U.pending ? "" : "none";
 }
@@ -5566,9 +5569,9 @@ function paintUpdateState(){
    녹음 중에 갈아치우면 진행 중인 회의가 끊기므로 막는다. */
 function applyUpdate(){
   const U = window.__mnUpdate;
-  if(!U || !U.pending){ toast("받아 둔 새 버전이 없다."); return; }
-  if(recording){ toast("녹음 중에는 적용할 수 없다. 회의를 끝내고 눌러라."); return; }
-  toast("새 버전을 적용한다…");
+  if(!U || !U.pending){ toast("받아 둔 새 버전이 없습니다."); return; }
+  if(recording){ toast("녹음 중에는 적용할 수 없습니다. 회의를 끝내고 눌러 주세요."); return; }
+  toast("새 버전을 적용합니다…");
   setTimeout(()=>location.reload(), 400);
 }
 
@@ -5578,24 +5581,24 @@ function wireUpdateUI(){
   const c = $("up-check"), r = $("up-revert"), ap = $("up-apply");
   if(ap) ap.onclick = applyUpdate;
   if(c) c.onclick = async ()=>{
-    if(!U){ toast("브라우저에서는 자동 업데이트가 없다."); return; }
+    if(!U){ toast("브라우저에서는 자동 업데이트가 없습니다."); return; }
     c.disabled = true; c.textContent = "확인 중…";
     try{
       const res = await U.check();
       if(res.status === "updated"){
         paintUpdateState(); paintUpdBar();
-        toast("새 버전 " + res.version + " 을 받았다. '지금 적용'을 누르면 바뀐다.");
+        toast("새 버전 " + res.version + " 을 받았습니다. '지금 적용'을 누르면 바뀝니다.");
       }
-      else if(res.status === "latest") toast("이미 최신이다.");
+      else if(res.status === "latest") toast("이미 최신입니다.");
       else                             toast(res.message || "확인하지 못했다.");
-    }catch(e){ toast("확인하지 못했다. 인터넷 연결을 확인할 것."); }
+    }catch(e){ toast("확인하지 못했습니다. 인터넷 연결을 확인해 주세요."); }
     finally{ c.disabled=false; c.textContent="지금 업데이트 확인"; paintUpdateState(); }
   };
   if(r) r.onclick = ()=>{
-    if(!U){ toast("브라우저에서는 해당 없다."); return; }
-    confirmSheet("설치된 버전으로 되돌린다",
-      "받아 둔 갱신을 버린다. 회의록은 지워지지 않는다. 앱을 다시 열면 APK 에 들어 있던 판으로 돌아간다.",
-      "되돌린다", ()=>{ U.revert(); toast("되돌렸다. 앱을 다시 열어라."); paintUpdateState(); });
+    if(!U){ toast("브라우저에서는 해당 없습니다."); return; }
+    confirmSheet("설치된 버전으로 되돌립니다",
+      "받아 둔 갱신을 버립니다. 회의록은 지워지지 않습니다. 앱을 다시 열면 APK 에 들어 있던 판으로 돌아갑니다.",
+      "되돌린다", ()=>{ U.revert(); toast("되돌렸습니다. 앱을 다시 열어 주세요."); paintUpdateState(); });
   };
   // 기동 4초 뒤 자동 확인이 끝나면 알려 준다. 녹음 중이면 방해하지 않는다.
   addEventListener("mn-update", ()=>{ paintUpdateState(); paintUpdBar(); });

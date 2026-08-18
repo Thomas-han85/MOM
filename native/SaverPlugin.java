@@ -39,11 +39,11 @@ public class SaverPlugin extends Plugin {
         String name = call.getString("name", "meetnote.json");
         String mime = call.getString("mime", "application/octet-stream");
         String b64  = call.getString("data", "");
-        if (b64 == null || b64.isEmpty()) { call.reject("빈 파일이다."); return; }
+        if (b64 == null || b64.isEmpty()) { call.reject("빈 파일입니다."); return; }
 
         byte[] bytes;
         try { bytes = Base64.decode(b64, Base64.DEFAULT); }
-        catch (Exception e) { call.reject("파일을 해석하지 못했다: " + e.getMessage()); return; }
+        catch (Exception e) { call.reject("파일을 해석하지 못했습니다: " + e.getMessage()); return; }
 
         try {
             String where;
@@ -54,9 +54,9 @@ public class SaverPlugin extends Plugin {
                 v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                 Uri uri = getContext().getContentResolver()
                         .insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                if (uri == null) { call.reject("저장할 자리를 잡지 못했다."); return; }
+                if (uri == null) { call.reject("저장할 자리를 잡지 못했습니다."); return; }
                 OutputStream out = getContext().getContentResolver().openOutputStream(uri);
-                if (out == null) { call.reject("파일을 열지 못했다."); return; }
+                if (out == null) { call.reject("파일을 열지 못했습니다."); return; }
                 out.write(bytes);
                 out.close();
                 where = "다운로드 폴더";
@@ -76,7 +76,7 @@ public class SaverPlugin extends Plugin {
             r.put("name", name);
             call.resolve(r);
         } catch (Exception e) {
-            call.reject("저장하지 못했다: " + e.getMessage());
+            call.reject("저장하지 못했습니다: " + e.getMessage());
         }
     }
 }
