@@ -656,7 +656,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.05-11";
+const APP_VERSION = "2026.08.05-12";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2964,7 +2964,23 @@ async function runDiarize(note, onStep){
 
   const r = await fetchT(EL_URL, { method:"POST", headers:{ "xi-api-key": CFG.eleven }, body: fd },
                          Math.max(120000, seconds*1000));
-  if(!r.ok) throw new Error("화자 분리 실패 "+r.status+" · "+(await r.text()).slice(0,160));
+  if(!r.ok){
+    /* 오류를 날것으로 던지면 JSON 토막이 화면에 그대로 뜬다.
+       무슨 일이 났고 무엇을 하면 되는지를 사람 말로 알려야 한다. */
+    const raw = await r.text();
+    let code = "", msg = "";
+    try{ const j = JSON.parse(raw); code = j.detail?.code || ""; msg = j.detail?.message || ""; }catch(e){}
+    if(code === "quota_exceeded"){
+      const m = /You have (\d+) credits remaining/.exec(msg);
+      throw new Error("ElevenLabs 사용량을 다 썼다"
+        + (m ? " (남은 크레딧 " + Number(m[1]).toLocaleString("ko-KR") + ")" : "") + ". "
+        + "이 회의 소리는 보관돼 있으니 사용량이 다시 채워지면 그때 눌러도 된다. "
+        + "채워지는 날은 설정 → 쓴 돈에서 보인다. 계속 쓰려면 elevenlabs.io 에서 요금제에 가입해라.");
+    }
+    if(r.status === 401)
+      throw new Error("ElevenLabs 열쇠가 막혔다. 설정에서 열쇠를 확인하고, 열쇠를 만들 때 '음성 텍스트 변환' 을 접근으로 켰는지 봐라.");
+    throw new Error("화자 분리 실패 " + r.status + " · " + raw.slice(0, 160));
+  }
   const d = await r.json();
   const turns = wordsToTurns(d.words);
   if(!turns.length) throw new Error("결과가 비어 있다.");
