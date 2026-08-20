@@ -559,6 +559,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   <div class="grab"></div>
   <div class="segctl">
     <button data-mode="full" class="on">통역+회의록</button>
+    <button data-mode="talk">대화</button>
     <button data-mode="trans">통역만</button>
     <button data-mode="doc">회의록만</button>
     <button data-mode="file">음성파일</button>
@@ -618,6 +619,27 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         <option value="English">English</option>
         <option value="">통역 안 함</option>
       </select></div>
+    <div class="field" id="pair-field" style="display:none">
+      <label>서로의 언어 · 말을 알아듣고 반대쪽으로 통역합니다</label>
+      <div style="display:flex;gap:10px;align-items:center">
+        <select id="r-lang-a" style="flex:1">
+          <option value="Korean">한국어</option>
+          <option value="Vietnamese">Tiếng Việt</option>
+          <option value="Khmer">ភាសាខ្មែរ</option>
+          <option value="English">English</option>
+        </select>
+        <span style="color:var(--muted);flex:0 0 auto">↔</span>
+        <select id="r-lang-b" style="flex:1">
+          <option value="Vietnamese">Tiếng Việt</option>
+          <option value="Korean">한국어</option>
+          <option value="Khmer">ភាសាខ្មែរ</option>
+          <option value="English">English</option>
+        </select>
+      </div>
+      <p class="hint" style="margin-top:6px">이어폰을 한쪽씩 나눠 끼는 것이 제일 좋습니다 —
+        통역을 양쪽 언어로 읽어 주므로 각자 자기 언어만 골라 들으면 됩니다.
+        스피커로 틀어도 되고, 그 소리가 마이크로 되들어와도 기록에는 섞이지 않게 걸러 줍니다.</p>
+    </div>
     <div class="field" id="r-tts-field"><label for="r-tts">통역 읽어주기</label>
       <select id="r-tts">
         <option value="0">끄기</option>
@@ -656,7 +678,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.18-1";
+const APP_VERSION = "2026.08.18-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -731,6 +753,7 @@ const DEFAULTS = { oai:"", ant:"",
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1",                                // 녹음 중 화면 켜 두기
                    theme:"auto",                             // 화면 밝기 (auto/light/dark)
+                   talkA:"Korean", talkB:"Vietnamese",       // 대화 모드 언어쌍
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
@@ -1135,6 +1158,27 @@ function junkLine(text){
   return JUNK.some(re => re.test(t));
 }
 
+/* 이 구간이 무슨 말인지 글자로 알아낸다. 대화 모드에서 통역 방향을 정하는 눈이다.
+
+   모델에게 물어볼 것 없이 문자 체계로 거의 판가름난다. 한글이 있으면 한국어,
+   베트남 성조 글자가 있으면 베트남어, 크메르 문자면 크메르어.
+   한↔베 짝에서는 사실상 틀릴 수가 없다. 아무 표식도 없으면(라틴 글자뿐이면)
+   상대 언어로 본다 — 내 말(한국어)은 한글로 확실히 잡히므로, 못 잡은 쪽은 상대다. */
+function detectLang(text, a, b){
+  const s = String(text||"");
+  const has = {
+    Korean:     /[가-힯]/.test(s),
+    Vietnamese: /[ăâđêôơưĂÂĐÊÔƠƯàảãáạằẳẵắặầẩẫấậèẻẽéẹềểễếệìỉĩíịòỏõóọồổỗốộờởỡớợùủũúụừửữứựỳỷỹýỵ]/i.test(s),
+    Khmer:      /[ក-៿]/.test(s)
+  };
+  if(has[a] && !has[b]) return a;
+  if(has[b] && !has[a]) return b;
+  if(has[a] && has[b])  return a;      // 섞였으면 내 쪽으로 — 내가 상대 말을 인용했을 때다
+  if(a === "English") return a;        // 라틴뿐인데 짝에 영어가 있으면 영어다
+  if(b === "English") return b;
+  return b;                            // 표식이 없으면 상대가 말한 것으로 본다
+}
+
 /* 이 회의에 있을 수 없는 글자로 돌아온 구간을 가려낸다.
 
    조용하거나 웅성거리는 구간에서 모델이 엉뚱한 말을 지어낼 때, 중국어나 일본어
@@ -1194,6 +1238,9 @@ function spokenLately(text){
    설정을 바꾸지는 않는다. 이 녹음 동안만 멈춘다. */
 function ttsEchoSeen(){
   ttsEchoes++;
+  /* 대화 모드는 스피커로 트는 것이 정상이다. 되울린 문장을 걸러내는 것으로
+     충분하고, 읽어주기를 멈춰 버리면 통역 자체가 서 버린다. */
+  if(activeNote && activeNote.mode === "talk") return;
   if(ttsSuspended || ttsEchoes < 3) return;
   ttsSuspended = true;
   ttsStop();
@@ -1419,20 +1466,37 @@ async function translateChunk(text, target, prevPair, ctxHint){
     "You are a simultaneous interpreter for on-site construction and business meetings in Southeast Asia (Vietnam, Cambodia).",
     "Translate the user's transcript segment into "+target+".",
     "Rules: output ONLY the translation. No preamble, no notes, no quotes.",
+    "Translate the user's message IN FULL, from its very first word to its last. Never skip the beginning, even if it resembles or repeats the preceding context.",
     "Keep speaker register and technical precision. Numbers, dates, dimensions and proper nouns must survive exactly.",
     "If a segment starts mid-sentence, translate it as a fragment. Do not invent a beginning.",
     ctxHint ? "Meeting context: "+ctxHint : "",
-    prevPair ? "Preceding segment (for continuity, do NOT re-translate it):\n"+prevPair : "",
+    prevPair ? "Context only — the previous segment, already translated. Use it for pronouns and flow. It is NOT part of the text to translate, but the user's message must still be translated in full:\n"+prevPair : "",
     CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : ""
   ].filter(Boolean).join("\n\n");
-  const r = await fetch("https://api.openai.com/v1/chat/completions",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
-    body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:1600,
-      messages:[{role:"system",content:sys},{role:"user",content:text}] })
-  });
-  if(!r.ok) throw new Error("통역 실패 "+r.status);
-  return ((await r.json()).choices?.[0]?.message?.content||"").trim();
+  const call = async (cap, extra) => {
+    const r = await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
+      body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:cap,
+        messages:[{role:"system",content: extra ? sys+"\n\n"+extra : sys},
+                  {role:"user",content:text}] })
+    });
+    if(!r.ok) throw new Error("통역 실패 "+r.status);
+    const j = await r.json();
+    return { out: (j.choices?.[0]?.message?.content||"").trim(),
+             cut: j.choices?.[0]?.finish_reason === "length" };
+  };
+
+  let t = await call(1600);
+  /* 통역이 중간에서 멈추거나 앞머리를 건너뛰는 일이 있다. 상한에 걸렸거나
+     원문 대비 지나치게 짧으면 끊긴 것으로 보고 한 번 더 시킨다.
+     두 번째까지 짧으면 그대로 쓴다 — 원래 짧게 옮겨지는 말도 있다. */
+  if(t.cut || (text.length > 120 && t.out.length < text.length * 0.4)){
+    const again = await call(3000,
+      "IMPORTANT: Your previous attempt was incomplete (it skipped part of the segment). Translate the ENTIRE user message, first word to last.");
+    if(again.out.length > t.out.length) t = again;
+  }
+  return t.out;
 }
 
 /* =====================================================================
@@ -3197,16 +3261,22 @@ async function drain(){
           if(!txt){ c.trans = ""; c.echo = true; }
         }
 
-        if(note.target && c.text){
+        /* 어느 말로 옮길 것인가.
+           보통은 회의에서 정한 언어 하나다. 대화 모드에서는 구간마다 말을
+           알아듣고 반대쪽으로 보낸다 — 내가 말하면 상대 언어로, 상대가 말하면 내 언어로. */
+        const tgt = (note.mode === "talk" && c.text)
+          ? (detectLang(c.text, note.langA, note.langB) === note.langA ? note.langB : note.langA)
+          : note.target;
+        if(tgt && c.text){
           const pair = prev && prev.text ? prev.text.slice(-260) : "";
-          c.trans = await translateChunk(c.text, note.target, pair, note.ctx);
+          c.trans = await translateChunk(c.text, tgt, pair, note.ctx);
           /* 읽어 주는 것은 지금 벌어지는 회의일 때만이다. 화면이 꺼져 밀린 것이
              한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다. */
           const fresh = (Date.now() - (c.created||0)) < 90000;
           if(fresh && recording && activeNote && activeNote.id===c.noteId)
-            speakTrans(c.trans, note.target);
+            speakTrans(c.trans, tgt);
           else if(fresh && openId === c.noteId && !recording && CFG.tts==="1" && ttsUnlocked)
-            speakTrans(c.trans, note.target);
+            speakTrans(c.trans, tgt);
         }
         c.status = "done"; c.error = "";
         // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
@@ -3515,12 +3585,16 @@ async function startRecording(){
   }
 
   const title = $("r-title").value.trim();
-  activeNote = { id:uid(), title: title || "기록 " + timeLabel(Date.now()),
+  const talk = mode === "talk";
+  activeNote = { id:uid(), title: title || (talk ? "대화 " : "기록 ") + timeLabel(Date.now()),
     created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
-    target:$("r-target").value, summary:"", mode,
+    target: talk ? "" : $("r-target").value, summary:"", mode,
+    langA: talk ? $("r-lang-a").value : "",   // 내 언어
+    langB: talk ? $("r-lang-b").value : "",   // 상대 언어
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
     brief: $("r-brief").value.trim(), terms: [],
     wantDiar: modeDoes().diar && $("r-diar").value==="1" };
+  if(talk){ CFG.talkA = activeNote.langA; CFG.talkB = activeNote.langB; }
   // 이 회의에서 고른 것을 기본값으로 삼는다. 다음에도 대개 같기 때문이다.
   CFG.tts = modeDoes().translate ? $("r-tts").value : "0";
   CFG.diar = $("r-diar").value;
@@ -3564,11 +3638,14 @@ async function startRecording(){
     });
     nativeErrSub = await Native.addListener("recError", ev => toast(ev.message));
     try{
+      /* 대화 모드는 호흡이 다르다. 30초를 기다렸다 통역하면 대화가 안 된다.
+         짧게 끊고, 말이 멎는 자리도 더 민감하게 잡는다. */
+      const ch = mode === "talk" ? 9000 : +CFG.chunk;
       await Native.start({
-        chunkMs: +CFG.chunk,
-        minChunkMs: Math.round(+CFG.chunk * 0.5),
-        maxChunkMs: Math.round(+CFG.chunk * 1.5),
-        silenceHoldMs: 700
+        chunkMs: ch,
+        minChunkMs: Math.round(ch * (mode === "talk" ? 0.35 : 0.5)),
+        maxChunkMs: Math.round(ch * 1.5),
+        silenceHoldMs: mode === "talk" ? 500 : 700
       });
     }catch(e){
       toast(e.message || "녹음을 시작할 수 없습니다.");
@@ -3627,12 +3704,13 @@ function nextSegment(){
     if(parts.length){
       const blob = new Blob(parts, { type: rec.mimeType || "audio/webm" });
       await saveChunk(activeNote.id, seq++, blob, modeDoes().live ? "pending" : "held", webOffset);
-      webOffset += +CFG.chunk;
+      webOffset += (mode === "talk" ? 9000 : +CFG.chunk);
     }
     if(recording){ if(!paused) nextSegment(); } else finishRecording();
   };
   rec.start();
-  recTimer = setTimeout(()=>{ if(rec && rec.state==="recording") rec.stop(); }, +CFG.chunk);
+  recTimer = setTimeout(()=>{ if(rec && rec.state==="recording") rec.stop(); },
+                        mode === "talk" ? 9000 : +CFG.chunk);
 }
 
 let trimTick = 0;
@@ -5081,6 +5159,7 @@ function absorbCarry(note, raw){
 /* ---------- 시트 ---------- */
 const HINTS = {
   full:"회의 중에는 자막과 통역이 뜨고, 끝나면 화자를 갈라 회의록까지 만듭니다. 대부분의 회의는 이것으로 합니다.",
+  talk:"마주 앉은 두 사람의 통역입니다. 한국어로 말하면 상대 언어로, 상대가 말하면 한국어로 — 말을 알아듣고 방향을 스스로 정합니다. 짧게 끊어 빠르게 통역하며, 회의록은 만들지 않습니다(필요하면 나중에 문서 탭에서).",
   trans:"회의 중 자막과 통역만 봅니다. 끝나면 화자를 갈라 기록으로 남기되 회의록은 만들지 않습니다. 나중에 필요하면 문서 탭에서 만들 수 있습니다.",
   doc:"자막을 띄우지 않고 녹음만 합니다. 끝나면 화자를 갈라 한 번에 전사합니다. 조각 전사를 건너뛰므로 값이 절반입니다. 통역이 필요 없는 자리에 씁니다.",
   online:"줌·팀즈·미트 같은 화상회의용입니다. 회의 탭의 소리를 마이크를 거치지 않고 직접 따오고, 내 마이크를 합쳐 양쪽 대화를 다 담습니다. 녹음 시작을 누르면 공유할 창을 고르는 화면이 뜹니다. 회의가 열린 탭을 고르고 반드시 '탭 오디오도 공유'를 켜 주세요.",
@@ -5090,6 +5169,7 @@ const HINTS = {
 /* 모드마다 무엇을 하는지 한자리에 모아 둔다. 여기저기 흩어 두면 어긋난다. */
 const MODE_DOES = {
   full:   { live:true,  translate:true,  diar:true  },
+  talk:   { live:true,  translate:true,  diar:false },  // 두 사람 대화 — 방향은 구간마다 정한다
   trans:  { live:true,  translate:true,  diar:true  },
   doc:    { live:false, translate:false, diar:true  },
   online: { live:true,  translate:true,  diar:true  },
@@ -5109,8 +5189,12 @@ function setMode(m){
     : '<span class="dot"></span> 녹음 시작';
   // 통역이 없는 모드에서는 통역할 언어와 읽어주기를 감춘다. 쓸 자리가 없다.
   const tr = modeDoes().translate;
-  const tf = $("target-field"); if(tf) tf.style.display = tr ? "" : "none";
+  const talk = m === "talk";
+  const tf = $("target-field"); if(tf) tf.style.display = (tr && !talk) ? "" : "none";
+  const pf = $("pair-field");   if(pf) pf.style.display = talk ? "" : "none";
   const rt = $("r-tts-field");  if(rt) rt.style.display = tr ? "" : "none";
+  // 대화 모드는 소리로 통역하는 것이 본령이다. 켜 두고 시작한다. 끄는 건 자유다.
+  if(talk && $("r-tts")) $("r-tts").value = "1";
   $("btn-pause").style.display = "none";
   $("btn-mark").style.display = "none";
   $("text-field").style.display = m==="text" ? "" : "none";
@@ -5124,6 +5208,8 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-tts").value = CFG.tts || "0";
   $("r-diar").value = CFG.diar || "1";
   $("r-keepaudio").value = CFG.keepAudio || "0";
+  $("r-lang-a").value = CFG.talkA || "Korean";
+  $("r-lang-b").value = CFG.talkB || "Vietnamese";
   renderSeriesPicker(""); renderPeople(); renderSeriesList();
   setMode("full"); openSheet(); };
 $("scrim").onclick = ()=>{ if(recording){ toast("녹음 중입니다. 종료 후 닫아 주세요."); return; } closeSheet(); };
