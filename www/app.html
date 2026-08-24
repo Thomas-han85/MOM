@@ -636,9 +636,24 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="English">English</option>
         </select>
       </div>
-      <p class="hint" style="margin-top:6px">이어폰을 한쪽씩 나눠 끼는 것이 제일 좋습니다 —
-        통역을 양쪽 언어로 읽어 주므로 각자 자기 언어만 골라 들으면 됩니다.
-        스피커로 틀어도 되고, 그 소리가 마이크로 되들어와도 기록에는 섞이지 않게 걸러 줍니다.</p>
+      <p class="hint" style="margin-top:6px">앞쪽이 실장님 언어, 뒤쪽이 상대 언어입니다.
+        말을 알아듣고 반대쪽으로 옮깁니다.</p>
+    </div>
+    <div class="field" id="talkout-field" style="display:none">
+      <label for="r-talkout">통역 소리를 어디로 보낼까요</label>
+      <select id="r-talkout">
+        <option value="other">상대 말만 읽기 · 이어폰을 안 나눠도 됩니다</option>
+        <option value="splitL">좌우 나눠 듣기 · 내 쪽 왼쪽</option>
+        <option value="splitR">좌우 나눠 듣기 · 내 쪽 오른쪽</option>
+        <option value="both">양쪽 다 읽기 · 예전 방식</option>
+      </select>
+      <p class="hint" style="margin-top:6px">
+        <b>상대 말만 읽기</b> — 상대 말만 귀로 옵니다. 내 말의 번역은 읽지 않고 화면에만 뜨니
+        상대에게 보여 주면 됩니다. 내 말을 내가 다시 들을 일이 없어 제일 덜 헷갈립니다.<br>
+        <b>좌우 나눠 듣기</b> — 이어폰을 한 짝씩 나눠 끼고 각자 자기 언어만 듣습니다.
+        <b>두 짝을 모두 케이스에서 꺼내 귀에 꽂아야</b> 좌우가 갈립니다 —
+        한 짝을 케이스에 두면 무선 이어폰이 좌우를 하나로 합쳐 버립니다.<br>
+        읽어 준 소리가 마이크로 되들어와도 기록에는 섞이지 않게 걸러 줍니다.</p>
     </div>
     <div class="field" id="r-tts-field"><label for="r-tts">통역 읽어주기</label>
       <select id="r-tts">
@@ -678,7 +693,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.20-1";
+const APP_VERSION = "2026.08.24-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -754,6 +769,7 @@ const DEFAULTS = { oai:"", ant:"",
                    awake:"1",                                // 녹음 중 화면 켜 두기
                    theme:"auto",                             // 화면 밝기 (auto/light/dark)
                    talkA:"Korean", talkB:"Vietnamese",       // 대화 모드 언어쌍
+                   talkOut:"other",                          // 대화 모드에서 통역 소리를 어디로 보낼지
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
@@ -1526,15 +1542,23 @@ const HAS_WEB_TTS = ("speechSynthesis" in window) &&
 const TTS_OK = !!NativeTts || HAS_WEB_TTS;
 
 let ttsQueue = [], ttsBusy = false, ttsLast = "";
-function speakTrans(text, target){
+/* pan 은 소리를 어느 귀로 보낼지다. -1 왼쪽, 0 가운데, +1 오른쪽.
+   좌우를 나눠 들을 때만 쓴다. */
+function speakTrans(text, target, pan){
   if(CFG.tts!=="1" || !text || !TTS_OK || ttsSuspended) return;
   // 방금 읽은 것과 같은 말이면 읽지 않는다. 같은 말을 두 번 듣는 일이 없게 한다.
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
   noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
-  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR" });
-  // 처리가 밀리면 읽기가 한없이 뒤처진다. 밀린 것은 버리고 최근 것만 읽는다.
-  if(ttsQueue.length > 2) ttsQueue = ttsQueue.slice(-2);
+  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0 });
+  /* 처리가 밀리면 읽기가 한없이 뒤처진다. 밀린 것은 버리고 최근 것만 읽는다.
+     다만 좌우를 나눠 들을 때 한쪽 것만 남기면 반대쪽 사람이 제 차례를 통째로
+     놓친다. 그래서 귀마다 최근 하나씩을 남긴다. */
+  if(ttsQueue.length > 2){
+    const keep = new Map();
+    for(const j of ttsQueue) keep.set(j.pan, j);
+    ttsQueue = Array.from(keep.values()).slice(-2);
+  }
   ttsPump();
 }
 function ttsPump(){
@@ -1543,7 +1567,8 @@ function ttsPump(){
   const done = () => { ttsBusy = false; ttsPump(); };
   if(NativeTts){
     // 네이티브는 자체 큐로 순서를 지킨다. 넘겨 두고 바로 다음으로 넘어간다.
-    NativeTts.speak({ text:j.text, lang:j.lang, rate: parseFloat(CFG.ttsRate)||1 })
+    NativeTts.speak({ text:j.text, lang:j.lang, rate: parseFloat(CFG.ttsRate)||1,
+                      pan: j.pan || 0 })
       .then(done, done);
     return;
   }
@@ -1564,6 +1589,13 @@ function ttsStop(){
 }
 /* 안드로이드는 사용자가 누른 흐름에서 한 번 소리를 내야 이후 자동 재생을 허용한다.
    녹음 시작 버튼을 누를 때 무음을 한 번 재생해 잠금을 풀어 둔다. */
+/* 좌우 나눔은 APK 안의 네이티브가 해 준다. 예전 APK 에는 그 기능이 없어서
+   골라도 조용히 가운데로 나온다. 미리 물어 두었다가 고를 때 알려 준다. */
+let ttsCanPan = null;
+if(NativeTts && NativeTts.available){
+  NativeTts.available().then(r => { ttsCanPan = !!(r && r.pan); }, () => { ttsCanPan = false; });
+}
+
 let ttsUnlocked = false;
 function ttsWarmup(){
   if(ttsUnlocked || CFG.tts!=="1" || !TTS_OK) return;
@@ -3273,10 +3305,27 @@ async function drain(){
           /* 읽어 주는 것은 지금 벌어지는 회의일 때만이다. 화면이 꺼져 밀린 것이
              한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다. */
           const fresh = (Date.now() - (c.created||0)) < 90000;
-          if(fresh && recording && activeNote && activeNote.id===c.noteId)
-            speakTrans(c.trans, tgt);
-          else if(fresh && openId === c.noteId && !recording && CFG.tts==="1" && ttsUnlocked)
-            speakTrans(c.trans, tgt);
+
+          /* 대화 모드에서는 스피커 하나가 두 사람을 섬긴다. 그래서 둘 다 헷갈린다 —
+             내 말의 번역은 상대를 위한 것이라 나에게는 소음이고, 상대 말의 번역은
+             나를 위한 것이라 상대에게는 소음이다. 방향을 보고 갈라 보낸다.
+               상대 말만  — 나를 위한 것만 읽는다. 내 말의 번역은 화면으로만 간다
+               좌우 나눔 — 둘 다 읽되 서로 반대쪽 귀로 보낸다
+               양쪽 다   — 예전 방식. 둘 다 가운데로 */
+          let say = true, pan = 0;
+          if(note.mode === "talk"){
+            const forMe = (tgt === note.langA);   // 상대가 한 말을 내 언어로 옮긴 것
+            const how = CFG.talkOut || "other";
+            if(how === "other")       say = forMe;
+            else if(how === "splitL") pan = forMe ? -1 : 1;
+            else if(how === "splitR") pan = forMe ?  1 : -1;
+          }
+          if(say){
+            if(fresh && recording && activeNote && activeNote.id===c.noteId)
+              speakTrans(c.trans, tgt, pan);
+            else if(fresh && openId === c.noteId && !recording && CFG.tts==="1" && ttsUnlocked)
+              speakTrans(c.trans, tgt, pan);
+          }
         }
         c.status = "done"; c.error = "";
         // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
@@ -3594,7 +3643,8 @@ async function startRecording(){
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
     brief: $("r-brief").value.trim(), terms: [],
     wantDiar: modeDoes().diar && $("r-diar").value==="1" };
-  if(talk){ CFG.talkA = activeNote.langA; CFG.talkB = activeNote.langB; }
+  if(talk){ CFG.talkA = activeNote.langA; CFG.talkB = activeNote.langB;
+            CFG.talkOut = $("r-talkout").value; }
   // 이 회의에서 고른 것을 기본값으로 삼는다. 다음에도 대개 같기 때문이다.
   CFG.tts = modeDoes().translate ? $("r-tts").value : "0";
   CFG.diar = $("r-diar").value;
@@ -5192,6 +5242,7 @@ function setMode(m){
   const talk = m === "talk";
   const tf = $("target-field"); if(tf) tf.style.display = (tr && !talk) ? "" : "none";
   const pf = $("pair-field");   if(pf) pf.style.display = talk ? "" : "none";
+  const to = $("talkout-field");if(to) to.style.display = talk ? "" : "none";
   const rt = $("r-tts-field");  if(rt) rt.style.display = tr ? "" : "none";
   // 대화 모드는 소리로 통역하는 것이 본령이다. 켜 두고 시작한다. 끄는 건 자유다.
   if(talk && $("r-tts")) $("r-tts").value = "1";
@@ -5210,6 +5261,7 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-keepaudio").value = CFG.keepAudio || "0";
   $("r-lang-a").value = CFG.talkA || "Korean";
   $("r-lang-b").value = CFG.talkB || "Vietnamese";
+  $("r-talkout").value = CFG.talkOut || "other";
   renderSeriesPicker(""); renderPeople(); renderSeriesList();
   setMode("full"); openSheet(); };
 $("scrim").onclick = ()=>{ if(recording){ toast("녹음 중입니다. 종료 후 닫아 주세요."); return; } closeSheet(); };
@@ -5497,6 +5549,13 @@ $("s-oaiadmin-show").onclick = ()=>{
 };
 $("s-theme").onchange = ()=>{ CFG.theme = $("s-theme").value; saveCfg(); applyTheme(); };
 $("s-ttstest").onclick = ttsTest;
+/* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
+   고르는 그 자리에서 알려 준다. 골라 둔 값은 그대로 둔다 — APK 를 새로 깔면 살아난다. */
+if($("r-talkout")) $("r-talkout").onchange = function(){
+  if(this.value.indexOf("split") === 0 && NATIVE && ttsCanPan === false)
+    toast("좌우 나눠 듣기는 새 APK 가 있어야 합니다. 지금 APK 로는 양쪽에서 다 들립니다. "
+        + "릴리스에서 새 APK 를 받아 주세요.", 7000);
+};
 $("g-link").onclick = async ()=>{
   CFG.gcid = $("s-gcid").value.trim(); CFG.gcsec = $("s-gcsec").value.trim();
   saveCfg();

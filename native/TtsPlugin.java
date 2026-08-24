@@ -22,8 +22,9 @@ import java.util.Locale;
  *
  * JS 쪽 사용법:
  *   const { Tts } = Capacitor.Plugins;
- *   await Tts.available();                                  // { ready, langs:{ko,vi,en} }
- *   await Tts.speak({ text:"...", lang:"ko-KR", rate:1.0 }); // 큐에 쌓아 순서대로 읽는다
+ *   await Tts.available();                                  // { ready, pan, langs:{ko,vi,en} }
+ *   await Tts.speak({ text:"...", lang:"ko-KR", rate:1.0, pan:-1 });
+ *       // 큐에 쌓아 순서대로 읽는다. pan 은 -1 왼쪽 / 0 가운데 / +1 오른쪽
  *   await Tts.stop();
  */
 @CapacitorPlugin(name = "Tts")
@@ -85,6 +86,8 @@ public class TtsPlugin extends Plugin {
         JSObject res = new JSObject();
         res.put("ready", ready);
         res.put("langs", langs);
+        // 좌우 나눠 보내기를 이 APK 가 아는지. 웹 쪽이 이걸 보고 안내를 띄운다.
+        res.put("pan", true);
         call.resolve(res);
     }
 
@@ -110,9 +113,17 @@ public class TtsPlugin extends Plugin {
         Float rate = call.getFloat("rate", 1.0f);
         tts.setSpeechRate(rate == null ? 1.0f : rate);
 
+        /* 소리를 어느 귀로 보낼지. -1 왼쪽, 0 가운데, +1 오른쪽.
+           대화 모드에서 이어폰을 한 짝씩 나눠 끼면, 각자 자기 언어만 듣게 된다.
+           안드로이드가 예전부터 주는 표준 값이라 따로 붙일 것이 없다. */
+        Float pan = call.getFloat("pan", 0f);
+        float p = pan == null ? 0f : Math.max(-1f, Math.min(1f, pan));
+        Bundle params = new Bundle();
+        params.putFloat(TextToSpeech.Engine.KEY_PARAM_PAN, p);
+
         String id = "mn" + (++counter);
         // QUEUE_ADD: 앞의 문장을 자르지 않고 이어서 읽는다. 회의 흐름이 끊기면 안 된다.
-        int rc = tts.speak(text, TextToSpeech.QUEUE_ADD, new Bundle(), id);
+        int rc = tts.speak(text, TextToSpeech.QUEUE_ADD, params, id);
         JSObject res = new JSObject();
         res.put("spoken", rc == TextToSpeech.SUCCESS);
         res.put("id", id);
