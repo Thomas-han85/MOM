@@ -1,5 +1,9 @@
 package com.handong.meetnote;
 
+import android.media.AudioAttributes;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
@@ -10,7 +14,13 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 기기에 내장된 안드로이드 음성으로 읽는다.
@@ -26,6 +36,20 @@ import java.util.Locale;
  *   await Tts.speak({ text:"...", lang:"ko-KR", rate:1.0, pan:-1 });
  *       // 큐에 쌓아 순서대로 읽는다. pan 은 -1 왼쪽 / 0 가운데 / +1 오른쪽
  *   await Tts.stop();
+ *
+ * 좌우 나눠 보내기에 대하여
+ * ─────────────────────────
+ * 처음에는 안드로이드 표준값인 KEY_PARAM_PAN 을 speak() 에 넘겼다. 문서상 맞는 방법이고
+ * 코드도 짧았는데, 실기기에서 양쪽 귀로 다 나왔다. 엔진이 이 값을 지킬 의무가 없다 —
+ * 조용히 무시하고 아무 오류도 내지 않는다. 그래서 엔진에 맡기는 것을 그만두었다.
+ *
+ * 지금은 이렇게 한다. synthesizeToFile() 로 음성을 WAV 로 받아, 한쪽 채널을 0 으로 채운
+ * 스테레오 PCM 으로 엮어 AudioTrack 으로 직접 재생한다. 소리 자체가 한쪽에만 들어 있으므로
+ * 엔진이 무엇을 하든 갈린다. setStereoVolume 같은 음량 조절도 쓰지 않는다 — 그것도
+ * 기기에 따라 먹지 않는 일이 있다.
+ *
+ * pan 이 0 이면 예전 경로(speak) 를 그대로 쓴다. 굳이 파일을 거칠 까닭이 없고,
+ * 가장 많이 쓰는 길을 건드리지 않는 편이 안전하다.
  */
 @CapacitorPlugin(name = "Tts")
 public class TtsPlugin extends Plugin {
@@ -33,6 +57,17 @@ public class TtsPlugin extends Plugin {
     private TextToSpeech tts;
     private volatile boolean ready = false;
     private int counter = 0;
+
+    /** 좌우로 나눠 보낼 것들. 합성이 끝나면 순서대로 하나씩 재생한다. */
+    private final ExecutorService panPlayer = Executors.newSingleThreadExecutor();
+    private final Map<String, PanJob> panJobs = new ConcurrentHashMap<>();
+    private volatile AudioTrack panTrack = null;
+    private volatile boolean panCancel = false;
+
+    private static class PanJob {
+        final File file; final boolean left;
+        PanJob(File f, boolean l) { file = f; left = l; }
+    }
 
     @Override
     public void load() {
@@ -42,8 +77,16 @@ public class TtsPlugin extends Plugin {
                 tts.setLanguage(Locale.KOREAN);
                 tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                     @Override public void onStart(String id) { }
-                    @Override public void onDone(String id) { emit(id, false); }
-                    @Override public void onError(String id) { emit(id, true); }
+                    @Override public void onDone(String id) {
+                        PanJob job = panJobs.remove(id);
+                        if (job != null) { panPlayer.submit(() -> playPanned(job)); return; }
+                        emit(id, false);
+                    }
+                    @Override public void onError(String id) {
+                        PanJob job = panJobs.remove(id);
+                        if (job != null) { if (job.file != null) job.file.delete(); }
+                        emit(id, true);
+                    }
                 });
             }
             JSObject ev = new JSObject();
@@ -113,31 +156,173 @@ public class TtsPlugin extends Plugin {
         Float rate = call.getFloat("rate", 1.0f);
         tts.setSpeechRate(rate == null ? 1.0f : rate);
 
-        /* 소리를 어느 귀로 보낼지. -1 왼쪽, 0 가운데, +1 오른쪽.
-           대화 모드에서 이어폰을 한 짝씩 나눠 끼면, 각자 자기 언어만 듣게 된다.
-           안드로이드가 예전부터 주는 표준 값이라 따로 붙일 것이 없다. */
-        Float pan = call.getFloat("pan", 0f);
-        float p = pan == null ? 0f : Math.max(-1f, Math.min(1f, pan));
-        Bundle params = new Bundle();
-        params.putFloat(TextToSpeech.Engine.KEY_PARAM_PAN, p);
-
+        Float panIn = call.getFloat("pan", 0f);
+        float pan = panIn == null ? 0f : Math.max(-1f, Math.min(1f, panIn));
         String id = "mn" + (++counter);
+
+        if (pan != 0f) {
+            // 좌우로 갈라 보낸다. 파일로 받아 우리가 직접 재생한다.
+            panCancel = false;
+            File out = new File(getContext().getCacheDir(), "tts-" + id + ".wav");
+            panJobs.put(id, new PanJob(out, pan < 0f));
+            int rc = tts.synthesizeToFile(text, new Bundle(), out, id);
+            if (rc != TextToSpeech.SUCCESS) { panJobs.remove(id); out.delete(); }
+            JSObject res = new JSObject();
+            res.put("spoken", rc == TextToSpeech.SUCCESS);
+            res.put("id", id);
+            call.resolve(res);
+            return;
+        }
+
         // QUEUE_ADD: 앞의 문장을 자르지 않고 이어서 읽는다. 회의 흐름이 끊기면 안 된다.
-        int rc = tts.speak(text, TextToSpeech.QUEUE_ADD, params, id);
+        int rc = tts.speak(text, TextToSpeech.QUEUE_ADD, new Bundle(), id);
         JSObject res = new JSObject();
         res.put("spoken", rc == TextToSpeech.SUCCESS);
         res.put("id", id);
         call.resolve(res);
     }
 
+    /**
+     * 합성된 WAV 를 한쪽 채널로만 재생한다.
+     * 한 번에 하나씩만 돈다(단일 스레드). 순서가 뒤섞이면 대화가 엉킨다.
+     */
+    private void playPanned(PanJob job) {
+        AudioTrack track = null;
+        try {
+            byte[] wav = readAll(job.file);
+            if (wav == null) return;
+
+            int[] fmt = new int[3];              // 0 = 시작위치, 1 = 표본율, 2 = 채널수
+            int len = parseWav(wav, fmt);
+            if (len <= 0) return;
+            int off = fmt[0], rate = fmt[1], ch = fmt[2];
+            if (rate <= 0) rate = 22050;
+
+            // 한쪽 채널만 소리를 담은 스테레오로 엮는다. 반대쪽은 완전한 0 이다.
+            int frames = ch == 2 ? len / 4 : len / 2;
+            byte[] pcm = new byte[frames * 4];
+            for (int f = 0, o = 0; f < frames; f++, o += 4) {
+                int i = off + (ch == 2 ? f * 4 : f * 2);
+                if (i + 1 >= wav.length) break;
+                // 스테레오로 나오는 엔진이면 앞 채널만 쓴다. 두 채널을 섞으면 위상이 상한다.
+                byte lo = wav[i], hi = wav[i + 1];
+                if (job.left) { pcm[o] = lo; pcm[o + 1] = hi; pcm[o + 2] = 0; pcm[o + 3] = 0; }
+                else          { pcm[o] = 0;  pcm[o + 1] = 0;  pcm[o + 2] = lo; pcm[o + 3] = hi; }
+            }
+
+            int min = AudioTrack.getMinBufferSize(rate,
+                    AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+            if (min <= 0) min = 8192;
+            track = new AudioTrack(
+                    new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build(),
+                    new AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(rate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                            .build(),
+                    Math.max(min, 16384), AudioTrack.MODE_STREAM,
+                    AudioManager.AUDIO_SESSION_ID_GENERATE);
+            panTrack = track;
+            track.play();
+
+            int written = 0;
+            while (written < pcm.length && !panCancel) {
+                int w = track.write(pcm, written, Math.min(4096, pcm.length - written));
+                if (w <= 0) break;
+                written += w;
+            }
+            // 버퍼에 남은 것까지 다 나갈 때까지 기다린다. 안 기다리면 끝말이 잘린다.
+            int total = pcm.length / 4;
+            while (!panCancel && track.getPlaybackHeadPosition() < total) {
+                Thread.sleep(20);
+            }
+        } catch (Exception e) {
+            // 재생에 실패해도 회의는 계속되어야 한다. 조용히 넘어간다.
+        } finally {
+            if (track != null) {
+                try { track.stop(); } catch (Exception ignored) { }
+                try { track.release(); } catch (Exception ignored) { }
+            }
+            panTrack = null;
+            if (job.file != null) job.file.delete();
+            emit("pan", false);
+        }
+    }
+
+    private byte[] readAll(File f) {
+        if (f == null || !f.exists()) return null;
+        try (FileInputStream in = new FileInputStream(f)) {
+            byte[] b = new byte[(int) f.length()];
+            int n = 0;
+            while (n < b.length) {
+                int r = in.read(b, n, b.length - n);
+                if (r < 0) break;
+                n += r;
+            }
+            return n > 0 ? b : null;
+        } catch (Exception e) { return null; }
+    }
+
+    /**
+     * WAV 머리를 읽어 소리가 시작되는 자리와 표본율·채널수를 찾는다.
+     * 엔진마다 머리 길이가 다르므로 44 로 못 박지 않고 data 덩이를 찾아간다.
+     * 반환값은 소리 바이트 길이. 못 읽으면 0.
+     */
+    private int parseWav(byte[] b, int[] out) {
+        if (b == null || b.length < 44) return 0;
+        if (b[0] != 'R' || b[1] != 'I' || b[2] != 'F' || b[3] != 'F') return 0;
+        int p = 12, rate = 0, ch = 1;
+        while (p + 8 <= b.length) {
+            int id = le32(b, p);
+            int sz = le32(b, p + 4);
+            if (sz < 0) break;
+            if (id == 0x20746d66) {                       // "fmt "
+                if (p + 16 <= b.length) {
+                    ch = le16(b, p + 10);
+                    rate = le32(b, p + 12);
+                }
+            } else if (id == 0x61746164) {                // "data"
+                out[0] = p + 8;
+                out[1] = rate;
+                out[2] = ch < 1 ? 1 : ch;
+                int len = Math.min(sz, b.length - (p + 8));
+                return Math.max(0, len);
+            }
+            p += 8 + sz + (sz & 1);
+        }
+        return 0;
+    }
+
+    private int le16(byte[] b, int i) {
+        return (b[i] & 0xff) | ((b[i + 1] & 0xff) << 8);
+    }
+
+    private int le32(byte[] b, int i) {
+        return (b[i] & 0xff) | ((b[i + 1] & 0xff) << 8)
+             | ((b[i + 2] & 0xff) << 16) | ((b[i + 3] & 0xff) << 24);
+    }
+
     @PluginMethod
     public void stop(PluginCall call) {
+        panCancel = true;
+        for (PanJob j : panJobs.values()) if (j.file != null) j.file.delete();
+        panJobs.clear();
+        AudioTrack t = panTrack;
+        if (t != null) { try { t.pause(); t.flush(); } catch (Exception ignored) { } }
         if (ready) tts.stop();
         call.resolve();
     }
 
     @Override
     protected void handleOnDestroy() {
+        panCancel = true;
+        panPlayer.shutdownNow();
+        AudioTrack t = panTrack;
+        if (t != null) { try { t.pause(); t.flush(); t.release(); } catch (Exception ignored) { } }
+        panTrack = null;
         if (tts != null) { tts.stop(); tts.shutdown(); tts = null; }
         super.handleOnDestroy();
     }
