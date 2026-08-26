@@ -4,8 +4,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.os.Build;
@@ -145,6 +148,7 @@ public class RecorderService extends Service {
                 stopSelf();
                 return;
             }
+            pinBuiltInMic();
             audio.startRecording();
         } catch (Exception e) {
             emitError("마이크 초기화 실패: " + e.getMessage());
@@ -166,6 +170,7 @@ public class RecorderService extends Service {
         File cur = null;
         int curSamples = 0;
         boolean micActive = true;
+        boolean routeChecked = false;
 
         try {
             while (running) {
@@ -204,6 +209,8 @@ public class RecorderService extends Service {
 
                 int n = audio.read(buf, 0, buf.length);
                 if (n > 0) {
+                    // 첫 소리가 들어온 뒤에 물어야 실제 경로가 잡혀 있다.
+                    if (!routeChecked) { routeChecked = true; reportMicRoute(); }
                     raf.write(buf, 0, n);
                     curSamples += n / 2;
 
@@ -289,6 +296,49 @@ public class RecorderService extends Service {
     }
     private static void le16(byte[] b, int o, int v) {
         b[o] = (byte) v; b[o+1] = (byte)(v>>8);
+    }
+
+    /**
+     * 폰에 붙은 마이크로 못 박는다.
+     *
+     * 무선 이어폰에는 마이크가 달려 있다. 그냥 두면 안드로이드가 그쪽을 잡는데,
+     * 그러면 이어폰이 통화 모드(HFP)로 내려간다. 통화 모드에는 좌우가 없다 —
+     * 대화 모드의 좌우 나눠 듣기가 통째로 무너진다. 소리도 좁은 대역으로 눌려
+     * 전사 정확도까지 떨어진다. 마주 앉은 회의에서는 상 위의 폰 마이크가 낫다.
+     *
+     * 이것은 부탁이지 강제가 아니다. 그래서 reportMicRoute() 로 결과를 확인한다.
+     */
+    private void pinBuiltInMic() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am == null || audio == null) return;
+            for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) {
+                if (d.getType() == AudioDeviceInfo.TYPE_BUILTIN_MIC) {
+                    audio.setPreferredDevice(d);
+                    return;
+                }
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * 못 박기가 먹혔는지 확인해 알려 준다.
+     * 말없이 이어폰 마이크로 녹음되면, 왜 좌우가 안 갈리는지 알 길이 없다.
+     */
+    private void reportMicRoute() {
+        try {
+            if (audio == null) return;
+            AudioDeviceInfo d = audio.getRoutedDevice();
+            if (d == null) return;
+            int t = d.getType();
+            boolean bt = t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+                      || t == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                      || (Build.VERSION.SDK_INT >= 31 && t == AudioDeviceInfo.TYPE_BLE_HEADSET);
+            if (bt) emitError("이어폰 마이크로 녹음되고 있습니다. 이러면 이어폰이 통화 모드로 "
+                    + "내려가 좌우 나눠 듣기가 되지 않고, 소리도 눌려 전사가 나빠집니다. "
+                    + "이어폰 설정에서 통화용 마이크 사용을 끄거나, 유선 이어폰을 쓰거나, "
+                    + "\"상대 말만 읽기\"로 바꾸어 주세요.");
+        } catch (Exception ignored) { }
     }
 
     private void emitError(String msg) {

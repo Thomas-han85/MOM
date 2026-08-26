@@ -1,6 +1,8 @@
 package com.handong.meetnote;
 
+import android.content.Context;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -63,6 +65,8 @@ public class TtsPlugin extends Plugin {
     private final Map<String, PanJob> panJobs = new ConcurrentHashMap<>();
     private volatile AudioTrack panTrack = null;
     private volatile boolean panCancel = false;
+    /** 마지막으로 좌우 나눠 재생한 것이 실제로 어땠는지. 진단에 쓴다. */
+    private volatile String lastPan = "아직 없음";
 
     private static class PanJob {
         final File file; final boolean left;
@@ -210,6 +214,9 @@ public class TtsPlugin extends Plugin {
                 else          { pcm[o] = 0;  pcm[o + 1] = 0;  pcm[o + 2] = lo; pcm[o + 3] = hi; }
             }
 
+            lastPan = (job.left ? "왼쪽" : "오른쪽") + " · " + rate + "Hz · 원본 "
+                    + ch + "채널 · " + frames + "프레임";
+
             int min = AudioTrack.getMinBufferSize(rate,
                     AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
             if (min <= 0) min = 8192;
@@ -239,6 +246,9 @@ public class TtsPlugin extends Plugin {
             while (!panCancel && track.getPlaybackHeadPosition() < total) {
                 Thread.sleep(20);
             }
+            AudioDeviceInfo out = track.getRoutedDevice();
+            lastPan += " · 나간 곳 " + (out == null ? "모름" : typeName(out.getType()))
+                     + " · 쓴 채널 " + track.getChannelCount();
         } catch (Exception e) {
             // 재생에 실패해도 회의는 계속되어야 한다. 조용히 넘어간다.
         } finally {
@@ -303,6 +313,67 @@ public class TtsPlugin extends Plugin {
     private int le32(byte[] b, int i) {
         return (b[i] & 0xff) | ((b[i + 1] & 0xff) << 8)
              | ((b[i + 2] & 0xff) << 16) | ((b[i + 3] & 0xff) << 24);
+    }
+
+    /**
+     * 소리가 실제로 어디로 어떻게 나가는지 있는 그대로 알려 준다.
+     *
+     * 좌우가 안 갈릴 때 짐작으로 고치면 두 번 세 번 헛수고를 한다.
+     * 우리가 스테레오로 보냈는데도 합쳐진다면 원인은 우리 바깥에 있다 —
+     * 통화 모드, 접근성의 모노 오디오, 이어폰 자체의 합치기 중 하나다.
+     */
+    @PluginMethod
+    public void audioInfo(PluginCall call) {
+        JSObject res = new JSObject();
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                res.put("mode", am.getMode());          // 0 이 보통, 3 이 통화
+                res.put("scoOn", am.isBluetoothScoOn());
+                StringBuilder outs = new StringBuilder();
+                for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                    int t = d.getType();
+                    if (t == AudioDeviceInfo.TYPE_TELEPHONY) continue;
+                    if (outs.length() > 0) outs.append(", ");
+                    outs.append(typeName(t));
+                    int[] cc = d.getChannelCounts();
+                    if (cc.length > 0) {
+                        outs.append("(");
+                        for (int i = 0; i < cc.length; i++) {
+                            if (i > 0) outs.append("/");
+                            outs.append(cc[i]);
+                        }
+                        outs.append("ch)");
+                    }
+                }
+                res.put("outputs", outs.toString());
+            }
+        } catch (Exception e) { res.put("amError", String.valueOf(e.getMessage())); }
+        try {
+            // 접근성의 "모노 오디오". 켜져 있으면 무엇을 보내든 좌우가 합쳐진다.
+            int mono = android.provider.Settings.System.getInt(
+                    getContext().getContentResolver(), "master_mono", 0);
+            res.put("monoAudio", mono == 1);
+        } catch (Exception e) { res.put("monoAudio", "모름"); }
+        res.put("lastPan", lastPan);
+        call.resolve(res);
+    }
+
+    private String typeName(int t) {
+        switch (t) {
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:   return "폰 스피커";
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:  return "수화부";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:     return "유선 이어폰(마이크 포함)";
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:  return "유선 이어폰";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:    return "무선 이어폰(음악 모드)";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:     return "무선 이어폰(통화 모드·모노)";
+            case AudioDeviceInfo.TYPE_USB_HEADSET:       return "USB 이어폰";
+            case AudioDeviceInfo.TYPE_USB_DEVICE:        return "USB 기기";
+            default:
+                if (android.os.Build.VERSION.SDK_INT >= 31
+                        && t == AudioDeviceInfo.TYPE_BLE_HEADSET) return "무선 이어폰(LE)";
+                return "기타(" + t + ")";
+        }
     }
 
     @PluginMethod
