@@ -702,7 +702,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.27-1";
+const APP_VERSION = "2026.08.27-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3102,6 +3102,15 @@ async function runDiarize(note, onStep){
   const withAudio = cs.filter(c=>c.blob);
   if(!withAudio.length) throw new Error("오디오가 남아 있지 않습니다. 설정에서 '화자 분리용 오디오 보관' 을 켠 뒤 녹음한 회의만 됩니다.");
 
+  /* mergeAudio 는 조각을 전부 소리로 풀어 메모리에 펼친다. 1분에 약 4MB 다.
+     87분 회의에서 이 방식으로 앱이 통째로 꺼진 적이 있다. 길면 아예 시작하지 않는다 —
+     중간에 꺼지는 것보다 못 한다고 말해 주는 편이 낫다. */
+  const totalSec = withAudio.reduce((a,c)=>a+chunkSec(c), 0);
+  if(totalSec > 1800)
+    throw new Error("녹음이 " + Math.round(totalSec/60) + "분입니다. 30분이 넘으면 화자 분리를 "
+      + "돌리다가 앱이 꺼질 수 있어 막아 두었습니다. 회의를 나눠 녹음하시거나, "
+      + "보내기에서 녹음 파일을 내려받아 다른 도구로 돌려 주세요.");
+
   if(onStep) onStep("오디오를 잇는 중…");
   const { blob, seconds } = await mergeAudio(withAudio, (i,t)=> onStep && onStep("오디오를 잇는 중… "+i+"/"+t));
 
@@ -4761,10 +4770,14 @@ async function paintStorage(){
   }catch(e){ el.textContent = "저장공간을 재지 못했다."; }
 }
 
+/* 회의가 끝날 때마다 글자를 내려 둔다.
+
+   예전에는 하루 한 번이었다. 그런데 웹뷰 저장소가 통째로 비워지는 일이 실제로 났고,
+   마지막 백업 이후의 회의는 되살릴 길이 없었다. 글자만 담으므로 회의 하나에 30KB 남짓이다.
+   하루에 열 번을 해도 300KB 다. 아낄 자리가 아니다. */
 async function autoBackup(){
   if(!NativeSaver) return;
   const today = new Date().toISOString().slice(0,10);
-  if(CFG.lastBackup === today) return;
   try{
     const notes = await all("notes");
     if(!notes.length) return;
@@ -4776,13 +4789,16 @@ async function autoBackup(){
       settings:{ stt:CFG.stt, doc:CFG.doc, trans:CFG.trans, vision:CFG.vision,
                  chunk:CFG.chunk, gloss:CFG.gloss, people:CFG.people, series:CFG.series },
       notes, chunks };
-    const name = "transmom-자동백업-" + today + ".json";
+    // 같은 날 여러 번 내려도 서로 덮지 않게 시각을 붙인다.
+    const now = new Date();
+    const hhmm = pad(now.getHours()) + pad(now.getMinutes());
+    const name = "transmom-자동백업-" + today + "-" + hhmm + ".json";
     const bytes = new TextEncoder().encode(JSON.stringify(payload));
     let bin = "";
     for(let i=0;i<bytes.length;i+=8192)
       bin += String.fromCharCode.apply(null, bytes.subarray(i, i+8192));
     await NativeSaver.save({ name, mime:"application/json", data: btoa(bin) });
-    CFG.lastBackup = today; saveCfg();
+    CFG.lastBackup = today + " " + hhmm; saveCfg();
   }catch(e){ /* 실패해도 회의 흐름을 막지 않는다 */ }
 }
 
@@ -4919,7 +4935,48 @@ const chunkSec = c => Math.max(0, ((c.blob && c.blob.size || 0) - 44) / 32000);
 
    분량을 고르게 하는 까닭: base64 로 바꿔 네이티브에 넘기는 동안 메모리에
    원본의 두 배 남짓이 뜬다. 1시간이면 WAV 만 115MB 라 폰이 견디지 못한다. */
-async function saveAudio(n, cs, limitSec){
+/* WAV 조각의 소리 몸통이 어디서 시작하는지. 머리 길이는 기기마다 다를 수 있다. */
+function wavBody(b){
+  if(b.length < 44 || b[0]!==0x52 || b[1]!==0x49 || b[2]!==0x46 || b[3]!==0x46) return null;
+  let p = 12;
+  while(p + 8 <= b.length){
+    const id = String.fromCharCode(b[p],b[p+1],b[p+2],b[p+3]);
+    const sz = b[p+4] | (b[p+5]<<8) | (b[p+6]<<16) | (b[p+7]<<24);
+    if(id === "data") return b.subarray(p+8, Math.min(p+8+sz, b.length));
+    if(sz < 0) return null;
+    p += 8 + sz + (sz & 1);
+  }
+  return null;
+}
+
+function wavHead(dataLen, rate){
+  const h = new Uint8Array(44), v = new DataView(h.buffer);
+  const w = (o,t)=>{ for(let i=0;i<t.length;i++) h[o+i] = t.charCodeAt(i); };
+  w(0,"RIFF"); v.setUint32(4, 36+dataLen, true); w(8,"WAVE"); w(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true);
+  w(36,"data"); v.setUint32(40, dataLen, true);
+  return h;
+}
+
+/* 녹음을 파일로 빼낸다.
+
+   ── 왜 토막으로 나누어 내리나 ──
+   처음에는 조각을 전부 소리로 풀어(decodeAudioData) 하나로 이은 뒤 통째로 base64 로
+   바꿔 넘겼다. 87분 회의에서 메모리가 1GB 를 넘겨 앱이 그 자리에서 꺼졌다.
+   실제로 두 번 꺼졌고, 그 일이 더 큰 사고로 이어졌다.
+
+   두 가지를 바꿨다.
+     1. 풀어헤치지 않는다. 네이티브가 준 조각은 이미 16kHz 모노 16비트 WAV 다.
+        머리만 떼고 몸통을 그대로 이으면 된다. Float32 로 펼치는 것보다 여덟 배 가볍다.
+     2. 한 파일에 10분까지만 담는다. base64 문자열이 자바스크립트 안에서 두 배로
+        부풀기 때문에, 길이를 자르지 않으면 어떤 방법을 써도 결국 터진다.
+
+   진짜 해결은 네이티브가 파일을 이어 쓰는 것이다. 그건 APK 를 갈아야 하므로 다음 판에 넣는다. */
+const AUDIO_PART_SEC = 600;   // 한 파일에 담는 최대 길이. 늘리지 마라. 앱이 꺼진다.
+
+async function saveAudio(n, cs){
   const withAudio = cs.filter(c=>c.blob).sort((a,b)=>a.seq-b.seq);
   if(!withAudio.length){
     toast("이 회의에는 녹음이 남아 있지 않습니다. 전사가 끝나면 지우는 것이 기본입니다. "+
@@ -4928,35 +4985,59 @@ async function saveAudio(n, cs, limitSec){
   }
   if(!NativeSaver){ toast("녹음 파일 저장은 앱(APK)에서만 됩니다.", 5000); return; }
 
-  let take = withAudio, sec = withAudio.reduce((a,c)=>a+chunkSec(c), 0);
-  if(limitSec && sec > limitSec){
-    take = []; let s = 0;
-    for(const c of withAudio){ if(s >= limitSec) break; take.push(c); s += chunkSec(c); }
-    sec = s;
+  // 10분씩 묶는다
+  const groups = [];
+  let cur = [], curSec = 0;
+  for(const c of withAudio){
+    const sec = chunkSec(c);
+    if(curSec + sec > AUDIO_PART_SEC && cur.length){ groups.push(cur); cur = []; curSec = 0; }
+    cur.push(c); curSec += sec;
   }
+  if(cur.length) groups.push(cur);
 
-  toast("녹음을 잇는 중… 잠시 기다려 주세요.", 60000);
-  try{
-    const { blob, seconds } = await mergeAudio(take,
-      (i,t)=> toast("녹음을 잇는 중… " + i + "/" + t, 60000));
+  const base = (n.title || "회의").replace(/[\/\\:*?"<>|]/g,"_")
+             + "_" + new Date(n.created||Date.now()).toISOString().slice(0,10);
+  let done = 0, where = "";
 
-    toast("파일로 만드는 중…", 60000);
-    const buf = new Uint8Array(await blob.arrayBuffer());
-    let bin = "";
-    for(let i=0;i<buf.length;i+=8192)
-      bin += String.fromCharCode.apply(null, buf.subarray(i, i+8192));
-    const b64 = btoa(bin);
+  for(let g=0; g<groups.length; g++){
+    toast("녹음 파일 " + (g+1) + "/" + groups.length + " 만드는 중…", 60000);
+    try{
+      // 몸통만 모은다. 여기서 한 토막분(최대 약 19MB)만 메모리에 있다.
+      let total = 0; const bodies = [];
+      for(const c of groups[g]){
+        const b = new Uint8Array(await c.blob.arrayBuffer());
+        const body = wavBody(b);
+        if(body){ bodies.push(body); total += body.length; }
+      }
+      if(!total) continue;
 
-    const name = (n.title || "회의").replace(/[\/\\:*?"<>|]/g,"_")
-               + "_" + new Date(n.created||Date.now()).toISOString().slice(0,10) + ".wav";
-    const r = await NativeSaver.save({ name, mime:"audio/wav", data:b64 });
-    if(r && r.saved)
-      toast(name + " · " + r.where + "에 저장했습니다. "
-            + mmss(Math.round(seconds*1000)) + " · " + (blob.size/1024/1024).toFixed(0) + "MB", 9000);
-    else toast("저장하지 못했습니다.", 5000);
-  }catch(e){
-    toast("저장 실패: " + (e.message || e), 8000);
+      const out = new Uint8Array(44 + total);
+      out.set(wavHead(total, 16000), 0);
+      let o = 44;
+      for(const b of bodies) { out.set(b, o); o += b.length; }
+      bodies.length = 0;
+
+      let bin = "";
+      for(let i=0;i<out.length;i+=8192)
+        bin += String.fromCharCode.apply(null, out.subarray(i, i+8192));
+      const b64 = btoa(bin);
+      bin = "";
+
+      const name = groups.length > 1
+        ? base + "_" + (g+1) + "of" + groups.length + ".wav"
+        : base + ".wav";
+      const r = await NativeSaver.save({ name, mime:"audio/wav", data:b64 });
+      if(r && r.saved){ done++; where = r.where || ""; }
+      // 다음 토막 전에 손을 놓아 준다
+      await new Promise(r2=>setTimeout(r2, 250));
+    }catch(e){
+      toast("녹음 파일 " + (g+1) + "번째에서 실패했습니다: " + (e.message||e), 8000);
+      break;
+    }
   }
+  const secs = withAudio.reduce((a,c)=>a+chunkSec(c), 0);
+  if(done) toast("녹음 " + done + "개 파일을 " + (where||"다운로드") + "에 저장했습니다. 합쳐서 "
+                 + mmss(Math.round(secs*1000)), 9000);
 }
 
 async function exportNote(){
@@ -4972,22 +5053,12 @@ async function exportNote(){
   const audioRow = !NativeSaver ? null
     : audioSec > 0
       ? { label:"녹음 파일 저장 · WAV",
-          sub: mmss(Math.round(audioSec*1000)) + " · 약 " + audioMb.toFixed(0)
-             + "MB · 다른 앱과 견주어 볼 때",
-          go: async ()=>{
-            if(audioSec <= 900){ await saveAudio(n, cs, 0); return; }
-            // 길면 통째로 만들다가 폰이 버거워한다. 앞부분만도 고를 수 있게 한다.
-            sheet("녹음 파일 저장", [
-              { label:"앞 10분만", sub:"약 19MB · 견주어 보기에는 이것이면 넉넉합니다",
-                go: ()=> saveAudio(n, cs, 600) },
-              { label:"전체 " + mmss(Math.round(audioSec*1000)),
-                sub:"약 " + audioMb.toFixed(0) + "MB · 폰이 버거울 수 있습니다",
-                go: ()=> saveAudio(n, cs, 0) }
-            ]);
-          } }
+          sub: mmss(Math.round(audioSec*1000)) + " · 약 " + audioMb.toFixed(0) + "MB"
+             + (audioSec > 600 ? " · 10분씩 나눠 내려 줍니다" : ""),
+          go: ()=> saveAudio(n, cs) }
       : { label:"녹음 파일 저장 · 남아 있지 않음",
           sub:"전사가 끝나면 지우는 것이 기본입니다. 눌러서 설명을 봅니다.",
-          go: ()=> saveAudio(n, cs, 0) };
+          go: ()=> saveAudio(n, cs) };
 
   sheet("보내기", [
     p.doc ? { label:"회의록만 보내기", sub:"카톡·잘로에 붙습니다. 대개 이것이면 됩니다.",
