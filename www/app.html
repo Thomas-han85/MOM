@@ -410,10 +410,18 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <p class="lead">기본은 전부 mini 입니다. 시간당 약 $0.22. 특정 단계 결과가 아쉬우면 그 항목만 올립니다.</p>
       <div class="field"><label for="s-stt">전사</label>
         <select id="s-stt">
-          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분</option>
-          <option value="gpt-4o-transcribe">gpt-4o-transcribe · 정확도 우선 · $0.006/분</option>
+          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
+          <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
+          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
+          <option value="gpt-4o-transcribe-diarize">gpt-4o-transcribe-diarize · $0.006/분 · 누가 말했는지까지</option>
           <option value="whisper-1">whisper-1 · $0.006/분</option>
-        </select></div>
+        </select>
+        <p class="hint" style="margin-top:6px">
+          <b>gpt-transcribe</b> 는 고유명사를 <b>따로 된 칸(keywords)</b> 으로 받습니다.
+          지금처럼 길잡이 글에 섞어 넣으면 소리가 흐릿할 때 그 글을 그대로 되뱉는 일이 있는데,
+          이쪽은 그 위험이 없습니다. 현장 용어가 자꾸 깨지면 이걸 먼저 써 보세요.<br>
+          <b>diarize</b> 는 전사하면서 화자까지 가릅니다. 다만 길잡이 글과 용어 주입을 받지 않으므로
+          용어 정확도는 떨어집니다. 회의가 끝난 뒤 누가 말했는지 알고 싶을 때만 쓰세요.</p></div>
       <div class="field"><label for="s-trans">통역</label>
         <select id="s-trans">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -702,7 +710,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.28-1";
+const APP_VERSION = "2026.08.28-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -917,19 +925,59 @@ function sttPrompt(ctxHint, terms){
   return [termLine, ctx].filter(Boolean).join(" ").slice(-500);
 }
 
-async function sttChunk(blob, prompt){
+/* 모델마다 용어를 받는 길이 다르다.
+
+   gpt-transcribe 는 keywords 라는 따로 된 칸으로 받는다. 이게 낫다 —
+   길잡이 글(prompt)에 섞어 넣으면 소리가 흐릿할 때 모델이 그 글을 그대로
+   되뱉는다. 실제로 "9월 15일 …" 이라는 길잡이가 "15월 9일 …" 로 뒤집힌 채
+   전사문에 열 번 넘게 박힌 적이 있다. keywords 는 낱말 목록이라 그 일이 없다.
+
+   diarize 는 prompt 도 keywords 도 받지 않는다. 대신 누가 말했는지를 준다.
+   30초가 넘는 소리에는 chunking_strategy 를 반드시 넣어야 한다. */
+async function sttChunk(blob, prompt, terms){
   if(!CFG.oai) throw new Error("OpenAI 키가 없습니다. 설정에서 입력해 주세요.");
+  const model = CFG.stt;
   const fd = new FormData();
   const ext = (blob.type.includes("wav")?"wav":blob.type.includes("mp4")||blob.type.includes("mp4a")?"mp4":"webm");
   fd.append("file", blob, "seg."+ext);
-  fd.append("model", CFG.stt);
-  fd.append("response_format","json");
-  if(prompt) fd.append("prompt", prompt);
+  fd.append("model", model);
+
+  if(model === "gpt-4o-transcribe-diarize"){
+    fd.append("response_format", "diarized_json");
+    fd.append("chunking_strategy", "auto");     // 30초가 넘으면 필수다
+  }else{
+    fd.append("response_format", "json");
+    if(model === "gpt-transcribe"){
+      // 낱말 목록으로 따로 넣는다. 줄바꿈과 꺾쇠는 넣지 말라고 문서가 못박는다.
+      const kw = (terms || []).map(t => String(t).replace(/[<>\r\n]/g, " ").trim())
+                              .filter(Boolean).slice(-100);
+      if(kw.length) kw.forEach(k => fd.append("keywords[]", k));
+      if(prompt) fd.append("prompt", prompt);
+    }else if(prompt){
+      fd.append("prompt", prompt);
+    }
+  }
+
   const r = await fetch("https://api.openai.com/v1/audio/transcriptions",{
     method:"POST", headers:{ Authorization:"Bearer "+CFG.oai }, body:fd
   });
   if(!r.ok) throw new Error("전사 실패 "+r.status+" · "+(await r.text()).slice(0,160));
-  return ((await r.json()).text||"").trim();
+  const j = await r.json();
+
+  /* diarize 는 말차례마다 화자를 준다. 화자가 바뀌는 자리에 이름을 붙여
+     한 덩이 글로 만든다. 뒤의 걸러내기 장치들이 글만 다루기 때문이다. */
+  if(Array.isArray(j.segments)){
+    let out = "", last = null;
+    for(const g of j.segments){
+      const t = (g.text || "").trim();
+      if(!t) continue;
+      if(g.speaker && g.speaker !== last){ out += (out ? "\n" : "") + g.speaker + ": "; last = g.speaker; }
+      else if(out) out += " ";
+      out += t;
+    }
+    return out.trim();
+  }
+  return (j.text || "").trim();
 }
 
 /* =====================================================================
@@ -1493,6 +1541,16 @@ async function translateChunk(text, target, prevPair, ctxHint){
     "Rules: output ONLY the translation. No preamble, no notes, no quotes.",
     "Translate the user's message IN FULL, from its very first word to its last. Never skip the beginning, even if it resembles or repeats the preceding context.",
     "Keep speaker register and technical precision. Numbers, dates, dimensions and proper nouns must survive exactly.",
+    /* 돈 단위를 잘못 옮기면 원가 회의에서 사고가 난다. 다른 앱이 42 tỷ(약 22억 원)를
+       "420억 원" 으로 적어 회의록에까지 굳은 것을 실제로 봤다. 19배 부풀려진 것이다.
+       그래서 통화는 바꾸지 말고 그대로 두게 한다. */
+    "MONEY AND UNITS — this is critical. Vietnamese 'tỷ' means one billion VND and 'triệu' means one million VND. "
+    + "NEVER convert currency. Keep the original unit: write '42 tỷ' as '42 tỷ(억 동)' style — that is, keep the number and the Vietnamese unit, "
+    + "and never render it as Korean 원 unless the speaker actually said won. If unsure, keep the raw number and unit exactly as spoken.",
+    /* 사람 이름을 못 알아들었을 때 유명한 이름으로 메우는 일이 있다. 실제로 지방
+       부위원장 이름이 전 국가주석 이름으로 바뀌어 나왔다. 그럴듯해서 더 위험하다. */
+    "NAMES — if a personal name is unclear, transliterate what you heard. Do NOT substitute a famous or plausible name. "
+    + "Never introduce a public figure who was not clearly named.",
     "If a segment starts mid-sentence, translate it as a fragment. Do not invent a beginning.",
     ctxHint ? "Meeting context: "+ctxHint : "",
     prevPair ? "Context only — the previous segment, already translated. Use it for pronouns and flow. It is NOT part of the text to translate, but the user's message must still be translated in full:\n"+prevPair : "",
@@ -3334,7 +3392,7 @@ async function drain(){
         if(rms !== null && rms < floor){
           c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
         } else {
-          const raw = await sttChunk(c.blob, prompt);
+          const raw = await sttChunk(c.blob, prompt, terms);
           let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
 
           /* 앞 구간과 겹치는 앞머리는 덜어 내되, 뒤에 붙은 새 말은 살린다.
