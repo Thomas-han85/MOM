@@ -702,7 +702,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.27-2";
+const APP_VERSION = "2026.08.28-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3914,34 +3914,91 @@ function encodeWAV(samples, rate){
   return new Blob([buf], {type:"audio/wav"});
 }
 
+/* 자를 자리를 소리에서 고른다.
+
+   시계로만 자르면 단어 한가운데가 잘린다. 실측에서 번역 구간의 19%가 문장을
+   끝맺지 못했는데, 소리가 큰(= 쉬지 않고 말하는) 구간일수록 심했다. 그 뿌리가 이것이다.
+   네이티브 녹음기는 이미 침묵에서 자르는데, 파일에서 읽어 올 때는 그러지 않고 있었다.
+
+   목표 길이의 ±25% 안에서 가장 조용한 50ms 를 찾아 거기서 끊는다. */
+function findCut(data, from, target, rate){
+  const lo = from + Math.floor(target * 0.75);
+  const hi = Math.min(from + Math.floor(target * 1.25), data.length);
+  if(hi <= lo + 1) return Math.min(from + target, data.length);
+  const win = Math.max(1, Math.floor(rate * 0.05));
+  let best = Math.min(from + target, data.length), bestE = Infinity;
+  for(let p = lo; p + win < hi; p += win){
+    let e = 0;
+    for(let i = p; i < p + win; i++) e += data[i] * data[i];
+    if(e < bestE){ bestE = e; best = p; }
+  }
+  return best;
+}
+
+/* 소리 파일을 읽어 회의 하나로 만든다.
+
+   ── 길이 제한이 왜 있나 ──
+   decodeAudioData 는 파일 전체를 소리로 펼친다. 32비트 실수라 1분에 약 4MB 다.
+   87분이면 그것만 340MB 이고, 표본율을 바꾸면 한 벌이 더 생겨 700MB 를 넘는다.
+   같은 방식으로 앱이 통째로 꺼진 적이 있다. 그래서 미리 막고, 나눠서 넣게 안내한다.
+
+   이미 16kHz 모노면 표본율을 바꾸지 않는다. 한 벌을 덜 만든다. */
+const IMPORT_MAX_SEC = 2400;   // 40분. 늘리지 마라. 앱이 꺼진다.
+
 async function importFile(file){
   toast("오디오를 읽는 중입니다…");
   let decoded;
+  /* 소리를 펼칠 때 표본율을 16kHz 로 못 박는다.
+
+     그냥 열면 기기 기본값(대개 48kHz)으로 펼친다. 우리는 어차피 16kHz 로 쓰는데
+     네 배 큰 자리를 잡는 셈이다. 87분이면 그 차이가 1GB 대 340MB 다.
+     열 때 표본율을 지정하면 펼치는 단계에서 이미 16kHz 로 나온다. */
   try{
-    const ac = new (window.AudioContext||window.webkitAudioContext)();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    let ac;
+    try{ ac = new AC({ sampleRate: 16000 }); }
+    catch(e){ ac = new AC(); }            // 표본율 지정을 못 받는 기기도 있다
     decoded = await ac.decodeAudioData(await file.arrayBuffer());
     ac.close();
   }catch(e){ toast("이 파일은 읽을 수 없습니다. m4a, mp3, wav 로 변환해 보세요."); return; }
 
+  if(decoded.duration > IMPORT_MAX_SEC){
+    const m = Math.round(decoded.duration/60);
+    decoded = null;
+    toast("이 파일은 " + m + "분입니다. 40분이 넘으면 읽다가 앱이 꺼질 수 있어 막아 두었습니다. "
+        + "30분 안쪽으로 잘라서 나눠 넣어 주세요.", 12000);
+    return;
+  }
+
   const RATE = 16000;
-  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration*RATE), RATE);
-  const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
-  const data = (await off.startRendering()).getChannelData(0);
+  let data;
+  if(decoded.sampleRate === RATE && decoded.numberOfChannels === 1){
+    data = decoded.getChannelData(0);          // 이미 우리 형식이다. 그대로 쓴다.
+  }else{
+    const off = new OfflineAudioContext(1, Math.ceil(decoded.duration*RATE), RATE);
+    const src = off.createBufferSource(); src.buffer = decoded;
+    src.connect(off.destination); src.start();
+    data = (await off.startRendering()).getChannelData(0);
+  }
+  const seconds = data.length / RATE;
+  decoded = null;                              // 원본은 여기서 놓아 준다
 
   const note = { id:uid(), title: file.name.replace(/\.[^.]+$/,""), created: Date.now(),
-    duration: decoded.duration*1000, ctx:$("r-ctx").value.trim(),
+    duration: seconds*1000, ctx:$("r-ctx").value.trim(),
     target:$("r-target").value, summary:"", mode:"file",
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
     brief: $("r-brief").value.trim(), terms: [] };
   await put("notes", note);
   primeTerms(note.id, note.brief);
 
-  const per = Math.floor(RATE * (+CFG.chunk)/1000);   // 청크 길이는 설정을 따른다
-  let s = 0;
-  for(let i=0; i<data.length; i+=per){
-    await saveChunk(note.id, s, encodeWAV(data.subarray(i, Math.min(i+per, data.length)), RATE),
+  const per = Math.floor(RATE * (+CFG.chunk)/1000);
+  let s = 0, i = 0;
+  while(i < data.length){
+    const cut = findCut(data, i, per, RATE);   // 시계가 아니라 조용한 자리에서 끊는다
+    await saveChunk(note.id, s, encodeWAV(data.subarray(i, cut), RATE),
                     "pending", Math.round(i/RATE*1000));
-    s++;
+    i = cut; s++;
+    if(s % 20 === 0) toast("나누는 중… " + s + "구간", 30000);
   }
   closeSheet(); openNote(note.id); refreshList();
   toast(s + "개 구간으로 나눴습니다. 순서대로 전사합니다.");
