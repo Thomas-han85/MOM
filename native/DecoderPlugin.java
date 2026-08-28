@@ -22,6 +22,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -133,8 +134,11 @@ public class DecoderPlugin extends Plugin {
                     seq = (int) made[0];
                     offsetMs = made[1];
                 }
+                File dir2 = new File(getContext().getCacheDir(), "segments");
+                File[] left = dir2.listFiles();
                 JSObject res = new JSObject();
                 res.put("chunks", seq);
+                res.put("onDisk", left == null ? 0 : left.length);
                 res.put("durationMs", offsetMs);
                 res.put("cancelled", cancel);
                 call.resolve(res);
@@ -171,9 +175,11 @@ public class DecoderPlugin extends Plugin {
         if (track < 0) { ex.release(); throw new Exception("소리 트랙이 없다"); }
         ex.selectTrack(track);
 
-        final int srcRate = fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)
+        /* 표본율과 채널은 코덱이 실제로 내놓는 형식이 참이다. 들어오는 형식과 다를 수 있다.
+           아래 INFO_OUTPUT_FORMAT_CHANGED 에서 다시 읽어 덮어쓴다. */
+        int srcRate = fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)
                 ? fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE) : RATE;
-        final int srcCh = fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)
+        int srcCh = fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)
                 ? fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT) : 1;
 
         MediaCodec dec = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME));
@@ -202,20 +208,37 @@ public class DecoderPlugin extends Plugin {
                     int ii = dec.dequeueInputBuffer(10000);
                     if (ii >= 0) {
                         ByteBuffer ib = dec.getInputBuffer(ii);
-                        int n = ib == null ? -1 : ex.readSampleData(ib, 0);
-                        if (n < 0) {
-                            dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                            sawInputEnd = true;
+                        /* 버퍼를 못 얻는 것과 소리가 끝난 것은 전혀 다른 일이다.
+                           처음에는 둘을 같이 묶어 END_OF_STREAM 을 보냈다. 그러면 버퍼를
+                           한 번만 못 얻어도 87분짜리가 1분에서 끊긴다. 실제로 그랬다. */
+                        if (ib == null) {
+                            dec.queueInputBuffer(ii, 0, 0, 0, 0);   // 빈 채로 돌려주고 다시 시도
                         } else {
-                            dec.queueInputBuffer(ii, 0, n, ex.getSampleTime(), 0);
-                            ex.advance();
+                            int n = ex.readSampleData(ib, 0);
+                            if (n < 0) {
+                                dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                sawInputEnd = true;
+                            } else {
+                                dec.queueInputBuffer(ii, 0, n, ex.getSampleTime(), 0);
+                                ex.advance();
+                            }
                         }
                     }
                 }
                 int oi = dec.dequeueOutputBuffer(info, 10000);
+                if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat of = dec.getOutputFormat();
+                    if (of.containsKey(MediaFormat.KEY_SAMPLE_RATE))
+                        srcRate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    if (of.containsKey(MediaFormat.KEY_CHANNEL_COUNT))
+                        srcCh = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                    continue;
+                }
                 if (oi >= 0) {
                     ByteBuffer ob = dec.getOutputBuffer(oi);
                     if (ob != null && info.size > 0) {
+                        // PCM 은 낮은 자리가 먼저다. ByteBuffer 는 기본이 그 반대라 못 박아야 한다.
+                        ob.order(ByteOrder.LITTLE_ENDIAN);
                         ob.position(info.offset);
                         ob.limit(info.offset + info.size);
                         // 16비트 PCM 으로 온다. 채널을 섞고 표본율을 16kHz 로 줄인다.

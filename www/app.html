@@ -710,7 +710,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.28-4";
+const APP_VERSION = "2026.08.28-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -4112,7 +4112,11 @@ async function importNative(){
     note.duration = Math.round(acc) || (r && r.durationMs) || 0;
     await put("notes", note);
     renderIfOpen(note.id); refreshList(); drain();
-    toast(files.length + "개 파일을 이어 " + i + "구간으로 나눴습니다. 순서대로 전사합니다.", 8000);
+    /* 몇 개를 만들었고 몇 개를 거뒀는지 함께 보인다. 어긋나면 어디가 샜는지 바로 안다. */
+    const made = (r && r.chunks) || 0;
+    toast(files.length + "개 파일 · " + mmss(note.duration) + " · 만든 구간 " + made
+          + (i !== made ? " 인데 거둔 것 " + i + " (어긋남)" : " · 모두 거둠")
+          + ". 순서대로 전사합니다.", 10000);
   }catch(e){
     toast("소리를 풀지 못했습니다: " + (e.message||e), 9000);
   }finally{
