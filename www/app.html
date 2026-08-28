@@ -710,7 +710,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.28-5";
+const APP_VERSION = "2026.08.28-6";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -920,9 +920,13 @@ function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d
 function sttPrompt(ctxHint, terms){
   const uniq = terms && terms.length
     ? Array.from(new Map(terms.map(t=>[String(t).toLowerCase(), t])).values()) : [];
+  /* 자르는 방향이 중요하다. 예전에는 [용어, 맥락] 을 이어 붙이고 slice(-500) 으로
+     "뒤 500자" 를 남겼다. 그러면 맥락이 뒤에 붙는 순간 용어 목록의 앞부분이
+     잘려 나간다. 40개를 넣어도 20~25개만 들어가고 있었다.
+     이제 맥락을 앞에 두고 앞에서부터 500자를 남긴다. 용어가 온전히 살아남는다. */
   const termLine = uniq.length ? uniq.slice(-40).join(", ") + "." : "";
   const ctx = String(ctxHint || "").trim().replace(/\s+/g," ").slice(0, 160);
-  return [termLine, ctx].filter(Boolean).join(" ").slice(-500);
+  return [ctx, termLine].filter(Boolean).join(" ").slice(0, 500);
 }
 
 /* 모델마다 용어를 받는 길이 다르다.
@@ -3380,7 +3384,9 @@ async function drain(){
 
         /* 되뇜이 이어지면 길잡이 글을 아예 끊는다. 불씨를 뺀다. */
         const spiral = before.slice(-2).filter(s=>s.skip==="prompt").length >= 2;
-        const prompt = spiral ? "" : sttPrompt(note.ctx, terms);
+        /* 되뇜이 이어지면 맥락 문장만 끊는다. 용어까지 끄면 그 구간이 고유명사 없이
+           전사되어 오히려 더 나빠진다. 되뱉히는 것은 문장이지 낱말 나열이 아니다. */
+        const prompt = spiral ? sttPrompt("", terms) : sttPrompt(note.ctx, terms);
 
         c.skip = "";
         /* 조용한 구간은 보내지 않는다. 모델은 침묵을 침묵으로 두지 않고
@@ -5994,6 +6000,13 @@ $("s-oaiadmin-show").onclick = ()=>{
 };
 $("s-theme").onchange = ()=>{ CFG.theme = $("s-theme").value; saveCfg(); applyTheme(); };
 $("s-ttstest").onclick = ttsTest;
+/* 화자 분리 모델은 고유명사 힌트를 아예 받지 않는다. 이걸 모르고 고르면
+   용어집과 사전자료가 통째로 버려진 채 전사된다. 고르는 자리에서 알려 준다. */
+if($("s-stt")) $("s-stt").onchange = function(){
+  if(this.value === "gpt-4o-transcribe-diarize")
+    toast("이 모델은 고유명사 힌트를 받지 않습니다. 용어집과 사전자료가 전사에 반영되지 않아 "
+        + "현장 용어가 더 자주 깨집니다. 용어가 중요하면 gpt-transcribe 를 쓰세요.", 10000);
+};
 $("s-ttspan").onclick = ttsPanTest;
 /* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
    고르는 그 자리에서 알려 준다. 골라 둔 값은 그대로 둔다 — APK 를 새로 깔면 살아난다. */
