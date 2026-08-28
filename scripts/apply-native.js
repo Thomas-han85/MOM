@@ -28,7 +28,7 @@ if (!fs.existsSync(APP)) fail("android/ 가 없다. 먼저 `npx cap add android`
    예전에는 이 이름들이 다섯 군데에 흩어져 있었다. 새 플러그인을 더할 때
    한 군데를 빠뜨리면, 빌드는 멀쩡히 되는데 앱에서만 그 기능이 없었다.
    무엇이 잘못됐는지 알아내기 아주 어려운 종류의 실수다. */
-const PLUGINS = ["RecorderPlugin", "TtsPlugin", "SaverPlugin", "SharePlugin"];
+const PLUGINS = ["RecorderPlugin", "TtsPlugin", "SaverPlugin", "SharePlugin", "DecoderPlugin"];
 const SOURCES = ["RecorderService.java", ...PLUGINS.map(p => p + ".java")];
 
 /* ---------- 1. 자바 소스 복사 ---------- */

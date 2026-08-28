@@ -694,7 +694,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <button class="recbtn hold" id="btn-pause" style="display:none">일시정지</button>
       <button class="recbtn" id="btn-rec"><span class="dot"></span> 녹음 시작</button>
     </div>
-    <input type="file" id="filein" accept="audio/*,video/*" style="display:none">
+    <input type="file" id="filein" accept="audio/*,video/*" multiple style="display:none">
   </div>
 </div>
 
@@ -710,7 +710,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.28-2";
+const APP_VERSION = "2026.08.28-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1607,6 +1607,17 @@ const NativeTts = (function(){
 const HAS_WEB_TTS = ("speechSynthesis" in window) &&
                     typeof window.SpeechSynthesisUtterance === "function";
 const TTS_OK = !!NativeTts || HAS_WEB_TTS;
+
+/* 소리 파일을 흘려가며 푸는 네이티브. 없으면(브라우저) 웹 방식으로 떨어진다. */
+const NativeDec = (function(){
+  const C = window.Capacitor;
+  if(!C) return null;
+  if(C.Plugins && C.Plugins.Decoder) return C.Plugins.Decoder;
+  if(C.isNativePlatform && C.isNativePlatform() && typeof C.registerPlugin === "function"){
+    try{ return C.registerPlugin("Decoder"); }catch(e){ return null; }
+  }
+  return null;
+})();
 
 let ttsQueue = [], ttsBusy = false, ttsLast = "";
 /* pan 은 소리를 어느 귀로 보낼지다. -1 왼쪽, 0 가운데, +1 오른쪽.
@@ -4001,65 +4012,157 @@ function findCut(data, from, target, rate){
    같은 방식으로 앱이 통째로 꺼진 적이 있다. 그래서 미리 막고, 나눠서 넣게 안내한다.
 
    이미 16kHz 모노면 표본율을 바꾸지 않는다. 한 벌을 덜 만든다. */
-const IMPORT_MAX_SEC = 2400;   // 40분. 늘리지 마라. 앱이 꺼진다.
+const IMPORT_MAX_SEC = 2400;   // 파일 하나당 40분. 늘리지 마라. 앱이 꺼진다.
 
-async function importFile(file){
-  toast("오디오를 읽는 중입니다…");
+/* 소리 파일 하나를 펼쳐 16kHz 실수 배열로 만든다.
+
+   ── 왜 표본율을 못 박나 ──
+   그냥 열면 기기 기본값(대개 48kHz)으로 펼친다. 우리는 어차피 16kHz 로 쓰는데
+   네 배 큰 자리를 잡는 셈이다. 87분이면 그 차이가 1GB 대 340MB 다.
+   열 때 표본율을 지정하면 펼치는 단계에서 이미 16kHz 로 나온다. */
+async function decodeTo16k(file){
+  const RATE = 16000;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  let ac;
+  try{ ac = new AC({ sampleRate: RATE }); }
+  catch(e){ ac = new AC(); }            // 표본율 지정을 못 받는 기기도 있다
   let decoded;
-  /* 소리를 펼칠 때 표본율을 16kHz 로 못 박는다.
-
-     그냥 열면 기기 기본값(대개 48kHz)으로 펼친다. 우리는 어차피 16kHz 로 쓰는데
-     네 배 큰 자리를 잡는 셈이다. 87분이면 그 차이가 1GB 대 340MB 다.
-     열 때 표본율을 지정하면 펼치는 단계에서 이미 16kHz 로 나온다. */
-  try{
-    const AC = window.AudioContext || window.webkitAudioContext;
-    let ac;
-    try{ ac = new AC({ sampleRate: 16000 }); }
-    catch(e){ ac = new AC(); }            // 표본율 지정을 못 받는 기기도 있다
-    decoded = await ac.decodeAudioData(await file.arrayBuffer());
-    ac.close();
-  }catch(e){ toast("이 파일은 읽을 수 없습니다. m4a, mp3, wav 로 변환해 보세요."); return; }
+  try{ decoded = await ac.decodeAudioData(await file.arrayBuffer()); }
+  finally{ try{ ac.close(); }catch(e){} }
 
   if(decoded.duration > IMPORT_MAX_SEC){
     const m = Math.round(decoded.duration/60);
-    decoded = null;
-    toast("이 파일은 " + m + "분입니다. 40분이 넘으면 읽다가 앱이 꺼질 수 있어 막아 두었습니다. "
-        + "30분 안쪽으로 잘라서 나눠 넣어 주세요.", 12000);
-    return;
+    throw new Error(file.name + " 은 " + m + "분입니다. 파일 하나가 40분을 넘으면 "
+      + "읽다가 앱이 꺼질 수 있어 막아 두었습니다. 30분 안쪽으로 잘라 주세요.");
   }
+  if(decoded.sampleRate === RATE && decoded.numberOfChannels === 1)
+    return decoded.getChannelData(0);
+  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration*RATE), RATE);
+  const src = off.createBufferSource(); src.buffer = decoded;
+  src.connect(off.destination); src.start();
+  return (await off.startRendering()).getChannelData(0);
+}
 
-  const RATE = 16000;
-  let data;
-  if(decoded.sampleRate === RATE && decoded.numberOfChannels === 1){
-    data = decoded.getChannelData(0);          // 이미 우리 형식이다. 그대로 쓴다.
-  }else{
-    const off = new OfflineAudioContext(1, Math.ceil(decoded.duration*RATE), RATE);
-    const src = off.createBufferSource(); src.buffer = decoded;
-    src.connect(off.destination); src.start();
-    data = (await off.startRendering()).getChannelData(0);
-  }
-  const seconds = data.length / RATE;
-  decoded = null;                              // 원본은 여기서 놓아 준다
+/* 소리 파일 여러 개를 회의 하나로 만든다.
 
-  const note = { id:uid(), title: file.name.replace(/\.[^.]+$/,""), created: Date.now(),
-    duration: seconds*1000, ctx:$("r-ctx").value.trim(),
+   한 시간 넘는 회의는 파일 하나로 넣을 수 없다 — 펼치는 순간 메모리가 감당이 안 된다.
+   그렇다고 회의를 여러 건으로 쪼개 놓으면 회의록이 조각난다. 실제로 29분씩 셋으로
+   나눠 만든 회의록은 결정·미결·투두가 71분 한 건짜리의 3분의 1로 줄었다.
+   조각에서는 "결정" 이라 부를 만한 것이 잘 보이지 않기 때문이다.
+
+   그래서 파일은 하나씩 펼치되 회의는 하나로 묶는다. 시각은 앞 파일 길이만큼
+   밀어서 이어 붙인다. 한 번에 한 파일만 메모리에 있으므로 길이에 사실상 제한이 없다. */
+/* 네이티브로 소리 파일을 가져온다.
+
+   웹 쪽 decodeAudioData 는 파일을 통째로 펼쳐서 87분이면 340MB 를 쥔다. 실제로
+   그렇게 앱이 꺼졌고, 그래서 40분 제한과 "손으로 잘라 넣기" 가 생겼다.
+   네이티브는 한 덩이씩 풀어 곧바로 조각 파일로 떨구므로 길이에 제한이 없다.
+
+   조각이 떨어지는 자리와 이름이 녹음기와 같아서, 회수는 이미 있는 경로를 그대로 쓴다. */
+async function importNative(){
+  let picked;
+  try{ picked = await NativeDec.pick(); }
+  catch(e){ toast("파일을 고르지 못했습니다: " + (e.message||e), 6000); return; }
+  const files = (picked && picked.files) || [];
+  if(!files.length) return;
+  files.sort((a,b)=> String(a.name).localeCompare(String(b.name), "ko", { numeric:true }));
+
+  const base = files[0].name.replace(/\.[^.]+$/,"").replace(/[_-]?\d+$/,"") || "회의";
+  const note = { id:uid(), title: files.length>1 ? base : files[0].name.replace(/\.[^.]+$/,""),
+    created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
     target:$("r-target").value, summary:"", mode:"file",
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
     brief: $("r-brief").value.trim(), terms: [] };
   await put("notes", note);
   primeTerms(note.id, note.brief);
+  closeSheet(); openNote(note.id); refreshList();
+
+  // 지난 회의 찌꺼기가 남아 있으면 이번 회의로 딸려 들어간다. 먼저 비운다.
+  try{ await Native.clearCache(); }catch(e){}
+
+  let sub = null;
+  try{
+    sub = await NativeDec.addListener("decodeProgress", ev => {
+      toast("소리를 푸는 중… 파일 " + ev.file + "/" + ev.files
+            + " · " + mmss(ev.ms) + " · " + ev.chunks + "구간", 60000);
+    });
+    toast("소리를 푸는 중…", 60000);
+    const r = await NativeDec.decode({ uris: files.map(f=>f.uri), chunkMs: +CFG.chunk || 30000 });
+
+    // 떨어진 조각을 회의로 거둬들인다
+    const pend = await Native.pending();
+    const list = ((pend && pend.files) || []).slice()
+      .sort((a,b)=> String(a.name).localeCompare(String(b.name), "en", { numeric:true }));
+    let i = 0;
+    for(const f of list){
+      const m = /^seg_(\d+)_/.exec(f.name);
+      await takeChunk(note.id, "pending", { name:f.name, seq:(m?+m[1]:i), offsetMs:null });
+      i++;
+    }
+    /* 조각 길이가 제각각이라(침묵에서 자른다) 순번만으로는 시각을 알 수 없다.
+       거둬들인 뒤 길이를 재어 시각을 다시 매긴다. 이게 없으면 전사문의
+       시각이 실제와 어긋나고, 나중에 원본 소리를 되짚을 수 없다. */
+    const mine = (await byIndex("chunks","note",note.id)).sort((a,b)=>a.seq-b.seq);
+    let acc = 0;
+    for(const c of mine){
+      c.offsetMs = Math.round(acc);
+      acc += chunkSec(c) * 1000;
+      await putRaw("chunks", c);
+    }
+    note.duration = Math.round(acc) || (r && r.durationMs) || 0;
+    await put("notes", note);
+    renderIfOpen(note.id); refreshList(); drain();
+    toast(files.length + "개 파일을 이어 " + i + "구간으로 나눴습니다. 순서대로 전사합니다.", 8000);
+  }catch(e){
+    toast("소리를 풀지 못했습니다: " + (e.message||e), 9000);
+  }finally{
+    if(sub && sub.remove) try{ sub.remove(); }catch(e){}
+  }
+}
+
+async function importFiles(files){
+  const RATE = 16000;
+  const many = files.length > 1;
+  const base = files[0].name.replace(/\.[^.]+$/,"").replace(/[_-]?\d+$/,"") || "회의";
+
+  const note = { id:uid(), title: many ? base : files[0].name.replace(/\.[^.]+$/,""),
+    created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
+    target:$("r-target").value, summary:"", mode:"file",
+    attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
+    brief: $("r-brief").value.trim(), terms: [] };
+  await put("notes", note);
+  primeTerms(note.id, note.brief);
+  closeSheet(); openNote(note.id); refreshList();
 
   const per = Math.floor(RATE * (+CFG.chunk)/1000);
-  let s = 0, i = 0;
-  while(i < data.length){
-    const cut = findCut(data, i, per, RATE);   // 시계가 아니라 조용한 자리에서 끊는다
-    await saveChunk(note.id, s, encodeWAV(data.subarray(i, cut), RATE),
-                    "pending", Math.round(i/RATE*1000));
-    i = cut; s++;
-    if(s % 20 === 0) toast("나누는 중… " + s + "구간", 30000);
+  let seq = 0, offset = 0;                 // offset 은 지금까지 이어 붙인 초
+
+  for(let f = 0; f < files.length; f++){
+    toast("소리를 읽는 중… 파일 " + (f+1) + "/" + files.length, 60000);
+    let data;
+    try{ data = await decodeTo16k(files[f]); }
+    catch(e){
+      toast(e.message || "이 파일은 읽을 수 없습니다. m4a, mp3, wav 로 변환해 보세요.", 12000);
+      continue;                            // 하나가 안 읽혀도 나머지는 잇는다
+    }
+
+    let i = 0;
+    while(i < data.length){
+      const cut = findCut(data, i, per, RATE);   // 시계가 아니라 조용한 자리에서 끊는다
+      await saveChunk(note.id, seq, encodeWAV(data.subarray(i, cut), RATE),
+                      "pending", Math.round(offset*1000 + i/RATE*1000));
+      i = cut; seq++;
+      if(seq % 20 === 0) toast("나누는 중… " + seq + "구간 (파일 " + (f+1) + "/" + files.length + ")", 30000);
+    }
+    offset += data.length / RATE;
+    data = null;                           // 다음 파일 전에 놓아 준다
+    await new Promise(r => setTimeout(r, 200));
   }
-  closeSheet(); openNote(note.id); refreshList();
-  toast(s + "개 구간으로 나눴습니다. 순서대로 전사합니다.");
+
+  note.duration = Math.round(offset*1000);
+  await put("notes", note);
+  renderIfOpen(note.id); refreshList();
+  toast(files.length + "개 파일을 이어 " + seq + "구간으로 나눴습니다. 순서대로 전사합니다.", 8000);
 }
 
 /* =====================================================================
@@ -5593,7 +5696,12 @@ $("scrim").onclick = ()=>{ if(recording){ toast("녹음 중입니다. 종료 후
 document.querySelectorAll(".segctl button").forEach(b=>b.onclick=()=>{
   if(recording){ toast("녹음 중에는 바꿀 수 없습니다."); return; } setMode(b.dataset.mode); });
 $("btn-rec").onclick = ()=>{
-  if(mode==="file"){ $("filein").click(); return; }
+  if(mode==="file"){
+    /* 네이티브가 있으면 그쪽으로 간다. 브라우저가 파일을 통째로 펼치지 않으므로
+       길이 제한이 없다. 없으면 예전 방식(웹 파일 고르기)으로 떨어진다. */
+    if(NativeDec) importNative(); else $("filein").click();
+    return;
+  }
   if(mode==="text"){ createTextNote(); return; }
   recording ? stopRecording() : startRecording();
 };
@@ -5612,7 +5720,15 @@ $("p-add").onclick = ()=>{
   CFG.people.push({ name:"", role:"", lang:"", style:"", words:"" });
   saveCfg(); renderPeople(); renderSeriesList();
 };
-$("filein").onchange = e => { const f = e.target.files[0]; if(f) importFile(f); e.target.value=""; };
+$("filein").onchange = e => {
+  /* 이름 순으로 세운다. 파일 고르는 창이 순서를 지켜 주지 않는 기기가 있고,
+     순서가 뒤섞이면 회의가 뒤죽박죽이 된다. _0 _1 _2 처럼 번호가 붙어 있으면
+     그 번호를 숫자로 견준다. */
+  const fs = Array.from(e.target.files || []).sort((a,b)=>
+    a.name.localeCompare(b.name, "ko", { numeric:true }));
+  if(fs.length) importFiles(fs);
+  e.target.value = "";
+};
 $("updbar-go").onclick = applyUpdate;
 $("updbar-x").onclick  = ()=> $("updbar").classList.remove("on");
 $("l-mark").onclick  = markMoment;
