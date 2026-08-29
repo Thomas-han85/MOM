@@ -15,7 +15,17 @@
   --card:#FFFFFF;
   --ink:#1C1B19;
   --ink-soft:#55524C;
-  --muted:#8B877E;
+  /* 3.3:1 이었다. 12.5px 안내문을 이 색으로 찍는데, 헬멧 쓰고 햇빛 아래 읽는 글자다.
+     5.0:1 로 올린다. */
+  --muted:#6E6A61;
+  /* 아래 넷은 여기저기 굳어 있던 색에 이름만 붙인 것이다. 밝은 화면 값은 그대로다.
+     이름이 없어서 어두운 화면에서 덮어쓸 수가 없었고, 그래서 상태 표시가 사라졌다. */
+  --warn-soft:#F5EBE1;
+  --off-soft:#F0E7DE;
+  --todo-soft:#E8E6E1;
+  --chip:#EFEDE8;
+  --tscale:1;           /* 자막과 본문 글자 배율. 조작 버튼 크기는 따라가지 않는다 */
+  --botfurn:92px;       /* 알림 쪽지가 아래 가구를 피하는 높이. 회의 중에는 선반만큼 더 올린다 */
   --rule:#DFDCD4;
   --accent:#1F4E46;
   --accent-soft:#E4EDEA;
@@ -41,10 +51,14 @@ html[data-theme="dark"]{
   --accent-soft:#1E3B36;
   --warn:#E0A574;
   --danger:#F08C82;
+  /* 여기가 비어 있어서 밝은 화면용 연한 바탕이 그대로 남았다. 그 위에 밝은 글자를
+     얹으니 오프라인 띠가 1.6:1, "할 일 N" 칩은 글자와 바탕이 아예 같은 색이었다.
+     하필 회의를 잃지 않으려고 있는 표시들이다. */
+  --warn-soft:#3B2A1B;
+  --off-soft:#33261C;
+  --todo-soft:#2B2F33;
+  --chip:#26292D;
 }
-html[data-theme="dark"] .note:active,
-html[data-theme="dark"] .pickrow:active{background:#26292D}
-html[data-theme="dark"] .segctl{background:#22262A}
 html[data-theme="dark"] .iconbtn:active{background:#2A2E32}
 html[data-theme="dark"] img{opacity:.92}
 html[data-theme="dark"] .scrim{background:rgba(0,0,0,.6)}
@@ -61,7 +75,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .topbar h1{margin:0;font-size:19px;font-weight:600;letter-spacing:-.01em;flex:1;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topbar .sub{display:block;font-size:12px;font-weight:400;color:var(--muted);letter-spacing:0}
-.iconbtn{width:38px;height:38px;flex:0 0 38px;display:flex;align-items:center;justify-content:center;
+.iconbtn{width:44px;height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;
   border-radius:10px;color:var(--ink-soft)}
 .iconbtn:active{background:var(--rule)}
 .iconbtn svg{width:21px;height:21px;stroke:currentColor;stroke-width:1.7;fill:none;
@@ -73,12 +87,12 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 /* ---------- note list ---------- */
 .daygroup{padding:22px 18px 4px;font-size:12px;color:var(--muted);letter-spacing:.06em}
 .note{display:block;width:100%;text-align:left;padding:14px 18px;border-bottom:1px solid var(--rule)}
-.note:active{background:#EFEDE8}
+.note:active{background:var(--chip)}
 .note b{display:block;font-weight:600;font-size:16px;letter-spacing:-.01em;margin-bottom:4px}
 .note span{font-size:13px;color:var(--muted)}
 .note .badge{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:20px;
   background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600}
-.note .badge.off{background:#F0E7DE;color:var(--warn)}
+.note .badge.off{background:var(--off-soft);color:var(--warn)}
 
 .empty{padding:70px 34px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
 .empty strong{display:block;color:var(--ink);font-size:16px;font-weight:600;margin-bottom:8px}
@@ -86,13 +100,17 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 /* ---------- status strip ---------- */
 .strip{margin:0;padding:9px 18px;font-size:12.5px;display:flex;align-items:center;gap:8px;
   background:var(--accent-soft);color:var(--accent);border-bottom:1px solid var(--rule)}
-.strip.warn{background:#F5EBE1;color:var(--warn)}
+.strip.warn{background:var(--warn-soft);color:var(--warn)}
 .strip button{margin-left:auto;font-size:12.5px;font-weight:600;text-decoration:underline}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:0 0 7px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .dot.live{animation:pulse 1.4s infinite}
 
 /* ---------- tabs ---------- */
+/* 상단바와 탭을 한 덩어리로 붙여 둔다. 따로 두면 둘 다 top:0 을 다투다가
+   탭이 상단바 뒤로 들어가 사라진다. */
+.stickhead{position:sticky;top:0;z-index:20;background:var(--paper)}
+.stickhead .topbar,.stickhead .tabs{position:static}
 .tabs{display:flex;gap:22px;padding:0 18px;border-bottom:1px solid var(--rule);
   position:sticky;top:0;background:var(--paper);z-index:10}
 .tabs button{padding:13px 0;font-size:15px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
@@ -108,35 +126,51 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .seg:first-child{border-top:none}
 .seg .gutter{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:3px;
   display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+/* 다시 듣기. 34px 거터 안이라 버튼 자체는 작지만, 좌우 여백을 음수로 먹어
+   실제 누르는 자리는 42×30 이 된다. 헬멧 쓰고 누르는 자리다. */
+.seg .play{width:26px;height:26px;margin:-2px -8px;padding:2px 8px;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--muted);font-size:11px;background:none;border:0}
+.seg.playing .play{color:var(--accent)}
+.seg.playing .mark{box-shadow:0 0 0 3px var(--accent-soft)}
 .seg .mark{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--muted)}
 .seg.done .mark{background:var(--accent);border-color:var(--accent)}
 .seg.sent .mark{border-color:var(--accent);animation:pulse 1.2s infinite}
 .seg.failed .mark{background:var(--danger);border-color:var(--danger)}
 .seg .body{border-left:1px solid var(--rule);padding-left:14px;min-width:0}
-.seg .orig{font-family:var(--serif);font-size:16.5px;line-height:1.75;color:var(--ink);
+/* 베트남어 회의에서 눈으로 좇는 줄은 통역문이다. 그런데 그것이 더 작고 흐렸다.
+   위계가 뒤집혀 있었다. 원문은 대조용이고 통역문이 읽는 줄이다.
+   배율(--tscale)은 설정에서 고른다. 루트 글자 크기는 건드리지 않는다 —
+   라이브바 여백과 조각 거터와 인라인 스타일 수십 곳이 함께 흔들린다. */
+.seg .orig{font-family:var(--serif);font-size:calc(16px * var(--tscale));line-height:1.75;color:var(--ink-soft);
   word-break:break-word;white-space:pre-wrap}
-.seg .trans{font-family:var(--serif);font-size:15.5px;line-height:1.7;color:var(--ink-soft);
+.seg .trans{font-family:var(--serif);font-size:calc(17.5px * var(--tscale));line-height:1.7;color:var(--ink);
   margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule);word-break:break-word;white-space:pre-wrap}
-.seg .pending{color:var(--muted);font-size:13.5px;font-family:var(--sans);font-style:italic}
+.seg .pending{color:var(--muted);font-size:calc(13.5px * var(--tscale));font-family:var(--sans);font-style:italic}
 .seg .errline{color:var(--danger);font-size:12.5px;font-family:var(--sans)}
 .seg .errline button{text-decoration:underline;font-weight:600}
 
 /* ---------- document tab ---------- */
-.doc{padding:18px 18px 40px;font-family:var(--serif);font-size:16px;line-height:1.8}
-.doc h2{font-size:18px;font-weight:600;margin:26px 0 10px;letter-spacing:-.01em;
-  padding-left:12px;border-left:3px solid var(--rule)}
+.doc{padding:18px 18px 40px;font-family:var(--serif);font-size:calc(16px * var(--tscale));line-height:1.8}
+/* 절 색은 뜻이 있는 넷에만 준다.
+
+   예전에는 모든 절에 회색 선을 긋고 그중 넷에만 색을 얹었다. 선이 벽지가 되어
+   색이 있는 넷도 "표시된 것" 으로 안 읽혔다. 아홉 절이 다 그어져 있으면 세어지지 않는다.
+   초록은 정해진 것, 갈색은 아직 안 정해진 것, 검정은 누가 무엇을 하는지,
+   빨강은 기계가 자신 없는 것. 넷을 넘기지 않는다. */
+.doc h2{font-size:18px;font-weight:600;margin:26px 0 10px;letter-spacing:-.01em}
+.doc h2.sec-decide,.doc h2.sec-open,.doc h2.sec-todo,
+.doc h2.sec-owners,.doc h2.sec-check{padding-left:12px;border-left:3px solid var(--rule)}
 .doc h2.sec-decide{border-left-color:var(--accent)}
 .doc h2.sec-open{border-left-color:var(--warn)}
-.doc h2.sec-todo{border-left-color:var(--ink)}
-.doc h2.sec-carry{border-left-color:var(--muted)}
-.doc h2.sec-agenda{border-left-color:var(--muted)}
+.doc h2.sec-todo,.doc h2.sec-owners{border-left-color:var(--ink)}
 .doc h2.sec-check{border-left-color:var(--danger)}
 .statbar{display:flex;flex-wrap:wrap;gap:7px;padding:16px 18px 0}
 .stat{font-family:var(--sans);font-size:12.5px;font-weight:600;padding:4px 11px;
-  border-radius:20px;background:#EFEDE8;color:var(--ink-soft)}
+  border-radius:20px;background:var(--chip);color:var(--ink-soft)}
 .stat.decide{background:var(--accent-soft);color:var(--accent)}
-.stat.open{background:#F5EBE1;color:var(--warn)}
-.stat.todo{background:#E8E6E1;color:var(--ink)}
+.stat.open{background:var(--warn-soft);color:var(--warn)}
+.stat.todo{background:var(--todo-soft);color:var(--ink)}
 .stat.warn{background:var(--danger);color:#fff}
 .doc h2:first-child{margin-top:4px}
 .doc ul{margin:0;padding-left:20px}
@@ -220,7 +254,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .pickhead{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 12px}
 .pickrow{display:block;width:100%;text-align:left;padding:14px 15px;margin-bottom:8px;
   border:1px solid var(--rule);border-radius:12px;background:var(--paper)}
-.pickrow:active{background:#EFEDE8}
+.pickrow:active{background:var(--chip)}
 .pickrow b{display:block;font-weight:600;font-size:15.5px;letter-spacing:-.01em}
 .pickrow span{display:block;font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.45}
 
@@ -230,7 +264,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   font-weight:600;color:var(--accent);-webkit-tap-highlight-color:transparent}
 .fold-detail summary::before{content:"▸ "}
 .fold-detail[open] summary::before{content:"▾ "}
-.segctl{display:flex;background:#EFEDE8;border-radius:11px;padding:3px;margin-bottom:16px}
+.segctl{display:flex;background:var(--chip);border-radius:11px;padding:3px;margin-bottom:16px}
 .segctl button{flex:1;padding:9px 4px;border-radius:9px;font-size:13px;color:var(--ink-soft);white-space:nowrap}
 .segctl button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.09)}
 .field{margin-bottom:14px}
@@ -244,7 +278,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .recbtn.stop{background:var(--danger)}
 .recrow{display:flex;gap:10px}
 .linkbtn{float:right;font-size:12.5px;color:var(--accent);font-weight:600;text-decoration:underline}
-.recbtn.hold{background:#EFEDE8;color:var(--ink);flex:0 0 38%}
+.recbtn.hold{background:var(--chip);color:var(--ink);flex:0 0 38%}
 .recbtn.hold.on{background:var(--warn);color:#fff}
 .timer.paused{color:var(--warn)}
 .recbtn.mark{background:var(--accent-soft);color:var(--accent);margin-bottom:10px}
@@ -280,7 +314,26 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .fab svg{width:24px;height:24px;stroke:currentColor;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}
 
 /* ---------- toast ---------- */
-.toast{position:fixed;left:18px;right:18px;bottom:calc(env(safe-area-inset-bottom) + 92px);z-index:60;
+/* 회의 중에만 라이브바 바로 위에 붙는 한 줄.
+
+   라이브바에 다섯 번째 버튼을 넣지 않는다. 지금도 점·타이머·버튼 넷으로 360dp 에서
+   포화라, 하나 더 넣으면 [종료] 가 좁아진다. 그 거래는 하지 않는다.
+   대신 위에 붙여 하나의 물건처럼 보이게 한다. 떠 있는 알약을 따로 두지 않는 것은,
+   회의 중 화면 아래에 주인 없는 알약이 둘이면 어느 것이 무엇인지 매번 읽어야 하기 때문이다. */
+.liveshelf{position:fixed;left:0;right:0;z-index:44;display:none;
+  bottom:calc(env(safe-area-inset-bottom) + 62px);
+  background:var(--card);border-top:1px solid var(--rule);
+  padding:0 16px;height:40px;align-items:center;gap:9px;
+  font-size:13px;color:var(--ink-soft);text-align:left;width:100%}
+.liveshelf.on{display:flex}
+.liveshelf .n{flex:0 0 auto;font-weight:700;color:var(--accent);background:var(--accent-soft);
+  border-radius:999px;padding:2px 9px;font-size:12px}
+.liveshelf .txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.liveshelf .when{flex:0 0 auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.liveshelf.warn{background:var(--warn-soft);color:var(--warn);border-top-color:var(--warn)}
+.liveshelf.warn .n{background:transparent;color:var(--warn)}
+
+.toast{position:fixed;left:18px;right:18px;bottom:calc(env(safe-area-inset-bottom) + var(--botfurn));z-index:60;
   background:var(--ink);color:var(--paper);padding:13px 16px;border-radius:11px;font-size:14px;
   opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none;line-height:1.5}
 .toast.on{opacity:1;transform:none}
@@ -325,6 +378,16 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   border-bottom:1px solid var(--rule);background:var(--paper);margin:0;line-height:1.5}
 .serrow{border-bottom:none}
 
+/* 목록 화면 머리의 마크. 색을 물려받으므로 밝은 화면·어두운 화면 모두 그대로 된다. */
+/* 설정 저장은 늘 손 닿는 데 있어야 한다. 예전에는 카드 열 개를 지나 맨 밑까지
+   내려가야 했고, 처음 쓰는 사람이 열쇠를 넣고 뒤로 나가면 아무것도 저장되지 않았다. */
+.savedock{position:sticky;bottom:0;z-index:5;background:var(--paper);
+  border-top:1px solid var(--rule);margin:0 -18px;
+  padding:12px 18px calc(env(safe-area-inset-bottom) + 12px)}
+
+.brand{flex:0 0 30px;width:30px;height:30px;color:var(--accent);display:flex}
+.brand svg{width:100%;height:100%;display:block}
+
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
@@ -334,6 +397,11 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <!-- ============ LIST ============ -->
 <div class="view on" id="v-list">
   <div class="topbar">
+    <span class="brand" aria-hidden="true"><svg viewBox="0 0 108 108">
+      <path d="M31 36 47 48 31 60 47 72" fill="none" stroke="currentColor" stroke-width="7"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <path fill="currentColor" fill-rule="evenodd" d="M63 40H77A3 3 0 0 1 80 43V65A3 3 0 0 1 77 68H63A3 3 0 0 1 60 65V43A3 3 0 0 1 63 40ZM63.5 46.5H76.5V50.5H63.5ZM63.5 57.5H76.5V61.5H63.5Z"/>
+    </svg></span>
     <h1>trans-mom<span class="sub">실시간 통역 · 회의록</span></h1>
     <button class="setbtn" id="btn-settings" aria-label="설정">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -345,6 +413,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
 <!-- ============ DETAIL ============ -->
 <div class="view" id="v-detail">
+  <div class="stickhead">
   <div class="topbar">
     <button class="iconbtn" id="btn-back" aria-label="뒤로">
       <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
@@ -353,13 +422,11 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <button class="iconbtn" id="btn-share" aria-label="내보내기">
       <svg viewBox="0 0 24 24"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
     </button>
-    <button class="iconbtn" id="btn-del" aria-label="삭제">
-      <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
-    </button>
   </div>
   <div class="tabs">
     <button id="tab-doc" class="on">문서</button>
     <button id="tab-raw">원본</button>
+  </div>
   </div>
   <div id="d-strip"></div>
   <div id="d-series"></div>
@@ -446,6 +513,15 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>녹음</h3>
+      <div class="field"><label for="s-livesum">회의 중 '지금까지' 정리</label>
+        <select id="s-livesum">
+          <option value="1">켜기 · 2분쯤마다 한 줄씩 쌓입니다</option>
+          <option value="0">끄기</option>
+        </select>
+        <p class="hint">회의가 도는 동안 숫자·날짜·금액·담당이 나온 대목을 한 줄로 쌓아
+          아래 선반에 보여 줍니다. 쌓는 데 요금이 조금 더 나갑니다(회의 한 건에 1센트 안팎).
+          이 줄은 화면에만 쓰고 회의록에는 넣지 않습니다 — 회의록은 끝나고 전사문 전체를
+          다시 읽어 만듭니다.</p></div>
       <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 통역이 정확해집니다</label>
         <select id="s-chunk">
           <option value="10000">10초 · 대화용 · 문장이 자주 잘립니다</option>
@@ -530,6 +606,10 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         녹음이 끝날 때마다 글자만 담은 백업이 하루 한 번 다운로드 폴더에 저절로 내려갑니다.</p>
       <p class="hint" id="stor-state">저장공간 확인 중…</p>
       <button class="bigbtn ghost" id="s-trim" style="width:100%;margin:0 0 10px">녹음 파일 비우기</button>
+      <button class="bigbtn ghost" id="s-carry-out" style="width:100%;margin:0 0 10px">설정 옮기기 · 복사</button>
+      <button class="bigbtn ghost" id="s-carry-in" style="width:100%;margin:0 0 10px">설정 옮기기 · 붙여넣기</button>
+      <p class="hint" style="margin:-4px 0 14px">폰에서 복사해 노트북에 붙여넣으면 구글 연결·용어집·
+        참석자·시리즈가 한 번에 넘어옵니다. 열쇠는 담지 않습니다 — 그것만 각 기기에서 따로 넣으십시오.</p>
       <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
       <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 10px">백업 가져오기</button>
       <input type="file" id="backupin" accept=".json,application/json" style="display:none">
@@ -543,7 +623,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 10px">설치된 버전으로 되돌리기</button>
     </div>
 
-    <button class="bigbtn" id="s-save" style="margin:0 0 18px">설정 저장</button>
+    <div class="savedock"><button class="bigbtn" id="s-save" style="margin:0">설정 저장</button></div>
 
     <p class="hint" style="margin-top:22px"><span id="envnote"></span></p>
   </div>
@@ -559,6 +639,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   <button id="updbar-x" aria-label="닫기">✕</button>
 </div>
 
+<button type="button" id="liveshelf" class="liveshelf" aria-live="polite">
+  <span class="n" id="ls-n"></span><span class="txt" id="ls-t"></span><span class="when" id="ls-w"></span>
+</button>
 <div class="livebar" id="livebar">
   <span class="ldot" id="l-dot"></span>
   <span class="lt" id="l-timer">00:00</span>
@@ -713,7 +796,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.29-2";
+const APP_VERSION = "2026.08.29-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -738,11 +821,44 @@ clearBoot();
 addEventListener("DOMContentLoaded", clearBoot);
 addEventListener("load", clearBoot);
 /* =====================================================================
-   대역 (MeetNote) v1
+   trans-mom v1
    설계 원칙: 녹음과 전사를 분리한다. 녹음기는 로컬에 저장만 하고,
    전사는 별도 큐 워커가 처리한다. 오프라인은 예외가 아니라
    "큐가 안 빠지는 상태"일 뿐이다. 파일 업로드도 같은 큐를 탄다.
    ===================================================================== */
+
+/* 기기 사이로 설정을 옮긴다.
+
+   동기화 자체는 이미 돌지만, 구글 클라우드에서 받은 클라이언트 값 두 줄을 기기마다
+   다시 타이핑해야 했다. 폰에서 한 번, 노트북에서 또 한 번. 그 산을 두 번 넘는 것이
+   실제로 성가신 대목이었다. 한 줄로 만들어 옮긴다.
+
+   API 열쇠는 담지 않는다. 이 글은 카톡이나 메일을 타고 다닐 텐데, 거기에 열쇠가
+   섞이면 새는 순간 돈이 나간다. 옮길 값은 "다시 받기 번거로운 것" 이지 "비밀" 이 아니다. */
+const CARRY_KEYS = ["gcid","gcsec","gloss","people","series","stt","doc","trans","vision",
+                    "chunk","ttsRate","ttsLang","talkOut","liveSum","awake","theme","budgetUsd"];
+
+function carryOut(){
+  const o = {};
+  CARRY_KEYS.forEach(k => { if(CFG[k] !== undefined && CFG[k] !== "") o[k] = CFG[k]; });
+  const body = JSON.stringify({ v:1, cfg:o });
+  // 줄바꿈 없이 한 덩이로. 붙여넣다 잘리는 일을 줄인다.
+  return "TRANSMOM1:" + btoa(unescape(encodeURIComponent(body)));
+}
+
+function carryIn(text){
+  const t = String(text || "").trim().replace(/\s+/g, "");
+  if(t.indexOf("TRANSMOM1:") !== 0) throw new Error("이 앱의 설정 글이 아닙니다.");
+  const d = JSON.parse(decodeURIComponent(escape(atob(t.slice(10)))));
+  if(!d || !d.cfg) throw new Error("설정 글이 깨졌습니다.");
+  let cnt = 0;
+  CARRY_KEYS.forEach(k => {
+    if(d.cfg[k] === undefined) return;
+    CFG[k] = d.cfg[k]; cnt++;
+  });
+  saveCfg();
+  return cnt;
+}
 
 /* ---------- 설정 저장 (localStorage 불가 환경 대비 폴백) ---------- */
 const mem = {};
@@ -1791,10 +1907,10 @@ if("speechSynthesis" in window){
    마크다운 구조와 절 이름을 유지해야 받는 쪽에서도 같은 문서로 읽힌다.
    ===================================================================== */
 const DOC_LANG = {
-  Korean:      { label:"한국어",     heads:"결정사항 / 미결사항 / 투두리스트 / 일반요약" },
-  Vietnamese:  { label:"Tiếng Việt", heads:"Quyết định / Vấn đề tồn đọng / Việc cần làm / Tóm tắt chung" },
+  Korean:      { label:"한국어",     heads:"한 장 요약 / 다음 회의 / 결정사항 / 다음에 정해야 할 것 / 할 일 / 담당자별 할 일 / 일정과 선후 / 확인해 주세요 / 상세 기록" },
+  Vietnamese:  { label:"Tiếng Việt", heads:"Tóm tắt một trang / Cuộc họp tiếp theo / Quyết định / Vấn đề cần quyết / Việc cần làm / Người phụ trách / Tiến độ và thứ tự / Cần xác nhận / Ghi chép chi tiết" },
   Khmer:       { label:"ភាសាខ្មែរ",   heads:"សេចក្តីសម្រេច / បញ្ហាមិនទាន់ដោះស្រាយ / កិច្ចការត្រូវធ្វើ / សេចក្តីសង្ខេប" },
-  English:     { label:"English",    heads:"Decisions / Open Issues / Action Items / Summary" }
+  English:     { label:"English",    heads:"Summary / Next meeting / Decisions / Open items / Action items / Owners / Schedule / Please confirm / Detailed record" }
 };
 async function translateDoc(text, target){
   const t = DOC_LANG[target] || DOC_LANG.Vietnamese;
@@ -3848,7 +3964,7 @@ function renderPlain(md, opts){
   const when = [cS(opts.when), cS(opts.place)].filter(Boolean).join(" · ");
   if(when) head.push(when);
   const headTxt = head.join("\n");
-  const foot = cS(opts.footer == null ? "— 대역 정리본. 원문과 다르면 회신 주세요." : opts.footer);
+  const foot = cS(opts.footer == null ? "— trans-mom 정리본. 원문과 다르면 회신 주세요." : opts.footer);
 
   const chunks = [];
   let cur = "";
@@ -4303,7 +4419,10 @@ async function makeMinutes(note, fullText, onStep, cache){
 
   // 상세 기록 — 조각을 잇지 않고 병합한다
   if(onStep) onStep(parts.length+1, total);
-  const detail = await mergeStory(note, storyParts, null, cache);
+  /* 병합에도 진행을 넘긴다. 예전에는 여기에 null 을 넘겨 놓고 통로를 스스로 막았다.
+     87분 회의에서 화면이 가장 오래 멈춰 보이는 대목이 정확히 여기였다. */
+  const detail = await mergeStory(note, storyParts,
+    i => onStep && onStep(parts.length + 1, total), cache);
 
   // 결론부 — 전사문 전체를 한 번에 본다
   if(onStep) onStep(parts.length+2, total);
@@ -4340,6 +4459,7 @@ async function makeMinutes(note, fullText, onStep, cache){
   /* 검사에는 반드시 상세 기록까지 합친 본문을 넘긴다. 결론부만 넘기면
      상세 기록에 살아 있는 것이 전부 누락으로 잡혀 경고가 도배된다. */
   const audit = auditDoc(bodyMd, fullText, roster);
+  if(onStep) onStep(total, total);   // 마지막 조립까지 마쳤다. 숫자가 총계에 닿아야 한다.
   note._concl = json;
   return bodyMd + (audit ? "\n\n" + audit : "") + "\n\n" + buildCarry(json, fullText);
 }
@@ -4422,7 +4542,8 @@ const G = {
      쓴다. 폴더는 눈에 보이지만, 이 범위는 "이 앱이 만든 파일"만 열 수 있어 나머지 문서는
      여전히 앱의 손이 닿지 않는다. */
   SCOPE:"https://www.googleapis.com/auth/drive.file",
-  FOLDER:"대역 회의록",
+  FOLDER:"trans-mom 회의록",
+  FOLDER_OLD:"대역 회의록",   // 예전 이름. 이미 만들어 둔 폴더를 잃지 않으려고 함께 찾는다
   API:"https://www.googleapis.com/drive/v3",
   UP:"https://www.googleapis.com/upload/drive/v3"
 };
@@ -4543,7 +4664,8 @@ async function dFolder(){
     store.set("mn_g_folder","");
   }
   const q = encodeURIComponent(
-    "mimeType='application/vnd.google-apps.folder' and name='"+G.FOLDER+"' and trashed=false");
+    "mimeType='application/vnd.google-apps.folder' and trashed=false and (name='"
+    + G.FOLDER + "' or name='" + G.FOLDER_OLD + "')");
   const f = await fetchT(G.API+"/files?q="+q+"&fields=files(id)&pageSize=10",
     { headers:{ Authorization:"Bearer "+t } });
   if(f.ok){
@@ -4622,6 +4744,9 @@ async function unpackNote(p){
 /* --- 동기화 --- */
 let syncing = false, lastSync = 0;
 const TOMB = "tombstones.json";
+/* 백업에서 되살린 회의의 번호. 다음 맞춤 때 무덤에서 빼내야 할 것들이다.
+   빼지 않으면 사람이 되살린 회의가 말없이 다시 사라진다. */
+let driveRevive = [];
 
 /* =====================================================================
    회의 시리즈와 참석자도 맞춘다
@@ -4702,7 +4827,12 @@ async function syncDrive(manual){
     if(tf){ try{ tombs = (await dRead(tf.id)).ids || []; }catch(e){} }
     let localTombs = [];
     try{ localTombs = JSON.parse(store.get("mn_tombs")||"[]"); }catch(e){}
-    const allTombs = [...new Set([...tombs, ...localTombs])];
+    let allTombs = [...new Set([...tombs, ...localTombs])];
+    if(driveRevive.length){
+      const back = new Set(driveRevive);
+      allTombs = allTombs.filter(id => !back.has(id));
+      driveRevive = [];
+    }
     const tombSet = new Set(allTombs);
 
     // 지운 것이 아직 드라이브에 남아 있으면 치운다
@@ -5049,7 +5179,10 @@ async function drain(){
              - 되뇜이 시작되면 꼬리를 아예 끊는다. 불씨를 뺀다.
              - 돌아온 말이 보낸 프롬프트 안에 들어 있으면 되뱉은 것으로 보고 버린다. */
         const ser = note.seriesId ? findSeries(note.seriesId) : null;
-        const terms = [...(note.terms||[]), ...((ser && ser.terms) || [])];
+        /* 시리즈 용어를 앞에, 이 회의 용어를 뒤에 둔다. 지시문은 뒤에서 40개만
+           남기므로(sttPrompt), 순서가 반대면 시리즈가 찬 회의에서 방금 손으로 넣은
+           낱말이 통째로 잘려 나간다. 지금 넣은 것이 가장 확실히 살아남아야 한다. */
+        const terms = [...((ser && ser.terms) || []), ...(note.terms||[])];
 
         /* 되뇜이 이어지면 길잡이 글을 아예 끊는다. 불씨를 뺀다. */
         const spiral = before.slice(-2).filter(s=>s.skip==="prompt").length >= 2;
@@ -5154,12 +5287,33 @@ async function drain(){
       }
       await put("chunks", c);
       renderIfOpen(c.noteId); paintStrips(); refreshList();
+      if(recording && activeNote && activeNote.id === c.noteId){
+        lastChunkAt = Date.now();
+        paintShelf();
+        /* 기다리지 않는다. 요약이 늦어도 다음 조각의 전사가 밀리면 안 된다. */
+        maybeLiveSum(await byIndex("chunks", "note", c.noteId));
+      }
     }
   } finally { working = false; paintStrips(); }
 }
 setInterval(drain, 4000);
-addEventListener("online", ()=>{ paintStrips(); drain(); });
-addEventListener("offline", paintStrips);
+$("liveshelf").onclick = ()=>{
+  if(!recording) return;
+  if(!liveSum.length){
+    toast("아직 쌓인 것이 없습니다. 숫자·날짜·금액·담당이 나오면 한 줄씩 쌓입니다.", 5000);
+    return;
+  }
+  /* sheet 계열은 자기 가림막을 body 에 붙였다 지우므로 녹음 중에도 그대로 뜬다.
+     #sheet 를 재사용하면 안 된다 — 그쪽 가림막은 "녹음 중입니다" 로 막혀 있다. */
+  sheet("지금까지", liveSum.slice().reverse().map(v => ({
+    label: v.at + " · " + v.text, sub: "", go: ()=>{}
+  })).concat([{ label:"먼저 거칠게 적고, 뒤에 나온 말로 다듬습니다",
+                sub:"회의록에는 이 줄을 쓰지 않습니다. 회의록은 끝나고 전사문 전체를 다시 읽어 만듭니다.",
+                go: ()=>{} }]));
+};
+
+addEventListener("online", ()=>{ paintStrips(); paintShelf(); drain(); });
+addEventListener("offline", ()=>{ paintStrips(); paintShelf(); });
 
 async function retryChunk(id){
   const c = await get("chunks", id);
@@ -5535,6 +5689,11 @@ async function startRecording(){
 /* 녹음 중 라이브 화면. 시트를 접고 상세를 띄운 뒤 하단 바로 조작한다. */
 function enterLiveView(){
   closeSheet();
+  stopSeg();                // 듣던 구간이 있으면 멈춘다. 스피커 소리가 마이크로 되들어간다.
+  paintFab();
+  liveSum = []; lastChunkAt = Date.now(); sumSeen = 0;
+  document.documentElement.style.setProperty("--botfurn", "118px");   // 알림 쪽지가 선반을 안 가리게
+  paintShelf();
   $("livebar").classList.add("on");
   $("l-pause").textContent = "일시정지"; $("l-pause").classList.remove("on");
   $("l-timer").classList.remove("paused");
@@ -5549,9 +5708,150 @@ function enterLiveView(){
 }
 function exitLiveView(){
   setDim(false);            // 녹음이 끝나면 화면을 되돌린다
+  paintFab();
+  document.documentElement.style.setProperty("--botfurn", "92px");
+  $("liveshelf").classList.remove("on");
   $("livebar").classList.remove("on");
   $("v-detail").classList.remove("reclive");
 }
+/* 조각 하나를 다시 들려준다.
+
+   틀린 대목을 되짚어 볼 수 없다는 것이 남의 앱에서 결제를 취소하게 만든 대목이었다.
+   우리는 조각마다 소리를 쥐고 있고 시각도 이미 거터에 적혀 있으니, 버튼 하나면 된다.
+   한 번에 하나만 튼다. 두 개가 겹쳐 나면 어느 대목을 듣는지 알 수 없다. */
+let segAudio = null, segPlaying = "";
+
+function stopSeg(){
+  if(segAudio){ try{ segAudio.pause(); }catch(e){}
+    try{ URL.revokeObjectURL(segAudio.src); }catch(e){}
+    segAudio = null; }
+  if(segPlaying){
+    const el = document.querySelector('[data-seg="' + segPlaying + '"]');
+    if(el) el.classList.remove("playing");
+    segPlaying = "";
+  }
+}
+
+function wirePlay(cs){
+  document.querySelectorAll("[data-play]").forEach(b => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      const id = b.dataset.play;
+      const wasPlaying = (segPlaying === id);
+      stopSeg();
+      if(wasPlaying) return;                    // 누르면 멈춘다
+      const c = cs.find(x => x.id === id);
+      if(!c || !c.blob){ toast("이 구간은 소리가 남아 있지 않습니다."); return; }
+      try{
+        segAudio = new Audio(URL.createObjectURL(c.blob));
+        segPlaying = id;
+        const el = document.querySelector('[data-seg="' + id + '"]');
+        if(el) el.classList.add("playing");
+        segAudio.onended = stopSeg;
+        segAudio.onerror = ()=>{ stopSeg(); toast("소리를 열지 못했습니다."); };
+        await segAudio.play();
+      }catch(err){ stopSeg(); toast("소리를 틀지 못했습니다: " + (err.message||err), 5000); }
+    };
+  });
+}
+
+/* 회의 중 선반.
+
+   한 줄뿐이라 무엇을 실을지는 우선순위가 정한다. 자리를 다투게 두지 않는다.
+   위의 셋은 지금 당장 판단해야 하는 것이고, 마지막은 늘 있는 것이다.
+   화면을 통째로 다시 그리는 renderDetail 과 얽히지 않게 여기서만 손댄다. */
+let liveSum = [];          // 회의 중 쌓인 줄들. 화면 표시 전용이다.
+let lastChunkAt = 0;       // 마지막 구간이 들어온 시각. 멈춤을 알아채는 데 쓴다.
+let sumSeen = 0;           // 지금까지 요약에 넣은 글자 수
+let sumBusy = false;       // 요약 호출이 도는 중인가
+
+/* 회의가 도는 동안 결정될 만한 것을 한 줄씩 쌓는다.
+
+   후기에서 가장 여러 번 나온 것이 이것이다 — "말이 끝나면 바로바로 정리돼서 따로
+   필기 안 해도 될 정도로". 회의가 끝난 뒤가 아니라 도중에 쌓이는 것이 값이다.
+
+   지켜야 할 것이 넷 있다.
+   ㉠ 자막이 언제나 이긴다. drain 밖에서 따로 돌고, 밀린 조각이 둘 이상이면 건너뛴다.
+   ㉡ 조각 개수가 아니라 글자 수로 센다. 조각 길이는 설정값이고 대화 모드는 9초 고정이라
+      개수가 시간과 비례하지 않는다. 조용한 조각은 글자 없이 끝나기도 한다.
+   ㉢ 파일에서 불러온 회의에서는 돌지 않는다. 40분 파일을 넣으면 조각 수십 개가
+      한꺼번에 꽂혀 아무도 안 보는 요약이 수십 번 터진다.
+   ㉣ 노트를 다시 읽어 저장하지 않는다. 녹음이 끝나는 순간 activeNote 를 통째로
+      덮어쓰는 자리가 있어서, 거기서 조용히 날아간다. 화면에만 둔다. */
+const SUM_EVERY = 1200;    // 이만큼 글자가 더 쌓이면 한 번 부른다
+
+async function maybeLiveSum(cs){
+  if(sumBusy || !recording || !activeNote) return;
+  if(activeNote.mode === "file") return;
+  if(!CFG.oai || !navigator.onLine) return;
+  if(CFG.liveSum === "0") return;
+
+  const pending = cs.filter(c => c.status === "pending" || c.status === "sent").length;
+  if(pending >= 2) return;                       // 밀렸다. 이번 회차는 건너뛴다.
+
+  const done = cs.filter(c => c.status === "done" && c.text);
+  const all = done.map(c => c.text).join("\n");
+  if(all.length - sumSeen < SUM_EVERY) return;
+
+  const chunk = all.slice(Math.max(0, sumSeen - 200));   // 앞 200자는 맥락으로 겹쳐 준다
+  sumBusy = true;
+  try{
+    const known = liveSum.slice(-6).map(v => "- " + v.text).join("\n");
+    const out = await callDocModel(
+`회의가 지금 진행 중이다. 아래는 방금 오간 말이다. 여기서 나중에 회의록에 남을 만한 것만
+한 줄씩 뽑아라. 없으면 아무것도 쓰지 마라. 지어내지 마라.
+
+- 숫자·날짜·금액·기한·담당이 나온 묶음만 적는다. 그런 것이 없으면 빈 답을 내라.
+- 여러 언어가 섞여 있으면 같은 내용이 통역으로 두 번 나온 것이다. 한 줄로 접어라.
+- 한 줄은 40자 이내. 완결된 문장으로. 앞에 기호를 붙이지 마라.
+- 많아야 두 줄이다. 애매하면 한 줄도 쓰지 마라.
+- 금액 단위는 들린 그대로 둔다. tỷ 를 원으로 환산하지 마라.
+${known ? "\n이미 적어 둔 것이다. 같은 내용을 다시 쓰지 마라.\n" + known + "\n" : ""}
+---방금 오간 말---
+${chunk.slice(-4000)}`, 300);
+
+    const at = mmss(Date.now() - (activeNote.created || Date.now()));
+    String(out || "").split("\n").map(l => l.replace(/^[-•*\d.\s]+/, "").trim())
+      .filter(l => l.length > 4 && l.length < 120)
+      .slice(0, 2)
+      .forEach(text => {
+        if(liveSum.some(v => v.text === text)) return;
+        liveSum.push({ at, text });
+      });
+    if(liveSum.length > 40) liveSum = liveSum.slice(-40);
+    sumSeen = all.length;
+    paintShelf();
+  }catch(e){ /* 실패해도 회의를 막지 않는다 */ }
+  finally{ sumBusy = false; }
+}
+
+function paintShelf(){
+  const el = $("liveshelf");
+  if(!el) return;
+  if(!recording){ el.classList.remove("on"); return; }
+  el.classList.add("on");
+
+  const stale = lastChunkAt && (Date.now() - lastChunkAt > 150000);
+  let kind = "", num = "", txt = "", when = "";
+
+  if(!CFG.oai){        kind = "warn"; txt = "열쇠가 없어 전사가 멈춰 있습니다 · 녹음은 저장됩니다"; }
+  else if(!navigator.onLine){ kind = "warn"; txt = "연결이 끊겼습니다 · 지금은 통역이 나가지 않습니다"; }
+  else if(stale){      kind = "warn"; txt = "녹음이 멈춘 것 같습니다 · 눌러서 확인해 주세요"; }
+  else if(liveSum.length){
+    const last = liveSum[liveSum.length - 1];
+    num = String(liveSum.length);
+    txt = last.text;
+    when = last.at;
+  }else{
+    txt = "숫자·날짜·금액·담당이 나오면 여기에 한 줄씩 쌓입니다";
+  }
+  el.classList.toggle("warn", kind === "warn");
+  $("ls-n").textContent = num;
+  $("ls-n").style.display = num ? "" : "none";
+  $("ls-t").textContent = txt;
+  $("ls-w").textContent = when;
+}
+
 /* 새 구간이 전사되면 맨 아래로 따라 내려간다. 사용자가 위를 읽고 있으면 건드리지 않는다. */
 function followLive(){
   if(!recording) return;
@@ -5849,7 +6149,16 @@ async function importFiles(files){
    ===================================================================== */
 let openId = null, curTab = "doc";
 
-function show(v){ ["v-list","v-detail","v-settings"].forEach(x=>$(x).classList.toggle("on", x===v)); }
+function show(v){
+  ["v-list","v-detail","v-settings"].forEach(x=>$(x).classList.toggle("on", x===v));
+  paintFab();
+}
+/* 새 회의 버튼은 목록에서만 보인다. 녹음 중에는 목록에 있어도 감춘다 —
+   누르면 시트가 열리고 그 안의 "녹음 시작" 이 지금 도는 녹음을 갈아엎는다. */
+function paintFab(){
+  const f = $("fab"); if(!f) return;
+  f.style.display = ($("v-list").classList.contains("on") && !recording) ? "" : "none";
+}
 
 async function refreshList(){
   const notes = (await all("notes")).sort((a,b)=>b.created-a.created);
@@ -6096,9 +6405,17 @@ async function renderDetail(){
     renderDetail(); drain();
   };
 
+  /* 녹음 중에는 회의와 상관없는 조작을 그리지 않는다.
+
+     예전에는 녹음 중에도 시리즈 고르기와 화자 분리 버튼이 자막 위에 얹혀 있었다.
+     회의 첫 2~3분 — 앱이 도는지 확인하려고 보는 바로 그 시간 — 에 화면 절반이
+     그 조작들이었고, 되읽으려고 위로 올릴 때마다 다시 만났다.
+     게다가 화자 분리는 값이 나가는 일인데 회의 도중에 눌러졌다. */
+  const liveNow = recording && curTab === "raw";
+
   // 시리즈는 두 탭 어느 쪽에서 보든 같은 자리에 둔다
-  $("d-series").innerHTML = seriesRow(n);
-  wireSeriesRow(n);
+  $("d-series").innerHTML = liveNow ? "" : seriesRow(n);
+  if(!liveNow) wireSeriesRow(n);
 
   /* --- 원본 탭 --- */
   // 화자 분리를 마쳤으면 사람별로 갈린 스크립트를 보여 준다. 아니면 조각 그대로.
@@ -6115,7 +6432,7 @@ async function renderDetail(){
       '</select>'+
     '</div>' : "";
 
-  const diarBar =
+  const diarBar = liveNow ? "" :
     '<div style="padding:12px 18px 0">'+
 
       (n.script ?
@@ -6182,8 +6499,13 @@ async function renderDetail(){
       '</div>'
     : '<div class="empty">구간이 없습니다.</div>';
   for(const c of cs){
-    raw += '<div class="seg '+c.status+'"><div class="gutter"><span class="mark"></span>'+
-      mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+'</div><div class="body">';
+    /* 녹음 중에는 재생을 그리지 않는다. 스피커로 틀면 마이크가 되받아
+       그 구간이 통째로 다시 전사된다. */
+    const canPlay = !!c.blob && !recording;
+    raw += '<div class="seg '+c.status+'" data-seg="'+c.id+'"><div class="gutter"><span class="mark"></span>'+
+      mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+
+      (canPlay ? '<button class="play" data-play="'+c.id+'" aria-label="이 구간 다시 듣기">▶</button>' : "")+
+      '</div><div class="body">';
     if(c.status==="done"){
       raw += '<div class="orig'+(c.text?"":" pending")+'">'+
         esc(c.text || SKIP_WHY[c.skip] || (c.quiet ? "(조용함)" : c.echo ? "(같은 말이라 건너뜀)" : "(무음)"))+'</div>';
@@ -6203,6 +6525,7 @@ async function renderDetail(){
   raw += '</div>';
   $("pane-raw").innerHTML = raw;
   $("pane-raw").querySelectorAll("[data-retry]").forEach(b=>b.onclick=()=>retryChunk(b.dataset.retry));
+  wirePlay(cs);
   wireDiar(n, cs);
   }
 
@@ -6564,6 +6887,13 @@ const SECTION_KIND = [
   ["결정사항","decide"], ["다음에 정해야 할 것","open"], ["미결사항","open"],
   ["할 일","todo"], ["투두리스트","todo"],
   ["확인해 주세요","check"], ["확인 필요","check"],
+  /* 발주처가 받는 문서는 베트남어다. 절 이름을 여기 등록하지 않으면 번역본은
+     절 색이 하나도 없이 나간다. DOC_LANG 의 heads 와 글자가 같아야 한다. */
+  ["Quyết định","decide"], ["Vấn đề","open"], ["Việc cần làm","todo"],
+  ["Người phụ trách","owners"], ["Cần xác nhận","check"], ["Cuộc họp tiếp theo","next"],
+  ["Tóm tắt","recap"], ["Ghi chép chi tiết","recap"],
+  ["Decision","decide"], ["Open","open"], ["Action","todo"], ["Owner","owners"],
+  ["Please confirm","check"], ["Next meeting","next"], ["Summary","recap"], ["Detailed","recap"],
   ["한 장 요약","recap"], ["일반요약","recap"], ["상세 기록","recap"]
 ];
 const kindOf = name => (SECTION_KIND.find(([k])=>name.indexOf(k)>=0)||[,"recap"])[1];
@@ -6578,7 +6908,7 @@ function sectionStats(text){
     const body = line.replace(/^[-*]\s+/,"").trim();
     if(!body || body === "없음") continue;
     s[cur].n++;
-    if(cur.indexOf("투두")>=0 && /미지정/.test(body)) s[cur].unassigned++;
+    if(/투두|할 일/.test(cur) && /미지정/.test(body)) s[cur].unassigned++;
   }
   return s;
 }
@@ -6596,13 +6926,20 @@ function statBar(text, concl){
       + '<span class="stat todo">할 일 ' + c.todo + '</span></div>';
   }
   const s = sectionStats(text);
-  const pick = n => Object.keys(s).find(k=>k.indexOf(n)>=0);
+  /* "담당자별 할 일" 이 "할 일" 보다 먼저 잡히면 담당자 절의 개수를 할 일로 센다.
+     정확히 그 이름부터 찾고, 없을 때만 부분 일치로 내려간다. */
+  const pick = n => Object.keys(s).find(k => k === n) || Object.keys(s).find(k => k.indexOf(n) >= 0);
   const chips = [];
-  const kd = pick("결정사항"), ko = pick("미결사항"), kt = pick("투두");
+  /* 새 회의록의 절 이름은 "다음에 정해야 할 것" 과 "할 일" 이다. 옛 이름만 찾으면
+     사람이 본문을 한 번 고치는 순간 미결·할 일 칩이 통째로 사라진다. 둘 다 찾는다. */
+  const kd = pick("결정사항");
+  const ko = pick("다음에 정해야 할 것") || pick("미결");
+  const kt = pick("담당자별") ? (pick("할 일") !== pick("담당자별") ? pick("할 일") : null)
+                             : (pick("할 일") || pick("투두"));
   if(kd) chips.push('<span class="stat decide">결정 '+s[kd].n+'</span>');
   if(ko) chips.push('<span class="stat open">미결 '+s[ko].n+'</span>');
   if(kt){
-    chips.push('<span class="stat todo">투두 '+s[kt].n+'</span>');
+    chips.push('<span class="stat todo">할 일 '+s[kt].n+'</span>');
     if(s[kt].unassigned) chips.push('<span class="stat warn">담당 미지정 '+s[kt].unassigned+'</span>');
   }
   return chips.length ? '<div class="statbar">'+chips.join("")+'</div>' : "";
@@ -6774,7 +7111,22 @@ async function importBackup(file){
   const haveChunks = new Set((await all("chunks")).map(c=>c.id));
   let addedN = 0, addedC = 0;
 
-  for(const n of (d.notes||[])) if(!haveNotes.has(n.id)){ await put("notes", n); addedN++; }
+  /* 되살린 회의는 무덤에서도 꺼내야 한다.
+
+     지운 회의의 번호는 무덤 목록에 남고, 그 목록은 다른 기기와도 맞춰진다.
+     되살리기만 하고 무덤을 그대로 두면 다음 맞춤(60초마다 본다)에서 말없이
+     다시 지워진다. 사람은 자기가 되살린 것이 왜 또 사라졌는지 알 수가 없다. */
+  const revived = [];
+  for(const n of (d.notes||[])) if(!haveNotes.has(n.id)){
+    await put("notes", n); addedN++; revived.push(n.id);
+  }
+  if(revived.length){
+    let t = [];
+    try{ t = JSON.parse(store.get("mn_tombs") || "[]"); }catch(e){}
+    const back = new Set(revived);
+    store.set("mn_tombs", JSON.stringify(t.filter(x => !back.has(x))));
+    driveRevive = (driveRevive || []).concat(revived);   // 드라이브 쪽 목록에서도 뺀다
+  }
   for(const c of (d.chunks||[])) if(!haveChunks.has(c.id)){
     await put("chunks", Object.assign({ blob:null, error:"", retry:0, keepAudio:false }, c));
     addedC++;
@@ -6819,9 +7171,18 @@ const NativeShare = (function(){
 })();
 
 /* 지금 보고 있는 언어 그대로 내보낸다. 번역본을 보다가 공유하면 번역본이 나간다. */
-function exportPieces(n, cs){
-  const vl = n.viewLang && n.viewLang !== "__src__" ? n.viewLang : null;
-  const doc = vl && (n.i18n||{})[vl] ? n.i18n[vl] : n.summary;
+function exportPieces(n, cs, cur){
+  /* 화면이 그리는 것과 같은 것을 내보내야 한다.
+
+     예전에는 n.viewLang 과 n.i18n 을 읽었다. 그런데 문서를 여러 벌 둘 수 있게 바꾸면서
+     화면은 docs[i].viewLang 과 docs[i].i18n 을 보게 되었고, 여기만 옛 자리에 남았다.
+     그래서 베트남어 탭을 띄워 놓고 보내면 한국어가 나가고, 두 번째 문서를 보다
+     보내면 첫 문서가 나갔다. n.summary 폴백은 남긴다 — 옛 노트가 계속 열려야 한다. */
+  migrateDocs(n);
+  const d0 = cur || (n.docs||[]).find(x=>x.id===n.openDoc) || (n.docs||[])[0] || null;
+  const vl = d0 && d0.viewLang && d0.viewLang !== "__src__" && (d0.i18n||{})[d0.viewLang]
+             ? d0.viewLang : null;
+  const doc = vl ? d0.i18n[vl] : (d0 ? d0.body : n.summary);
   const suffix = vl ? " ("+(DOC_LANG[vl]?DOC_LANG[vl].label:vl)+")" : "";
   const head = n.title + suffix + "\n" + dayLabel(n.created) + " · "
              + Math.round(n.duration/60000) + "분\n\n";
@@ -6982,7 +7343,8 @@ async function saveAudio(n, cs){
 async function exportNote(){
   const n = await get("notes", openId);
   const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
-  const p = exportPieces(n, cs);
+  migrateDocs(n);
+  const p = exportPieces(n, cs, (n.docs||[]).find(x=>x.id===n.openDoc) || null);
 
   // 녹음이 남아 있으면 얼마나 있는지 미리 재 둔다. 없으면 항목을 다르게 보인다.
   const withAudio = cs.filter(c=>c.blob);
@@ -7021,7 +7383,11 @@ async function exportNote(){
         const u = URL.createObjectURL(f), a = document.createElement("a");
         a.href=u; a.download=p.fname; a.click(); URL.revokeObjectURL(u);
       } },
-    audioRow
+    audioRow,
+    /* 지우기는 여기 있다. 예전에는 상단바에서 보내기 바로 옆이었다.
+       이름 없는 아이콘 둘이 손가락 하나 거리에 붙어 있었고, 하나는 87분을 지운다. */
+    { label:"이 회의 지우기", sub:"녹음과 회의록이 함께 사라집니다. 되돌릴 수 없습니다.",
+      danger:true, go: askDelete }
   ].filter(Boolean));
 }
 
@@ -7051,7 +7417,8 @@ function sheet(title, items){
 /* 글자 하나를 받아 낸다.
    prompt() 는 쓰지 않는다. 이 WebView 에서 confirm() 이 뜨지 않고 넘어간 적이 있고,
    prompt() 도 같은 계열이다. 창이 안 뜨면 시리즈가 소리 없이 안 만들어졌다. */
-function askText(title, placeholder, go){
+function askText(title, placeholder, go, opt){
+  opt = opt || {};
   const old = $("picksheet"); if(old) old.remove();
   const d = document.createElement("div");
   d.id = "picksheet";
@@ -7061,9 +7428,11 @@ function askText(title, placeholder, go){
       '<div class="grab"></div>'+
       '<div class="pickhead">'+esc(title)+'</div>'+
       '<input id="ask-in" type="text" placeholder="'+esc(placeholder||"")+'" '+
+        (opt.value ? 'value="'+esc(opt.value)+'" ' : "")+
+        (opt.readonly ? 'readonly ' : "")+
         'style="width:100%;padding:13px 14px;border:1px solid var(--rule);border-radius:11px;'+
         'background:var(--paper);font-size:16px;margin-bottom:12px">'+
-      '<button class="bigbtn" data-yes="1" style="width:100%;margin:0">만들기</button>'+
+      '<button class="bigbtn" data-yes="1" style="width:100%;margin:0">'+esc(opt.label||"만들기")+'</button>'+
       '<button class="bigbtn ghost" data-x="1" style="width:100%;margin:10px 0 0">그만두기</button>'+
     '</div>';
   document.body.appendChild(d);
@@ -7411,7 +7780,11 @@ function setMode(m){
 }
 
 /* ---------- 이벤트 ---------- */
-$("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 넣어 주세요."); show("v-settings"); return; }
+$("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 넣어 주세요.");
+    /* show 로 곧장 가면 안 된다. 설정 화면의 칸을 CFG 값으로 채우는 일은
+       설정 단추의 손잡이 안에서만 하기 때문이다. 그냥 화면만 띄우고 저장을 누르면
+       칸에 든 기본값이 CFG 를 덮어써서 용어집·시크릿·월 한도가 조용히 날아간다. */
+    $("btn-settings").click(); return; }
   $("r-title").value=""; $("r-brief").value=""; $("r-text").value="";
   // 회의마다 고르는 것들. 지난번 고른 값을 되살려 매번 다시 고르지 않게 한다.
   $("r-tts").value = CFG.tts || "0";
@@ -7680,7 +8053,6 @@ function budgetStrip(){
 $("btn-back").onclick = ()=>{ openId=null; show("v-list"); refreshList(); };
 $("btn-back2").onclick = ()=> show(openId?"v-detail":"v-list");
 $("btn-share").onclick = exportNote;
-$("btn-del").onclick = askDelete;
 $("tab-doc").onclick = ()=>{ curTab="doc"; $("tab-doc").classList.add("on"); $("tab-raw").classList.remove("on");
   $("pane-doc").style.display=""; $("pane-raw").style.display="none"; };
 $("tab-raw").onclick = ()=>{ curTab="raw"; $("tab-raw").classList.add("on"); $("tab-doc").classList.remove("on");
@@ -7689,6 +8061,7 @@ $("btn-settings").onclick = ()=>{
   $("s-oai").value=CFG.oai; $("s-stt").value=CFG.stt;
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
+  $("s-livesum").value=CFG.liveSum || "1";
   $("s-ttsrate").value=CFG.ttsRate;
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
@@ -7703,6 +8076,27 @@ $("btn-settings").onclick = ()=>{
   checkCosts(false);           // 오래됐으면 조용히 새로 가져온다
   show("v-settings");
 };
+$("s-carry-out").onclick = async ()=>{
+  const code = carryOut();
+  try{
+    await navigator.clipboard.writeText(code);
+    toast("복사했습니다. 다른 기기의 설정에서 '붙여넣기' 를 누르고 붙이십시오.", 8000);
+  }catch(e){
+    // 클립보드가 막힌 기기가 있다. 그럴 때는 눈으로 보고 옮기게 띄운다.
+    askText("설정 글 · 길게 눌러 복사하십시오", "", ()=>{}, { value:code, readonly:true, label:"닫기" });
+  }
+};
+
+$("s-carry-in").onclick = ()=>{
+  askText("여기에 붙여넣으십시오", "TRANSMOM1:...", (v)=>{
+    try{
+      const cnt = carryIn(v);
+      toast(cnt + "가지를 옮겼습니다. 열쇠는 이 기기에서 따로 넣으십시오.", 8000);
+      $("btn-settings").click();     // 화면의 칸을 새 값으로 다시 채운다
+    }catch(e){ toast(e.message || "옮기지 못했습니다.", 6000); }
+  }, { label:"옮기기" });
+};
+
 $("s-cost-now").onclick = async ()=>{
   const b = $("s-cost-now");
   if(!CFG.oaiAdmin && !CFG.eleven){
@@ -7816,6 +8210,7 @@ $("s-save").onclick = ()=>{
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
+  CFG.liveSum=$("s-livesum").value;
   CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
