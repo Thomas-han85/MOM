@@ -710,7 +710,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.28-6";
+const APP_VERSION = "2026.08.29-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1847,7 +1847,7 @@ const docSize = n => DOC_SIZES[(n && n.docSize) || "normal"];
 /* 지시문을 고치면 이 값을 올린다. 만들다 만 조각을 이어 쓰는 장치가 형식·분량·길이만
    보고 같으면 다시 만들지 않는데, 그 탓에 지시문을 고쳐도 옛 조각이 그대로 쓰였다.
    고친 것이 반영되지 않는 것을 오래 눈치채지 못했다. */
-const PROMPT_VER = 6;   // 지시문을 고치면 올린다. 묵은 조각이 새 지시문과 섞이면 안 된다.
+const PROMPT_VER = 7;   // 지시문을 고치면 올린다. 묵은 조각이 새 지시문과 섞이면 안 된다.
 
 function summaryPrompt(note, fullText){
   const people = attendeeBlock(note);
@@ -2021,6 +2021,46 @@ function prevDoc(note){
            when: [ser.lastDate, ser.lastTitle].filter(Boolean).join(" · ") || "직전 회의" };
 }
 
+/* 세 지시문(minutes / reduce / digest)이 함께 지켜야 할 것.
+
+   한 군데에만 적어 두면 나머지 두 곳이 조용히 어긋난다. 실제로 그런 일이 났다 —
+   화폐 단위 규칙은 digest 에만 있었고, 통합 단계에서 되살아났다. */
+function docRules(note){
+  const d = new Date(note.created || Date.now());
+  const wd = ["일","월","화","수","목","금","토"][d.getDay()];
+  const today = d.getFullYear() + "년 " + (d.getMonth()+1) + "월 " + d.getDate() + "일(" + wd + ")";
+  const names = (note.attendees && note.attendees.length)
+    ? note.attendees.map(p => p.name).filter(Boolean).join(", ") : "";
+  return `
+━━ 반드시 지킬 것 ━━
+
+[회의 날짜] 이 회의는 ${today} 에 열렸다.
+  "다음 주 금요일", "내일", "이달 말" 같은 말이 나오면 이 날짜를 기준으로 읽어라.
+  다만 **문서에는 들린 표기를 그대로 쓴다.** 날짜를 계산해 바꾸지 마라.
+  "8월 22일 오전 9시" 라고 들렸으면 그대로 "8월 22일 오전 9시" 라고 쓴다.
+
+[다음 회의] 다음에 언제 어디서 무엇을 하기로 했는지가 이 문서에서 가장 중요하다.
+  전사문에 다음 모임의 날짜·시각이 나오면 반드시 문서에 남겨라.
+  없으면 "다음 일정 미정" 이라고 명시해라. 조용히 빠뜨리지 마라.
+
+[사람 이름] ${names ? "이 회의 참석자: " + names + "\n  " : ""}명부에 없는 이름이 들리면 **들린 대로** 쓰고 뒤에 (?) 를 붙여라.
+  못 알아들은 이름을 유명한 사람 이름으로 바꿔 쓰는 것은 어떤 경우에도 금지한다.
+  지방 공무원 이름이 전 국가주석 이름으로 바뀌어 회의록에 굳은 사고가 실제로 있었다.
+  그럴듯한 이름일수록 아무도 의심하지 않아 더 위험하다.
+
+[돈] 베트남어 tỷ 는 십억 동, triệu 는 백만 동이다. **원으로 환산하지 마라.**
+  "42 tỷ" 는 "42 tỷ(약 420억 동)" 처럼 원문 단위를 살려 쓴다.
+  다른 앱이 42 tỷ 를 "420억 원" 으로 적어 19배 부풀린 사고가 있었다.
+  한 문서 안에서 "원" 과 "동" 을 섞지 마라.
+
+[기준·번호] 표준번호(IFHG 2025, TCVN 4470, 44702012), 문서번호, 도면번호, 면적·치수는
+  들린 그대로 옮긴다. 모르는 약어라고 빼지 마라. 그것이 회의의 근거일 때가 많다.
+
+[이견] 의견이 갈린 사안을 한쪽으로 결론 내지 마라. 양쪽 입장을 나란히 적어라.
+  합의되지 않은 것을 결정으로 굳히면 그 회의록이 나중에 분쟁의 근거가 된다.
+`;
+}
+
 function minutesPrompt(note, fullText){
   const people = attendeeBlock(note);
   const marks = (note.marks||[]).map(m=>mmss(m)).join(", ");
@@ -2030,7 +2070,7 @@ function minutesPrompt(note, fullText){
   const brief = (note.brief || "").slice(0, 12000);
   const prompt =
 `아래는 회의 녹음을 전사한 원문이다. 이것을 회의록으로 정리해라.
-
+${docRules(note)}
 전사문을 다룰 때 지킬 것:
 - 기계가 받아쓴 글이라 흠이 있다. 같은 문장이 두세 번 반복되면 한 번 말한 것이다.
   맥락 없이 튀는 다른 언어 한 줄, 자막 투 문구("구독", "시청해 주셔서")는 전사 오류이니 무시해라.
@@ -2161,6 +2201,7 @@ function splitParts(text, seg){
 function digestPrompt(note, seg, i, total){
   const S = docSize(note);
   return `회의 전사문의 ${total}개 구간 중 ${i+1}번째다. 이 구간만 다룬다.
+${docRules(note)}
 
 ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}
 전체를 줄이려 하지 마라. 전체는 나중에 따로 정리한다. 너는 이 대목만 맡으면 된다.
@@ -2198,6 +2239,7 @@ function reducePrompt(note, digests){
   const carry = ser && ser.carry ? ser.carry : "";
   const prev = prevDoc(note);
   return `아래는 회의를 구간별로 정리한 기록이다. 이것을 근거로 회의록의 앞부분을 만든다.
+${docRules(note)}
 
 ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}${prev ? `지난 회의록 (${prev.when})
 """
