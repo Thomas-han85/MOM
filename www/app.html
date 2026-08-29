@@ -213,6 +213,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   max-height:88vh;overflow-y:auto;box-shadow:0 -8px 30px rgba(28,27,25,.14)}
 .sheet.on{transform:translateY(0)}
 @media (prefers-reduced-motion:reduce){.sheet{transition:none}}
+.mdtbl{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0;display:block;overflow-x:auto}
+.mdtbl th,.mdtbl td{border:1px solid var(--rule);padding:5px 7px;text-align:left;vertical-align:top}
+.mdtbl th{background:var(--accent-soft);font-weight:600;white-space:nowrap}
 .grab{width:38px;height:4px;border-radius:4px;background:var(--rule);margin:8px auto 16px}
 .pickhead{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 12px}
 .pickrow{display:block;width:100%;text-align:left;padding:14px 15px;margin-bottom:8px;
@@ -710,7 +713,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.29-1";
+const APP_VERSION = "2026.08.29-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1973,10 +1976,10 @@ ${tail}
 /* 조각을 연달아 부르면 API 가 속도 제한(429)을 건다. 서버가 잠깐 흔들리기도 한다.
    한 번 실패했다고 손을 놓으면 열세 조각 중 아홉 번째에서 매번 멈춘다.
    기다렸다 다시 부른다. 기다리는 시간은 점점 늘린다. */
-async function callDocModel(prompt, budget){
+async function callDocModel(prompt, budget, json){
   let wait = 3000;
   for(let tries=0;;tries++){
-    try{ return await callDocOnce(prompt, budget); }
+    try{ return await callDocOnce(prompt, budget, json); }
     catch(e){
       const m = String(e.message||e);
       const soft = /\b(429|500|502|503|504)\b/.test(m) || /응답이 없다|Failed to fetch|network/i.test(m);
@@ -1987,25 +1990,31 @@ async function callDocModel(prompt, budget){
   }
 }
 
-async function callDocOnce(prompt, budget){
+async function callDocOnce(prompt, budget, json){
   const cap = budget || 12000;
   if(CFG.doc.indexOf("claude") === 0 && CFG.ant){
     const r = await fetch("https://api.anthropic.com/v1/messages",{
       method:"POST",
       headers:{ "Content-Type":"application/json", "x-api-key":CFG.ant,
         "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-      body: JSON.stringify({ model:CFG.doc, max_tokens: Math.min(cap, 8000),
-        messages:[{role:"user",content:prompt}] })
+      /* 8000 으로 묶어 두었더니 결론부가 잘렸다. 요즘 모델의 출력 상한은 그보다 훨씬 크다.
+         JSON 을 받을 때는 여는 중괄호를 미리 넣어 준다. 앞말을 붙이지 못하게 하는 가장
+         확실한 방법이다 — Anthropic 쪽에는 형식 지정이 따로 없다. */
+      body: JSON.stringify({ model:CFG.doc, max_tokens: Math.min(cap, 16000),
+        messages: json ? [{role:"user",content:prompt},{role:"assistant",content:"{"}]
+                       : [{role:"user",content:prompt}] })
     });
     if(!r.ok) throw new Error("정리 실패 "+r.status+" · "+(await r.text()).slice(0,160));
     const d = await r.json();
-    return (d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+    const txt = (d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+    return json ? "{" + txt : txt;
   }
   const r = await fetch("https://api.openai.com/v1/chat/completions",{
     method:"POST",
     headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
     body: JSON.stringify({ model: CFG.doc.indexOf("claude")===0 ? "gpt-4o-mini" : CFG.doc,
-      max_tokens: cap, temperature:0.3,
+      max_tokens: cap, temperature: json ? 0 : 0.3,
+      ...(json ? { response_format:{ type:"json_object" } } : {}),
       messages:[{role:"user",content:prompt}] })
   });
   if(!r.ok) throw new Error("정리 실패 "+r.status+" · "+(await r.text()).slice(0,160));
@@ -2029,8 +2038,10 @@ function docRules(note){
   const d = new Date(note.created || Date.now());
   const wd = ["일","월","화","수","목","금","토"][d.getDay()];
   const today = d.getFullYear() + "년 " + (d.getMonth()+1) + "월 " + d.getDate() + "일(" + wd + ")";
-  const names = (note.attendees && note.attendees.length)
-    ? note.attendees.map(p => p.name).filter(Boolean).join(", ") : "";
+  /* note.attendees 는 이름이 아니라 CFG.people 의 번호다. 곧바로 name 을 읽으면
+     전부 undefined 가 되어 참석자 줄이 조용히 빈다. */
+  const names = (note.attendees || []).map(i => CFG.people[i])
+    .filter(Boolean).map(p => p.name).filter(Boolean).join(", ");
   return `
 ━━ 반드시 지킬 것 ━━
 
@@ -2677,47 +2688,1667 @@ ${groups[i].join("\n\n")}`, 12000);
   return mergeSameHeadings(merged.join("\n\n"));
 }
 
-async function makeMinutes(note, fullText, onStep, cache){
-  const S = docSize(note);
-  // 짧은 회의는 한 번에 처리하는 편이 흐름이 매끄럽다.
-  if(fullText.length <= S.seg * 2){
-    const draft = await callDocModel(minutesPrompt(note, fullText), 12000);
-    const done = await reviewDoc(note, draft, fullText, ()=> onStep && onStep(2, 2));
-    return dedupeTopSections(done);
+/* =====================================================================
+   앵커 스캐너와 회의록 검증기 — 모델을 부르지 않는다
+
+   전사문에서 "놓치면 안 되는 것" 을 정규식으로 긁고, 회의록에 살아 있는지
+   대조한다. 값도 지연도 0이다.
+
+   원칙 하나. 거짓 양성이 많으면 아무도 안 읽는다.
+   · 전사문에 두 번 이상 나온 것만 문제 삼는다. 지나가는 말은 뺀다.
+   · 표기가 흔들려도 통과시킨다. 8월 22일 = 22/8 = 22/08/2026 은 같은 날이다.
+   · 확신이 낮은 것은 모으기만 하고 경고하지 않는다. 대신 인명 검사에서
+     "아는 이름" 목록으로 쓴다.
+   ===================================================================== */
+
+/* U+1EA0~U+1EF9 구간은 짝수가 대문자, 홀수가 소문자로 번갈아 놓여 있다. */
+let VEXT_UP = "", VEXT_LO = "";
+for(let c = 0x1EA0; c <= 0x1EF9; c++){
+  if(c % 2 === 0) VEXT_UP += String.fromCharCode(c);
+  else            VEXT_LO += String.fromCharCode(c);
+}
+const VUP = "A-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝĂĐĨŨƠƯ" + VEXT_UP;
+const VLO = "a-zàáâãèéêìíòóôõùúýăđĩũơư" + VEXT_LO;
+const VLT = VUP + VLO;
+
+/* 앞 경계. 글자·숫자가 아닌 것 하나를 소비한다. */
+const APRE = `(?:^|[^0-9${VLT}])`;
+
+const ANCHOR_LABEL = { ref:"기준·표준", date:"날짜", time:"시각", money:"금액", dim:"면적·치수", org:"기관·회사", person:"사람" };
+const ANCHOR_ORDER = ["ref","date","time","money","dim","org","person"];
+
+const STD_BODY = "TCVN|TCXDVN|TCXD|QCVN|QCXDVN|ISO|IEC|ASTM|AASHTO|ACI|ANSI|AWS|BS|EN|DIN|JIS|KS|KCS|KDS|NFPA|IBC|IFC|IFHG|JCI|LEED|GMP|WHO|FGI";
+const STD_SOLO = "IFHG|JCI|LEED|GMP|TCVN|QCVN";
+const VN_SUR_D = "Nguyễn|Trần|Lê|Phạm|Hoàng|Huỳnh|Phan|Vũ|Võ|Đặng|Bùi|Đỗ|Hồ|Ngô|Dương|Lý|Đinh|Đoàn|Trịnh|Lâm|Mai|Tô|Châu|Lưu|Cao|Tạ|Chu|Trương";
+// 무성조 표기. Le·Do·Vu·To 처럼 짧아 오탐이 큰 것은 뺀다.
+const VN_SUR_A = "Nguyen|Tran|Pham|Hoang|Huynh|Phan|Dang|Bui|Ngo|Duong|Dinh|Doan|Trinh|Truong|Chau";
+const VSYL = `[${VUP}][${VLO}]{1,7}`;
+
+/* 규칙 하나 = {type, re, soft}
+   규약: 잡아낼 문자열은 매치의 끝에 온다. 캡처 1이 있으면 그것이, 없으면 매치 전체가 대상이다.
+   위에서 아래로 훑고 이미 잡힌 구간은 다시 잡지 않는다.
+   그래서 "오전 9시" 가 "9시" 보다, "700mm" 가 "700m" 보다 먼저 와야 한다. */
+const ANCHOR_RULES = [
+  { type:"ref", re:new RegExp(`${APRE}((?:${STD_BODY})\\s?[-:]?\\s?\\d{2,5}(?:\\s?[-:/.]\\s?\\d{1,4}){0,3}(?:\\s?[-:]\\s?(?:19|20)\\d{2})?)`, "g") },
+  // 숫자만 남은 표준번호. 44702012 = TCVN 4470:2012. 뒤 네 자리가 연도꼴일 때만.
+  { type:"ref", re:new RegExp(`${APRE}(\\d{4}\\s?(?:19|20)\\d{2})(?![0-9])`, "g") },
+  { type:"ref", re:/((?:베트남|한국|국가|현지)\s?(?:국가\s?)?표준\s?[0-9][0-9\-: ]{2,12})/g },
+  { type:"ref", re:/(제\s?\d{1,4}(?:\s?-\s?\d{1,4})?\s?호)/g },
+  { type:"ref", re:new RegExp(`${APRE}((?:${STD_SOLO}))(?![${VLT}0-9])`, "g") },
+  { type:"ref", re:/(건축법|소방법|주차장법|건설기술진흥법|산업안전보건법|의료법)/g },
+
+  { type:"date", re:/(\d{4}\s*년\s*\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?)/g },
+  { type:"date", re:/(\d{1,2}\s*월\s*\d{1,2}\s*일)/g },
+  { type:"date", re:/(\d{1,2}\s*월\s*(?:말일|말|초|중순|하순))/g },
+  { type:"date", re:new RegExp(`${APRE}((?:19|20)\\d{2}\\s*[/.\\-]\\s*\\d{1,2}\\s*[/.\\-]\\s*\\d{1,2})(?![0-9])`, "g") },
+  { type:"date", re:new RegExp(`${APRE}(\\d{1,2}\\s*[/.\\-]\\s*\\d{1,2}\\s*[/.\\-]\\s*\\d{2,4})(?![0-9])`, "g") },
+  { type:"date", re:/((?:[Nn]gày|NGÀY)\s*\d{1,2}(?:\s*(?:tháng|[/.\-])\s*\d{1,2}(?:\s*(?:năm|[/.\-])\s*\d{2,4})?)?)/g },
+  { type:"date", re:/((?:[Tt]háng|THÁNG)\s*\d{1,2}(?:\s*(?:năm\s*)?(?:19|20)\d{2})?)/g },
+  { type:"date", re:/((?:다음|이번|담|차)\s*주\s*(?:[월화수목금토일]\s*요일)?)/g },
+  { type:"date", re:/((?:내일|모레|글피|내주|차주|금주|주말|월말|월초|연말))/g },
+  { type:"date", re:/([월화수목금토일]\s*요일)/g },
+  { type:"date", re:/((?:[Tt]uần\s*(?:sau|tới|này)|[Tt]hứ\s*(?:hai|ba|tư|năm|sáu|bảy)|[Cc]uối\s*tuần|[Nn]gày\s*mai))/g },
+  { type:"date", re:/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:\s*,\s*\d{4})?)/g },
+
+  { type:"time", re:/((?:오전|오후|아침|점심|저녁|밤|새벽)\s*\d{1,2}\s*시(?:\s*(?:\d{1,2}\s*분|반))?)/g },
+  { type:"time", re:/(\d{1,2}\s*시\s*(?:\d{1,2}\s*분|반)?)(?!\s*간)/g },
+  { type:"time", re:new RegExp(`${APRE}(\\d{1,2}\\s?:\\s?\\d{2})(?![0-9:])`, "g") },
+  { type:"time", re:new RegExp(`${APRE}(\\d{1,2}\\s?h(?:\\s?\\d{2})?)(?![${VLT}0-9])`, "g") },
+
+  /* 금액. tỷ 뒤에 \b 를 쓰면 안 된다 — ỷ 는 JS 의 \w 가 아니라서 뒤가 공백이면
+     경계가 성립하지 않는다. 그것 때문에 이 규칙 전체가 죽어 있었다. */
+  { type:"money", re:new RegExp(`(\\d[\\d.,]*\\s*(?:t[ýỳỷỹỵ]|[Tt]riệu|nghìn|ngàn)(?:\\s*(?:đồng|dong|VND|VNĐ|vnd|동))?)(?![${VLT}0-9])`, "g") },
+  { type:"money", re:/(\d[\d.,]*\s*(?:조|억|천만|백만|만)\s*(?:원|동|달러|엔|VND)?)/g },
+  { type:"money", re:new RegExp(`([\\d][\\d.,]{2,}\\s*(?:VND|VNĐ|vnd|đồng|dong|원|USD|KRW))(?![${VLT}])`, "g") },
+  { type:"money", re:/([$₫₩€£]\s?\d[\d.,]*(?:\s*(?:만|억|천|백만|k|K|M))?)/g },
+  { type:"money", re:new RegExp(`(\\d[\\d.,]*\\s*(?:달러|불|USD))(?![${VLT}])`, "g") },
+
+  { type:"dim", re:new RegExp(`(\\d[\\d.,]*\\s*(?:㎡|m2|m²|㎥|m3|m³|ha|km2|km²|평))(?![${VLT}0-9])`, "g") },
+  { type:"dim", re:new RegExp(`(\\d[\\d.,]*\\s*(?:mm|cm|km|kg|kN|kW|kVA|MPa|Mpa|ton|tấn|톤|lux|룩스|인치|℃))(?![${VLT}0-9])`, "g") },
+  { type:"dim", re:new RegExp(`(\\d[\\d.,]*\\s*m)(?![${VLT}0-9²³])`, "g") },
+  { type:"dim", re:new RegExp(`${APRE}((?:D|Ø|φ|Φ)\\s?\\d{2,4})(?![${VLT}0-9])`, "g") },
+  { type:"dim", re:/(\d{1,5}\s*[x×X]\s*\d{1,5}(?:\s*[x×X]\s*\d{1,5})?)(?![0-9])/g },
+  { type:"dim", re:/(\d[\d,]*\s*(?:개소|병상|세대|호실|층|석|실|대|명|기|동))/g },
+
+  // 사람이 기관보다 먼저다. 인명이 기관 규칙에 먹히면 안 된다.
+  { type:"person", re:new RegExp(`${APRE}((?:${VN_SUR_D})(?:\\s+${VSYL}){1,3})(?![${VLT}])`, "g") },
+  { type:"person", re:new RegExp(`${APRE}((?:${VN_SUR_A})(?:\\s+${VSYL}){2,3})(?![${VLT}])`, "g") },
+  { type:"person", re:new RegExp(`(?:[Ôô]ng|[Bb]à|Mr\\.?|Ms\\.?|Mrs\\.?)\\s+([${VUP}][${VLO}]{1,10}(?:\\s+[${VUP}][${VLO}]{1,10}){0,3})(?![${VLT}])`, "g") },
+
+  { type:"org", re:new RegExp(`((?:Bộ|Sở|Ban|Viện|Trung tâm|Công ty|Tổng công ty|Bệnh viện|Ủy ban|Uỷ ban|Trường|Tập đoàn|Nhà máy|Hội)\\s+[${VUP}][${VLO}]{0,12}(?:\\s+[${VLT}]{1,12}){0,2})`, "g") },
+  { type:"org", re:/([가-힣A-Za-z]{2,12}(?:협회|학회|공사|공단|병원|대학교|대학|연구원|연구소|엔지니어링|종합건설|건설|산업|공업|그룹|주식회사|설계사무소|감리단|사업단))/g },
+  { type:"org", re:/((?:㈜|주\)|\(주\))\s?[가-힣A-Za-z]{2,14})/g },
+  { type:"org", re:new RegExp(`([${VUP}][${VLT}&.\\-]{1,14}(?:\\s+[${VUP}][${VLT}&.\\-]{1,14}){0,3}\\s+(?:Co\\.?|Ltd\\.?|JSC|Corp\\.?|Inc\\.?|Group|Construction|Engineering|Architects?|Consultants?|Hospital|Company|E&C))(?![${VLT}])`, "g") },
+  // 대문자 약어는 수가 많아 경고에 쓰지 않는다
+  { type:"org", soft:true, re:new RegExp(`${APRE}([A-Z]{2,6})(?![A-Za-z])`, "g") }
+];
+
+/* 문장 첫머리라서 대문자가 된 것뿐인 낱말 */
+const CAP_STOP = new Set([
+  "the","this","that","these","those","and","but","for","with","from","into","about","after","before",
+  "we","you","they","it","he","she","i","our","your","their","its",
+  "in","on","at","by","of","to","as","so","if","or","not","no","yes","ok","okay",
+  "is","are","was","were","be","do","does","did","have","has","had","will","would","can","could","should",
+  "please","thank","thanks","hello","hi","well","now","then","also","because","when","what","which","who",
+  "all","some","one","two","three","first","second","next","last","today","tomorrow","yesterday","more","most",
+  "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+  "january","february","march","april","may","june","july","august","september","october","november","december",
+  "oke","vang","vâng","dạ","da","không","khong","có","co","được","duoc","rồi","roi","này","nay","đây","day",
+  "tôi","toi","chúng","chung","nếu","neu","nhưng","nhung","và","va","thì","thi","là","la","cái","cai","cho","về","ve",
+  "theo","sau","trước","truoc","bây","bay","hiện","hien","anh","chị","chi","em","ông","ong","bà","ba","các","cac",
+  "note","ghi","xin","mời","moi","vấn","van","phần","phan","một","mot","hai","tại","tai"
+]);
+
+/* 실제 회의에 있을 리 없는 유명 인사. 받아쓰기가 이쪽으로 끌려간다.
+   지방 부위원장이 전 국가주석 이름으로 굳은 사고가 실제로 있었다. */
+const FAMOUS_PEOPLE = [
+  { key:"nguyen xuan phuc",  hint:"베트남 전 국가주석" },
+  { key:"nguyen phu trong",  hint:"베트남 전 서기장" },
+  { key:"pham minh chinh",   hint:"베트남 총리" },
+  { key:"vo van thuong",     hint:"베트남 전 국가주석" },
+  { key:"vuong dinh hue",    hint:"베트남 전 국회의장" },
+  { key:"nguyen tan dung",   hint:"베트남 전 총리" },
+  { key:"nguyen minh triet", hint:"베트남 전 국가주석" }
+];
+
+const anNorm = s => String(s == null ? "" : s).toLowerCase().replace(/\s+/g, " ").trim();
+// 성조와 đ 를 벗긴다. Nguyễn 과 Nguyen 을 같은 것으로 본다.
+const anDeAccent = s => String(s == null ? "" : s)
+  .normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
+const anKey = s => anNorm(anDeAccent(s));
+const anEscRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// 표기가 흔들려도 통과하는 패턴 — 공백은 있어도 없어도, 구분기호는 서로 바꿔도
+function anFlexPattern(raw){
+  let p = "";
+  for(const ch of String(raw)){
+    if(/\s/.test(ch)) p += "\\s*";
+    else if(/[.,\-/:]/.test(ch)) p += "[.,\\-/:\\s]?";
+    else p += anEscRe(ch);
+  }
+  return p.replace(/(?:\\s\*){2,}/g, "\\s*");
+}
+
+// 베트남식(1.200.000)과 영미식(1,200,000)을 모두 읽는다
+function anNumVal(s){
+  let t = String(s).replace(/\s/g, "");
+  if(/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  else t = t.replace(/,/g, "");
+  const v = parseFloat(t);
+  return isFinite(v) ? v : NaN;
+}
+
+// 유효숫자 지문. 1,200,000,000 과 12억이 같은 수임을 알아보는 데 쓴다.
+function anSigDigits(s){
+  const d = String(s).replace(/[^\d]/g, "").replace(/^0+/, "");
+  if(!d) return "";
+  return d.replace(/0+$/, "") || d;
+}
+
+function anAtSentenceStart(text, idx){
+  let i = idx - 1;
+  while(i >= 0 && /[\s"'“”‘’([{<·\-–—*|]/.test(text[i])) i--;
+  return i < 0 || /[.!?…。？！:;\n]/.test(text[i]);
+}
+
+/* 전사문에서 놓치면 안 되는 것을 긁는다. 중복은 접고 횟수를 센다. */
+function scanAnchors(text){
+  const src = String(text || "");
+  if(!src) return [];
+  const mask = new Uint8Array(src.length);
+  const bag = new Map();
+
+  const free = (a, b) => { for(let i = a; i < b; i++) if(mask[i]) return false; return true; };
+  const take = (a, b) => { for(let i = a; i < b; i++) mask[i] = 1; };
+
+  function add(type, raw, start, end, soft){
+    raw = raw.replace(/^[\s|·•\-]+|[\s|·•\-.,;:]+$/g, "");
+    if(!raw) return;
+    const key = type + "|" + anKey(raw).replace(/\s+/g, "");
+    const hit = bag.get(key);
+    if(hit){
+      hit.count++;
+      if(!soft) hit.soft = false;
+      if(raw.length > hit.raw.length) hit.raw = raw;    // 더 완전한 표기를 남긴다
+    }else{
+      bag.set(key, { type, raw, count:1, soft: !!soft, first: start });
+    }
+    take(start, end);
   }
 
+  for(const rule of ANCHOR_RULES){
+    const re = rule.re;
+    re.lastIndex = 0;
+    let m;
+    while((m = re.exec(src)) !== null){
+      const raw = (m[1] != null) ? m[1] : m[0];
+      if(!raw){ re.lastIndex++; continue; }
+      const start = m.index + m[0].length - raw.length;
+      const end = start + raw.length;
+      if(free(start, end)) add(rule.type, raw, start, end, rule.soft);
+      /* 다음 자리는 매치의 끝이다. 예전에는 lastIndex 와 비교해 같으면 한 글자를
+         더 넘겼는데, 대상이 늘 매치 끝이라 그 조건이 항상 참이었다. 그래서 한 글자씩
+         건너뛰었고, 그 한 글자가 다음 앵커의 앞 경계라서 나열된 기준을 하나 걸러
+         하나씩 잃었다. IFHG QCVN TCVN 에서 QCVN 이 사라지던 것이 그것이다. */
+      re.lastIndex = end > m.index ? end : m.index + 1;
+    }
+  }
+
+  /* 남은 대문자 낱말 — 회사·사람 이름을 건진다.
+     문장 한가운데에서 대문자로 두 번 이상 나온 것만 인정한다.
+     이 조건 하나로 영어 문장 첫 낱말이 통째로 걸리는 오탐이 사라진다. */
+  const capRe = new RegExp(`${APRE}([${VUP}][${VLO}]{2,14})(?![${VLT}])`, "g");
+  const capBag = new Map();
+  let cm;
+  while((cm = capRe.exec(src)) !== null){
+    const tok = cm[1];
+    const start = cm.index + cm[0].length - tok.length;
+    const end = start + tok.length;
+    capRe.lastIndex = end;
+    if(!free(start, end) || CAP_STOP.has(anKey(tok))) continue;
+    let rec = capBag.get(tok);
+    if(!rec){ rec = { total:0, mid:0, first:start, spans:[] }; capBag.set(tok, rec); }
+    rec.total++;
+    if(!anAtSentenceStart(src, start)) rec.mid++;
+    if(rec.spans.length < 200) rec.spans.push([start, end]);
+  }
+  capBag.forEach((rec, tok) => {
+    if(rec.mid < 2) return;
+    const key = "org|" + anKey(tok);
+    if(bag.has(key)){ bag.get(key).count += rec.total; return; }
+    bag.set(key, { type:"org", raw:tok, count:rec.total, soft:false, first:rec.first });
+    for(const sp of rec.spans) take(sp[0], sp[1]);
+  });
+
+  const out = [], byType = new Map();
+  bag.forEach(a => {
+    if(!byType.has(a.type)) byType.set(a.type, []);
+    byType.get(a.type).push(a);
+  });
+  for(const t of ANCHOR_ORDER){
+    const arr = byType.get(t);
+    if(!arr) continue;
+    arr.sort((x, y) => (y.count - x.count) || (x.first - y.first));
+    // 사람·기관은 인명 검사의 화이트리스트라 넉넉히 남긴다
+    for(const a of arr.slice(0, (t === "person" || t === "org") ? 400 : 80)) out.push(a);
+  }
+  return out;
+}
+
+/* 어떤 종류를 경고할 것인가.
+
+   면적·치수는 모으기만 하고 경고하지 않는다. 87분 건설 회의에서 층·명·실·대·동은
+   수백 번 나온다. 그것을 다 경고하면 "확인해 주세요" 가 "3층(14회), 2명(9회)…" 로
+   도배되고, 그러면 정작 중요한 경고도 아무도 안 읽는다. */
+const ANCHOR_CHECK_TYPES = ["ref","money","date"];
+const ANCHOR_MIN = { ref:2, money:2, date:3, time:4, dim:99 };
+
+// "8월 22일" 과 "22/8" 과 "22/08/2026" 은 같은 날이다
+function anDateVariants(raw){
+  const pats = [];
+  const push = (mo, d) => {
+    if(!(mo >= 1 && mo <= 12 && d >= 1 && d <= 31)) return;
+    pats.push(`${mo}\\s*월\\s*${d}\\s*일`);
+    pats.push(`0?${mo}\\s*[/.\\-]\\s*0?${d}(?![0-9])`);
+    pats.push(`0?${d}\\s*[/.\\-]\\s*0?${mo}(?![0-9])`);
+    pats.push(`ngày\\s*0?${d}\\s*(?:tháng|[/.\\-])\\s*0?${mo}`);
+  };
+  let m = raw.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if(m) push(+m[1], +m[2]);
+  m = raw.match(/[Nn]gày\s*(\d{1,2})\s*(?:tháng|[/.\-])\s*(\d{1,2})/);
+  if(m) push(+m[2], +m[1]);
+  m = raw.match(/(\d{1,2})\s*[/.\-]\s*(\d{1,2})/);
+  if(m && !/년|월/.test(raw)){ push(+m[2], +m[1]); push(+m[1], +m[2]); }
+  return pats;
+}
+
+function anPresent(anchor, doc, docSig){
+  try{ if(new RegExp(anFlexPattern(anchor.raw), "i").test(doc)) return true; }catch(e){}
+  const bare = anDeAccent(anchor.raw);
+  if(bare !== anchor.raw){
+    try{ if(new RegExp(anFlexPattern(bare), "i").test(anDeAccent(doc))) return true; }catch(e){}
+  }
+  if(anchor.type === "date")
+    for(const p of anDateVariants(anchor.raw)){ try{ if(new RegExp(p).test(doc)) return true; }catch(e){} }
+
+  // 금액·치수는 자릿수를 바꿔 적을 수 있다 (1,200,000,000 VND → 12억)
+  if(anchor.type === "money" || anchor.type === "dim"){
+    const sig = anSigDigits(anchor.raw);
+    if(sig.length >= 2 && docSig.has(sig)) return true;
+  }
+  // 기준번호는 숫자 뼈대만 남기고 대조한다 (TCVN 4470:2012 → 4470-2012)
+  if(anchor.type === "ref"){
+    const digits = anchor.raw.replace(/[^\d]/g, "");
+    if(digits.length >= 4){
+      const docDigits = doc.replace(/[^\d]/g, "");
+      if(docDigits.indexOf(digits) >= 0) return true;
+      if(digits.length === 8 && docDigits.indexOf(digits.slice(0,4)) >= 0
+         && docDigits.indexOf(digits.slice(4)) >= 0) return true;
+    }
+    const alpha = anchor.raw.match(/[A-Z]{2,8}/);
+    if(alpha && !/\d/.test(anchor.raw) && doc.indexOf(alpha[0]) >= 0) return true;
+  }
+  return false;
+}
+
+function findMissingAnchors(doc, anchors){
+  const d = String(doc || "");
+  const list = Array.isArray(anchors) ? anchors : [];
+  if(!d || !list.length) return [];
+
+  const docSig = new Set();
+  const numRe = /\d[\d.,]*/g;
+  let nm;
+  while((nm = numRe.exec(d)) !== null){
+    const s = anSigDigits(nm[0]);
+    if(s.length >= 2) docSig.add(s);
+  }
+
+  const miss = [];
+  for(const a of list){
+    if(!a || a.soft) continue;
+    if(ANCHOR_CHECK_TYPES.indexOf(a.type) < 0) continue;
+    if((a.count || 0) < (ANCHOR_MIN[a.type] || 2)) continue;
+    if(a.type === "dim" && !/[㎡m²㎥ha평mmcmkmkgkNkWMPa톤tấn]/.test(a.raw)) continue;
+    if(!anPresent(a, d, docSig)) miss.push(a);
+  }
+  miss.sort((x, y) => (ANCHOR_ORDER.indexOf(x.type) - ANCHOR_ORDER.indexOf(y.type)) || (y.count - x.count));
+  return miss;
+}
+
+function checkAnchors(doc, anchors){
+  const miss = findMissingAnchors(doc, anchors);
+  if(!miss.length) return "";
+  const byType = new Map();
+  for(const a of miss){
+    if(!byType.has(a.type)) byType.set(a.type, []);
+    byType.get(a.type).push(a);
+  }
+  const lines = ["**녹취에는 있는데 회의록에 없는 것**"];
+  for(const t of ANCHOR_ORDER){
+    const arr = byType.get(t);
+    if(!arr || !arr.length) continue;
+    lines.push("- " + ANCHOR_LABEL[t] + ": " + arr.slice(0, 8).map(a => a.raw + "(" + a.count + "회)").join(", ")
+      + (arr.length > 8 ? " 외 " + (arr.length - 8) + "건" : ""));
+  }
+  lines.push("- 위 항목이 정말 빠져도 되는 내용인지 녹취를 다시 확인해 주세요.");
+  return lines.join("\n");
+}
+
+/* 회의록에서 사람 이름 후보를 뽑는다 (전사문과 같은 잣대) */
+function extractPersonNames(doc){
+  const src = String(doc || "");
+  const found = new Map();
+  for(const rule of ANCHOR_RULES.filter(r => r.type === "person")){
+    const re = new RegExp(rule.re.source, "g");
+    let m;
+    while((m = re.exec(src)) !== null){
+      const raw = (m[1] != null) ? m[1] : m[0];
+      if(!raw){ re.lastIndex++; continue; }
+      const k = anKey(raw.trim());
+      if(!k) continue;
+      if(!found.has(k)) found.set(k, { raw: raw.trim(), count:0 });
+      found.get(k).count++;
+      re.lastIndex = m.index + m[0].length;
+    }
+  }
+  return found;
+}
+
+function checkNames(doc, roster, anchors){
+  const d = String(doc || "");
+  if(!d) return "";
+
+  const known = [], rosterKeys = [];
+  (Array.isArray(roster) ? roster : []).forEach(p => {
+    const k = anKey((p && typeof p === "object") ? (p.name || "") : p);
+    if(k){ known.push(k); rosterKeys.push(k); }
+  });
+  (Array.isArray(anchors) ? anchors : []).forEach(a => {
+    if(a && (a.type === "person" || a.type === "org")){ const k = anKey(a.raw); if(k) known.push(k); }
+  });
+  // 용어집에 등록한 표기도 아는 이름이다. 없으면 등록해 둔 이름마다 경고가 뜬다.
+  String(CFG.gloss || "").split("\n").forEach(l =>
+    l.split("=").forEach(x => { const k = anKey(x); if(k) known.push(k); }));
+
+  /* 부분 일치는 위험하다. 짧은 이름은 아무 데나 끼어 있어 무조건 통과한다.
+     음절 경계가 맞고 네 자 이상일 때만 같은 사람으로 본다. */
+  function isKnown(key){
+    for(const k of known){
+      if(!k) continue;
+      if(k === key) return true;
+      if(key.length >= 4 && (k.startsWith(key + " ") || k.endsWith(" " + key) || k.indexOf(" " + key + " ") >= 0))
+        return true;
+    }
+    return false;
+  }
+
+  const famous = [], unknown = [];
+  extractPersonNames(d).forEach((rec, key) => {
+    let fam = null;
+    if(key.split(" ").length >= 2){
+      for(const f of FAMOUS_PEOPLE){
+        const distinct = f.key.split(" ").slice(1).join(" ");
+        if(key === f.key || key.endsWith(" " + distinct) || key.indexOf(f.key) >= 0){ fam = f; break; }
+      }
+    }
+    if(fam){
+      if(!rosterKeys.some(k => k === key)) famous.push({ raw:rec.raw, hint:fam.hint, count:rec.count });
+      return;
+    }
+    if(!isKnown(key)) unknown.push({ raw:rec.raw, count:rec.count });
+  });
+
+  if(!famous.length && !unknown.length) return "";
+  const lines = ["**사람 이름 확인**"];
+  for(const f of famous)
+    lines.push("- ⚠️ **" + f.raw + "** — " + f.hint + " 이름입니다. 참석자 명부에 없습니다. "
+      + "받아쓰기가 유명인 이름으로 끌려간 것으로 보이니 실제 발언자의 직책·소속으로 바로잡아 주세요.");
+  if(unknown.length)
+    lines.push("- 명부에도 녹취에도 없는 이름: "
+      + unknown.slice(0, 6).map(u => u.raw + "(" + u.count + "회)").join(", ")
+      + (unknown.length > 6 ? " 외 " + (unknown.length - 6) + "명" : "") + " — 표기가 맞는지 확인해 주세요.");
+  return lines.join("\n");
+}
+
+/* 통화 단위 사고 검사.
+   42 tỷ 는 42,000,000,000 동, 약 22억 원이다. 다른 앱이 이것을 420억 원으로 적어
+   19배를 부풀린 것을 봤다. 그런 문서 한 장이 계약 협상을 뒤집는다. */
+const VND_PER_KRW_LO = 17.0;
+const VND_PER_KRW_HI = 20.0;
+
+function checkNumbers(doc){
+  const d = String(doc || "");
+  if(!d) return "";
+  const warns = [];
+  const marks = [];
+  const reTy = /(\d[\d.,]*)\s*t[ýỳỷỹỵ](?![A-Za-zÀ-ỹ])/g;
+  const reEokW = /(\d[\d.,]*)\s*억\s*원/g;
+  let m;
+  while((m = reTy.exec(d))   !== null) marks.push({ kind:"ty",   v:anNumVal(m[1]), i:m.index, s:m[0].trim() });
+  while((m = reEokW.exec(d)) !== null) marks.push({ kind:"eokw", v:anNumVal(m[1]), i:m.index, s:m[0].trim() });
+
+  const seen = new Set();
+  for(const a of marks){
+    if(a.kind !== "ty" || !isFinite(a.v) || a.v <= 0) continue;
+    for(const b of marks){
+      if(b.kind !== "eokw" || !isFinite(b.v) || b.v <= 0) continue;
+      if(Math.abs(b.i - a.i) > 45) continue;                 // 같은 문장이나 괄호 안일 때만
+      const expect = a.v * 10 / ((VND_PER_KRW_LO + VND_PER_KRW_HI) / 2);   // 제대로 옮겼다면 이 값
+      const mult = b.v / expect;
+      if(mult < 2.5) continue;                               // 정상 범위는 건드리지 않는다
+      const key = a.s + "|" + b.s;
+      if(seen.has(key)) continue;
+      seen.add(key);
+      const lo = (a.v * 10 / VND_PER_KRW_HI).toFixed(1);
+      const hi = (a.v * 10 / VND_PER_KRW_LO).toFixed(1);
+      warns.push("- ⚠️ **" + a.s + " → " + b.s + "** ("
+        + ((mult >= 6 && mult <= 15) ? "10배 부풀림" : "단위 어긋남") + "). "
+        + a.s + " 는 " + (a.v * 1e9).toLocaleString("ko-KR") + " 동이므로 약 **" + lo + "~" + hi + "억 원**입니다. 금액을 다시 확인해 주세요.");
+    }
+  }
+
+  const reTyWon = /\d[\d.,]*\s*t[ýỳỷỹỵy]\s*(?:원|won|KRW)/gi;
+  let t;
+  while((t = reTyWon.exec(d)) !== null)
+    warns.push("- ⚠️ **" + t[0].trim() + "** — tỷ 는 동(VND) 단위입니다. 원화라면 환산값으로 적어 주세요.");
+
+  const cw = (d.match(/억\s*원/g) || []).length;
+  const cd = (d.match(/억\s*동/g) || []).length;
+  if(cw > 0 && cd > 0)
+    warns.push("- ⚠️ 같은 문서에 **억 원**(" + cw + "회)과 **억 동**(" + cd + "회)이 섞여 있습니다. "
+      + "읽는 사람이 통화를 혼동합니다. 한쪽으로 통일하고, 환산했다면 원문 금액을 함께 적어 주세요.");
+
+  if(!warns.length) return "";
+  return ["**금액·단위 확인**"].concat(warns.slice(0, 8)).join("\n");
+}
+
+/* 회의록을 다 만든 뒤 한 번 부르면 "확인해 주세요" 절이 통째로 나온다.
+
+   doc 에는 반드시 결론부와 상세 기록을 합친 본문을 넘긴다. 결론부만 넘기면
+   상세 기록에 살아 있는 앵커가 전부 누락으로 잡힌다. */
+function auditDoc(doc, text, roster){
+  const anchors = scanAnchors(text);
+  let blocks = [checkAnchors(doc, anchors), checkNames(doc, roster, anchors), checkNumbers(doc)].filter(Boolean);
+  if(!blocks.length) return "";
+  // 결정사항보다 긴 경고 절은 아무도 안 읽는다
+  const body = blocks.join("\n\n").split("\n").slice(0, 16).join("\n");
+  return "## 확인해 주세요\n\n" + body;
+}
+
+/* =====================================================================
+   결론부 렌더러 — JSON 을 회의록 글로 옮긴다
+
+   여기서 모델을 부르지 않는다. 부르는 순간 같은 사실이 두 문장으로 갈리고
+   담당자 표기가 어긋난다. 한 사람이 이름·역할·이름(역할) 세 묶음으로 갈라져
+   "누가 무엇을 맡았는지" 를 못 읽게 되는 것이 이번에 없앨 결함이다.
+   ===================================================================== */
+
+const DAY_MS = 86400000;
+const WD_NAME = ["일","월","화","수","목","금","토"];
+
+const cS   = v => v == null ? "" : String(v).trim();
+const cArr = v => v == null ? [] : (Array.isArray(v) ? v : [v]);
+// 필드 이름이 모델마다 흔들린다. 먼저 잡히는 값을 쓴다.
+const cFirst = (...v) => { for(const x of v){ const s = cS(x); if(s) return s; } return ""; };
+// 표 칸 안의 파이프와 줄바꿈은 표를 깨뜨린다
+const cCell = v => cS(v).replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+// 대조용 열쇠: 대소문자·공백·점·하이픈을 지운다
+const cKey = v => cS(v).toLowerCase().replace(/[\s.\-_'’]/g, "");
+
+/* 절 이름은 고정이다. 20분 회의와 87분 회의의 절 이름이 다르면
+   시리즈에서 회차마다 문서가 달라 보인다. keep 은 비어도 남길 절. */
+const CONC_SECTIONS = [
+  { key:"summary",  title:"한 장 요약",         keep:true  },
+  { key:"next",     title:"다음 회의",           keep:true  },
+  { key:"decision", title:"결정사항",            keep:true  },
+  { key:"open",     title:"다음에 정해야 할 것", keep:false },
+  { key:"todo",     title:"할 일",               keep:true  },
+  { key:"owners",   title:"담당자별 할 일",      keep:false },
+  { key:"timeline", title:"일정과 선후",         keep:false }
+];
+
+// kind 표기 흔들림 흡수
+const KIND_ALIAS = {
+  decision:"decision", decisions:"decision", decide:"decision", 결정:"decision", 결정사항:"decision",
+  todo:"todo", todos:"todo", action:"todo", actions:"todo", task:"todo", 할일:"todo", 투두:"todo",
+  open:"open", opens:"open", issue:"open", issues:"open", pending:"open", 미결:"open", 미결사항:"open",
+  role:"role", roles:"role", assignment:"role", 역할:"role"
+};
+
+const STATUS_LABEL = {
+  합의:"합의", 동의:"합의", agreed:"합의", agree:"합의", 합의됨:"합의", confirmed:"합의",
+  추가논의:"추가논의", 추가검토:"추가논의", 조건부:"추가논의", tentative:"추가논의",
+  이견:"이견", 이견있음:"이견", 반대:"이견", disagree:"이견", disputed:"이견", conflict:"이견",
+  보류:"보류", 유보:"보류", hold:"보류", deferred:"보류",
+  제안됨:"제안", 제안:"제안", proposed:"제안", suggested:"제안"
+};
+
+const PRIO_LIST = ["최우선","높음","중간","장기"];
+const PRIO = { 최우선:0, 높음:1, 중간:2, 장기:3 };
+
+/* 계약금액·공기·안전은 한 단계 올린다. 뒤로 밀리면 돈과 사람이 다친다.
+   giá 에 경계를 두는 것은 감리(giám sát)에 걸려 모든 항목이 승격되던 일 때문이다. */
+const ESCALATE_RE = new RegExp([
+  "계약","금액","대금","기성","공사비","증액","감액",
+  "공기","공정","준공","납기","지연","마일스톤",
+  "안전","사고","재해","인명",
+  "hợp\\s*đồng","thanh\\s*toán","gi[áa](?![a-zA-ZÀ-ỹ])","tiến\\s*độ","an\\s*toàn","nghiệm\\s*thu",
+  "contract","payment","schedule","delay","safety"
+].join("|"), "i");
+
+/* ---------- 날짜 ---------- */
+
+const WD_KO = { 일:0, 월:1, 화:2, 수:3, 목:4, 금:5, 토:6 };
+const WD_VI = {
+  "chủ nhật":0, "chu nhat":0,
+  "thứ hai":1, "thu hai":1, "thứ 2":1, "thu 2":1,
+  "thứ ba":2, "thu ba":2, "thứ 3":2, "thu 3":2,
+  "thứ tư":3, "thu tu":3, "thứ 4":3, "thu 4":3,
+  "thứ năm":4, "thu nam":4, "thứ 5":4, "thu 5":4,
+  "thứ sáu":5, "thu sau":5, "thứ 6":5, "thu 6":5,
+  "thứ bảy":6, "thu bay":6, "thứ 7":6, "thu 7":6
+};
+
+function cDate(v){
+  if(!v) return null;
+  if(v instanceof Date) return isNaN(v.getTime()) ? null : cMidnight(v);
+  if(typeof v === "number"){ const d = new Date(v); return isNaN(d.getTime()) ? null : cMidnight(d); }
+  const m = /^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/.exec(cS(v));
+  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
+  const d = new Date(cS(v));
+  return isNaN(d.getTime()) ? null : cMidnight(d);
+}
+const cMidnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const cAddDays  = (d,n) => new Date(d.getFullYear(), d.getMonth(), d.getDate()+n);
+const cMonthEnd = (y,m) => new Date(y, m+1, 0);
+// 주 시작은 월요일로 본다 — 현장 주간회의 관행이다
+const cMonday = b => cAddDays(b, b.getDay() === 0 ? -6 : 1 - b.getDay());
+const cWeekdayOf = (b, wd, ahead) => cAddDays(cMonday(b), ahead*7 + ((wd+6) % 7));
+const cNextWeekday = (b, wd) => { const df = (wd - b.getDay() + 7) % 7; return cAddDays(b, df === 0 ? 7 : df); };
+
+/* 기한 문자열을 날짜로 푼다. 한국어와 베트남어를 함께 다룬다.
+   못 풀면 date 를 비워 돌려준다. 호출부는 원문을 그대로 보여 준다 —
+   임의로 날짜를 만들면 없는 기한이 회의록에 박힌다. */
+function parseDue(raw, meetingDate){
+  const text = cS(raw);
+  const base = cDate(meetingDate) || cMidnight(new Date());
+  const out = { date:null, text:text, approx:false };
+  if(!text) return out;
+  const t = text.toLowerCase();
+  let m;
+
+  m = /(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})/.exec(text);
+  if(m){ out.date = new Date(+m[1], +m[2]-1, +m[3]); return out; }
+
+  m = /(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(text);
+  if(m){ out.date = cRollYear(new Date(base.getFullYear(), +m[1]-1, +m[2]), base); return out; }
+
+  m = /(\d{1,2})\s*tháng\s*(\d{1,2})/i.exec(text);       // 베트남어는 일-월 순서
+  if(m){ out.date = cRollYear(new Date(base.getFullYear(), +m[2]-1, +m[1]), base); return out; }
+
+  // 숫자 슬래시 — 한국은 월/일, 베트남은 일/월이라 단서로 가른다
+  m = /(?:ngày\s*)?(\d{1,2})\s*[/.]\s*(\d{1,2})(?:\s*[/.]\s*(\d{2,4}))?/i.exec(text);
+  if(m){
+    const a = +m[1], b = +m[2];
+    let dayFirst = /ngày|tháng|[àáảãạăâđêôơư]/i.test(text);
+    if(a > 12) dayFirst = true;
+    else if(b > 12) dayFirst = false;
+    const mm = dayFirst ? b : a, dd = dayFirst ? a : b;
+    const yy = m[3] ? (+m[3] < 100 ? 2000 + +m[3] : +m[3]) : base.getFullYear();
+    const d = new Date(yy, mm-1, dd);
+    out.date = m[3] ? d : cRollYear(d, base);
+    return out;
+  }
+
+  if(/오늘|금일|hôm nay|today/i.test(t)){ out.date = base; return out; }
+  if(/모레|ngày kia/i.test(t)){ out.date = cAddDays(base, 2); return out; }
+  if(/내일|익일|ngày mai|tomorrow/i.test(t)){ out.date = cAddDays(base, 1); return out; }
+
+  m = /(\d{1,2})\s*(?:일|ngày)\s*(?:이내|내|안|후|뒤|sau|trong)/.exec(t)
+   || /(?:sau|trong)\s*(\d{1,2})\s*ngày/.exec(t)
+   || /(?:within|in)\s*(\d{1,2})\s*days?/.exec(t);
+  if(m){ out.date = cAddDays(base, +m[1]); return out; }
+
+  m = /(\d{1,2})\s*주\s*(?:이내|내|후|뒤)/.exec(t) || /(\d{1,2})\s*tuần/.exec(t);
+  if(m){ out.date = cAddDays(base, +m[1] * 7); return out; }
+
+  m = /(다음|차|담|이번|금)\s*주\s*([월화수목금토일])\s*요일/.exec(text);
+  if(m){ out.date = cWeekdayOf(base, WD_KO[m[2]], /다음|차|담/.test(m[1]) ? 1 : 0); return out; }
+  m = /(thứ\s*(?:hai|ba|tư|năm|sáu|bảy|[2-7])|chủ\s*nhật)\s*(tuần\s*(?:sau|tới|này))?/i.exec(text);
+  if(m){
+    const wd = WD_VI[m[1].toLowerCase().replace(/\s+/g, " ")];
+    if(wd != null){ out.date = cWeekdayOf(base, wd, m[2] && /sau|tới/i.test(m[2]) ? 1 : 0); return out; }
+  }
+  m = /([월화수목금토일])\s*요일/.exec(text);
+  if(m){ out.date = cNextWeekday(base, WD_KO[m[1]]); return out; }
+
+  if(/다음\s*주|차주|tuần\s*(sau|tới)|next\s*week/i.test(t)){
+    out.date = cWeekdayOf(base, 5, 1); out.approx = true; return out;   // 주만 지정하면 금요일로 본다
+  }
+  if(/이번\s*주|금주|tuần\s*này|this\s*week/i.test(t)){
+    out.date = cWeekdayOf(base, 5, 0); out.approx = true; return out;
+  }
+  if(/(이번|금|이)\s*달\s*말|월말|말일|cuối\s*tháng/i.test(t)){
+    out.date = cMonthEnd(base.getFullYear(), base.getMonth()); out.approx = true; return out;
+  }
+  if(/다음\s*달|익월|tháng\s*(sau|tới)|next\s*month/i.test(t)){
+    out.date = cMonthEnd(base.getFullYear(), base.getMonth()+1); out.approx = true; return out;
+  }
+  m = /tháng\s*(\d{1,2})/i.exec(text) || /(\d{1,2})\s*월(?!\s*\d)/.exec(text);
+  if(m){
+    out.date = cRollYear(cMonthEnd(base.getFullYear(), +m[1]-1), base);
+    out.approx = true; return out;
+  }
+  return out;
+}
+
+// 연도가 없을 때 회의일보다 한참 과거로 잡히면 이듬해로 넘긴다 (12월 회의의 "1월 5일")
+function cRollYear(d, base){
+  return d.getTime() < base.getTime() - 45 * DAY_MS
+    ? new Date(d.getFullYear()+1, d.getMonth(), d.getDate()) : d;
+}
+
+// 회의와 같은 해면 연도를 생략한다. 카톡에서 짧게 보인다.
+function fmtDate(d, base){
+  if(!d) return "";
+  const same = base && d.getFullYear() === base.getFullYear();
+  return (same ? "" : d.getFullYear() + "년 ")
+       + (d.getMonth()+1) + "월 " + d.getDate() + "일(" + WD_NAME[d.getDay()] + ")";
+}
+
+/* 기한 표시. 원문이 먼저다.
+
+   "8월 22일 오전 9시" 를 날짜만 뽑아 다시 쓰면 시각이 사라진다. 그게 바로 이번에
+   고치려던 결함이다. 그래서 시각·조건이 붙은 원문은 통째로 살리고, 코드가 푼
+   날짜는 괄호로 덧붙이기만 한다. */
+function dueLabel(it, base){
+  const raw = cS(it.dueRaw);
+  if(!raw) return "";
+  const p = parseDue(raw, base);
+  if(p.date && !/시|분|오전|오후|h\d|:\d\d|까지만|이후|경까지/.test(raw))
+    return fmtDate(p.date, base) + (p.approx ? "경" : "");
+  return raw + (p.date ? " (" + fmtDate(p.date, base) + ")" : "");
+}
+
+/* ---------- JSON 을 항목 배열로 편다 ---------- */
+
+function normalizeDoc(doc){
+  doc = doc || {};
+  const items = [];
+  let seq = 0;
+
+  function push(raw, fallbackKind){
+    if(raw == null) return;
+    const o = (typeof raw === "string") ? { text: raw } : raw;
+    const kindRaw = cKey(cFirst(o.kind, o.type, fallbackKind));
+    const it = {
+      id: cFirst(o.id, o.ref) || ("#" + (++seq)),
+      kind: KIND_ALIAS[kindRaw] || KIND_ALIAS[cKey(fallbackKind)] || "todo",
+      text: cFirst(o.text, o.title, o.what, o.item, o.content, o.statement),
+      owners: [],
+      support: cArr(o.support || o.supporters).map(cS).filter(Boolean),
+      dueRaw: cFirst(o.due, o.due_date, o.deadline, o.when, o.기한),
+      purpose: cFirst(o.purpose, o.why, o.goal, o.reason, o.목적),
+      status: STATUS_LABEL[cKey(cFirst(o.status, o.state, o.agreement, o.consensus))] || "",
+      rationale: cFirst(o.rationale, o.why_decided, o.근거),
+      quote: cFirst(o.quote, o.evidence_quote),
+      needsConfirm: (o.needs_confirm === true || o.needsConfirm === true),
+      carried: (o.carried === true),
+      quoteMiss: (o._quoteMiss === true),
+      positions: [],
+      depends_on: cArr(o.depends_on || o.deps || o.blocked_by).map(cS).filter(Boolean),
+      dep_basis: /추론|infer|guess|assum/i.test(cFirst(o.dep_basis, o.basis)) ? "추론" : "발화",
+      raw: o
+    };
+    if(!it.text) return;                      // 본문 없는 껍데기는 버린다
+
+    cArr(o.owners || o.owner || o.assignee || o.who || o.responsible || o.담당).forEach(w => {
+      const nm = (typeof w === "string") ? w : cFirst(w && w.name, w && w.who, w && w.role);
+      cS(nm).split(/\s*[,/·、]\s*|\s+및\s+|\s+and\s+/).forEach(p => { if(cS(p)) it.owners.push(cS(p)); });
+    });
+
+    cArr(o.positions || o.views || o.stances || o.입장).forEach(p => {
+      if(typeof p === "string") it.positions.push({ who:"", stance: cS(p) });
+      else it.positions.push({
+        who: cFirst(p && p.who, p && p.name, p && p.party, p && p.side),
+        stance: cFirst(p && p.stance, p && p.text, p && p.position, p && p.opinion)
+      });
+    });
+    /* 입장이 갈렸는데 라벨이 비면 이견으로 본다. 모델이 라벨을 자주 빠뜨린다.
+       그렇다고 빈 것을 합의로 단정하지는 않는다 — 합의 아닌 것이 합의로 찍히면
+       그 회의록이 분쟁의 근거가 된다. */
+    if(!it.status && it.kind === "decision")
+      it.status = it.positions.length > 1 ? "이견" : (it.needsConfirm ? "추가논의" : "");
+
+    items.push(it);
+  }
+
+  cArr(doc.items).forEach(r => push(r, r && (r.kind || r.type)));
+  [["decisions","decision"], ["todos","todo"], ["actions","todo"], ["action_items","todo"],
+   ["opens","open"], ["open_issues","open"], ["issues","open"], ["pending","open"],
+   ["roles","role"], ["assignments","role"]
+  ].forEach(pair => cArr(doc[pair[0]]).forEach(r => push(r, pair[1])));
+
+  let nm = doc.next_meeting || doc.next || doc.nextMeeting || null;
+  if(typeof nm === "string") nm = { when: nm };
+
+  return {
+    summary: cS(cArr(doc.summary || doc.one_pager || doc.overview).map(cS).filter(Boolean).join(" ")),
+    topics: cArr(doc.topics).map(t => ({
+      title: cFirst(t && t.title, t && t.name),
+      points: cArr(t && (t.points || t.items)).map(cS).filter(Boolean)
+    })).filter(t => t.title || t.points.length),
+    next: nm ? {
+      when:  cFirst(nm.when, nm.date, nm.datetime, nm.날짜),
+      what:  cFirst(nm.what, nm.agenda_text, nm.purpose),
+      who:   cFirst(nm.who, nm.attendees, nm.참석),
+      place: cFirst(nm.place, nm.location, nm.where, nm.장소),
+      alt:   cArr(nm.alt || nm.alternatives).map(cS).filter(Boolean),
+      agenda: cArr(nm.agenda || nm.topics || nm.안건).map(cS).filter(Boolean)
+    } : null,
+    items: items,
+    quoteWarn: doc._quoteWarn === true
+  };
+}
+
+// 세는 축을 절 이름 문자열이 아니라 kind 로 옮긴 것
+function conclusionStats(doc){
+  const n = normalizeDoc(doc), c = { decision:0, todo:0, open:0, role:0 };
+  n.items.forEach(it => { if(c[it.kind] != null) c[it.kind]++; });
+  return c;
+}
+
+/* ---------- 명부 ---------- */
+
+/* 명부로 담당자 표기를 하나로 접는다.
+   이름·역할·이름(역할)·역할 이름 이 한 사람이면 같은 열쇠로 떨어져야 한다. */
+function buildRoster(roster){
+  const map = {}, order = [];
+  cArr(roster).forEach((p, i) => {
+    if(!p) return;
+    const name = cFirst(p.name), role = cFirst(p.role, p.org);
+    if(!name && !role) return;
+    const display = name ? (role ? name + "(" + role + ")" : name) : role;
+    const canon = "P" + i;
+    const keys = [name, role, display,
+      name && role ? name + "(" + role + ")" : "",
+      name && role ? role + "(" + name + ")" : "",
+      name && role ? role + " " + name : ""];
+    String(p.alias || "").split(/[,、]/).forEach(a => keys.push(a));
+    keys.forEach(k => { if(cKey(k)) map[cKey(k)] = canon; });
+    order.push({ canon, display, name, role });
+  });
+  return { map, list: order };
+}
+
+/* 담당자 한 명을 명부에 대조한다.
+
+   공백을 구분자에 넣는 것이 중요하다. 넣지 않았더니 "설계사 Hean" 이 어느 열쇠와도
+   안 맞아 새 사람이 되었고, 한 사람이 세 묶음으로 갈렸다. 긴 토큰부터 찾는 것도
+   같은 이유다 — 이름이 역할보다 먼저 잡혀야 이름 쪽으로 접힌다. */
+function resolveOwner(name, ros){
+  const raw = cS(name);
+  if(!raw) return null;
+  const k = cKey(raw);
+  if(ros && ros.map[k]) return findCanon(ros, ros.map[k]);
+
+  const toks = raw.split(/[()（）\[\]/,·\s]+/).map(cS).filter(Boolean);
+  toks.sort((a, b) => b.length - a.length);
+  for(const t of toks){
+    const kk = cKey(t);
+    if(kk.length >= 2 && ros && ros.map[kk]) return findCanon(ros, ros.map[kk]);
+  }
+  // 명부에 없는 사람 — 토큰 집합을 열쇠로 삼아 표기 흔들림만이라도 접는다
+  return { canon: "X:" + (toks.map(cKey).sort().join("|") || k), display: raw, name: raw, role: "", unknown: true };
+}
+function findCanon(ros, canon){
+  for(const p of ros.list) if(p.canon === canon) return p;
+  return null;
+}
+
+const cUniq = a => {
+  const seen = {}, out = [];
+  a.forEach(v => { const k = cKey(v); if(v && !seen[k]){ seen[k] = 1; out.push(v); } });
+  return out;
+};
+
+/* ---------- 결론부 전체 ---------- */
+
+function renderConclusion(doc, opts){
+  opts = opts || {};
+  const n = normalizeDoc(doc);
+  const base = cDate(opts.meetingDate) || null;
+  const ros = buildRoster(opts.roster);
+  const h = "#".repeat(Math.max(1, Math.min(4, opts.headingLevel || 2))) + " ";
+  const compact = opts.compact === true;      // 카톡용 — 같은 할 일을 세 번 싣지 않는다
+
+  const byKind = { decision:[], todo:[], open:[], role:[] };
+  n.items.forEach(it => (byKind[it.kind] || byKind.todo).push(it));
+
+  const out = [];
+  if(opts.meta){
+    if(opts.meta.when) out.push("- 일시: " + opts.meta.when);
+    if(opts.meta.who)  out.push("- 참석: " + opts.meta.who);
+    if(out.length) out.push("");
+  }
+
+  CONC_SECTIONS.forEach(sec => {
+    if(compact && (sec.key === "owners" || sec.key === "timeline")) return;
+    let body = "";
+    switch(sec.key){
+      case "summary": {
+        const bits = [];
+        if(n.summary) bits.push(n.summary);
+        n.topics.forEach(t => {
+          if(t.title) bits.push("### " + t.title);
+          t.points.forEach(p => bits.push("- " + p));
+        });
+        body = bits.join("\n\n");
+        break;
+      }
+      case "next":
+        body = renderNext(n.next, base);
+        break;
+      case "decision":
+        body = byKind.decision.map(it => renderDecision(it, base, ros)).join("\n");
+        break;
+      case "open":
+        body = byKind.open.map(it => {
+          const due = dueLabel(it, base);
+          const who = cUniq(it.owners.map(o => { const r = resolveOwner(o, ros); return r ? r.display : o; }));
+          return "- " + it.text
+            + (due ? " — " + due + " 까지 결정" : "")
+            + (who.length ? " (담당: " + who.join(", ") + ")" : "")
+            + (it.carried ? " [지난 회의에서 넘어옴]" : "");
+        }).join("\n");
+        break;
+      case "todo":
+        body = byKind.todo.map(it => "- " + todoLine(it, base, ros)).join("\n");
+        break;
+      case "owners":
+        body = renderOwners(byKind.todo.concat(byKind.role), opts.roster, { meetingDate: base });
+        break;
+      case "timeline":
+        body = renderTimeline(n.items, base, n.next);
+        break;
+    }
+    /* 빈 절 처리. 결정·할 일·요약·다음 회의는 "해당 없음" 을 남긴다 — 없다는 것도 정보다.
+       특히 다음 회의는 비어 있다는 사실 자체가 다음 회의의 첫 안건이다. */
+    if(!cS(body)){
+      if(!sec.keep) return;
+      body = sec.key === "next" ? "다음 일정 미정 — 회의에서 정해지지 않았습니다." : "해당 없음";
+    }
+    out.push(h + sec.title, "", body, "");
+  });
+
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
+
+function renderNext(next, base){
+  if(!next) return "";
+  const lines = [];
+  const raw = cS(next.when);
+  if(raw){
+    const p = parseDue(raw, base);
+    // 원문을 지우지 않는다. 코드가 푼 날짜는 괄호로 덧붙일 뿐이다.
+    lines.push("- 일시: " + raw + (p.date ? " (" + fmtDate(p.date, base) + ")" : ""));
+  }
+  if(next.alt && next.alt.length) lines.push("- 다른 후보: " + next.alt.join(", "));
+  if(next.what)  lines.push("- 정할 것: " + next.what);
+  if(next.who)   lines.push("- 모이는 사람: " + next.who);
+  if(next.place) lines.push("- 장소: " + next.place);
+  cArr(next.agenda).forEach(a => lines.push("  - " + a));
+  return lines.join("\n");
+}
+
+function renderDecision(it, base, ros){
+  /* 라벨이 비면 "확인필요" 다. 합의로 단정하지 않는다.
+     합의 아닌 것이 합의로 찍히면 그 한 줄이 분쟁의 근거가 된다. */
+  const line = ["- [" + (it.status || "확인필요") + "] " + it.text];
+  const tail = [];
+  const who = cUniq(it.owners.map(o => { const r = resolveOwner(o, ros); return r ? r.display : o; }));
+  if(who.length) tail.push("담당 " + who.join(", "));
+  const due = dueLabel(it, base);
+  if(due) tail.push("기한 " + due);
+  if(tail.length) line[0] += " (" + tail.join(" / ") + ")";
+
+  // 이견이면 입장을 나란히 놓는다. 한쪽만 적으면 그게 결론처럼 읽힌다.
+  if(it.status === "이견" && it.positions.length)
+    it.positions.forEach(p => line.push("  - " + (p.who ? p.who + ": " : "") + p.stance));
+
+  if(it.rationale) line.push("  - 근거: " + it.rationale);
+  if(it.carried) line.push("  - 지난 회의에서 넘어온 사안입니다.");
+  if(it.needsConfirm) line.push("  - 확인 필요: 합의 신호가 한 번뿐입니다. 다음 회의에서 확인해 주세요."
+    + (it.quoteMiss ? " (근거 문장을 녹취에서 찾지 못했습니다)" : ""));
+  return line.join("\n");
+}
+
+// 할 일 한 줄: 담당자 — 할 일 — 기한 (목적)
+function todoLine(it, base, ros){
+  const who = cUniq(it.owners.map(o => { const r = resolveOwner(o, ros); return r ? r.display : o; }));
+  let line = [who.length ? who.join(", ") : "미지정", it.text, dueLabel(it, base) || "기한 미정"].join(" — ");
+  if(it.purpose) line += " (목적: " + it.purpose + ")";
+  if(it.status && it.status !== "합의") line += " [" + it.status + "]";
+  if(it.needsConfirm) line += " [확인 필요]";
+  return line;
+}
+
+/* ---------- 담당자별 묶음 ---------- */
+
+function renderOwners(items, roster, opts){
+  opts = opts || {};
+  const base = cDate(opts.meetingDate) || null;
+  const max = opts.maxPerOwner || 4;
+  const all = asItems(items);
+  const ros = buildRoster(roster);
+
+  /* 역할은 "누가 무엇을 맡는 사람인가" 라는 사실 진술이다. 할 일 목록에 섞으면
+     "Hean 은 설계사의 담당 건축사다 — 기한 미정" 이 된다. 이름 옆 한 줄로 붙인다. */
+  const roleOf = {};
+  all.filter(it => it.kind === "role").forEach(it => {
+    it.owners.forEach(o => { const r = resolveOwner(o, ros); if(r) roleOf[r.canon] = it.text; });
+  });
+
+  const list = all.filter(it => it.kind === "todo");
+  if(!list.length) return "";
+
+  const groups = {}, order = [], none = [];
+  list.forEach(it => {
+    if(!it.owners.length){ none.push(it); return; }
+    it.owners.forEach(o => {
+      const r = resolveOwner(o, ros);
+      if(!r){ none.push(it); return; }
+      if(!groups[r.canon]){ groups[r.canon] = { display:r.display, items:[] }; order.push(r.canon); }
+      // 표기가 갈려 같은 항목이 두 번 붙는 것을 여기서 막는다
+      if(!groups[r.canon].items.some(x => cKey(x.text) === cKey(it.text)))
+        groups[r.canon].items.push(it);
+    });
+  });
+
+  const out = [];
+  order.forEach(c => {
+    const g = groups[c];
+    g.items.sort((a, b) => dueSort(a, base) - dueSort(b, base));
+    out.push("- **" + g.display + "**" + (roleOf[c] ? " — " + roleOf[c] : ""));
+    g.items.slice(0, max).forEach(it =>
+      out.push("  - " + it.text + " — " + (dueLabel(it, base) || "기한 미정")
+               + (it.purpose ? " (목적: " + it.purpose + ")" : "")));
+    if(g.items.length > max) out.push("  - 외 " + (g.items.length - max) + "건");
+  });
+
+  if(none.length){
+    out.push("- **담당자 미정**");        // 항상 맨 끝
+    none.sort((a, b) => dueSort(a, base) - dueSort(b, base));
+    none.slice(0, max).forEach(it => out.push("  - " + it.text + " — " + (dueLabel(it, base) || "기한 미정")));
+    if(none.length > max) out.push("  - 외 " + (none.length - max) + "건");
+  }
+  // 역할만 있고 할 일이 없는 사람도 한 줄 남긴다
+  Object.keys(roleOf).forEach(c => {
+    if(groups[c]) return;
+    const p = findCanon(ros, c);
+    if(p) out.push("- **" + p.display + "** — " + roleOf[c]);
+  });
+  return out.join("\n");
+}
+
+const dueSort = (it, base) => {
+  const p = parseDue(it.dueRaw, base);
+  return p.date ? p.date.getTime() : Number.MAX_SAFE_INTEGER;
+};
+
+// 이미 편 배열이면 그대로, 원본 JSON 이면 한 번 편다
+function asItems(items){
+  const a = cArr(items);
+  if(a.length && a[0] && Array.isArray(a[0].owners) && "dueRaw" in a[0]) return a;
+  return normalizeDoc({ items: a }).items;
+}
+
+/* ---------- 일정과 선후 ---------- */
+
+/* 우선순위는 규칙으로 계산한다. 모델에게 맡기면 회차마다 뒤집힌다.
+     다른 항목이 이것을 기다림  → 최우선
+     기한이 회의일 +3일 이내    → 최우선
+     기한이 다음 회의 전        → 높음
+     기한이 이달 안             → 중간
+     기한 없음 / 한 달 초과     → 장기
+   계약금액·공기·안전이면 한 단계 올린다. */
+function renderTimeline(items, meetingDate, nextMeeting){
+  const base = cDate(meetingDate) || cMidnight(new Date());
+  const all = asItems(items);
+  if(!all.length) return "";
+
+  const nmDate = parseDue(nextMeeting && (typeof nextMeeting === "string" ? nextMeeting : nextMeeting.when), base).date;
+
+  /* 모델은 id 대신 문장 앞부분을 적는다. 그래서 접두 대조로 찾는다.
+     예전에는 열쇠를 40자로 잘라 저장하고 짧은 앞부분으로 찾았다. 길이가 달라
+     영원히 안 맞았고, 선후관계가 통째로 죽어 있었다. */
+  const index = [];
+  all.forEach(it => { index.push({ k: cKey(it.id), it }); index.push({ k: cKey(it.text), it }); });
+  function lookup(ref){
+    const r = cKey(ref);
+    if(r.length < 6) return null;                 // 너무 짧으면 엉뚱한 것에 붙는다
+    let best = null;
+    for(const e of index){
+      if(e.k === r || e.k.indexOf(r) === 0 || r.indexOf(e.k) === 0){
+        if(!best || e.k.length > best.k.length) best = e;
+      }
+    }
+    return best ? best.it : null;
+  }
+
+  let edges = [];
+  all.forEach(it => it.depends_on.forEach(ref => {
+    const to = lookup(ref);
+    if(to && to !== it) edges.push({ from: it, to, basis: it.dep_basis });
+  }));
+  edges = breakCycles(edges);
+
+  const blockers = {};
+  edges.forEach(e => { blockers[e.to.id] = true; });
+
+  const rows = all.filter(it => {
+    if(it.kind === "decision" || it.kind === "role") return false;
+    return !!it.dueRaw || blockers[it.id] || edges.some(e => e.from === it);
+  });
+  if(!rows.length) return "";
+
+  const monthEnd = cMonthEnd(base.getFullYear(), base.getMonth());
+  rows.forEach(it => {
+    const p = parseDue(it.dueRaw, base);
+    let prio;
+    if(blockers[it.id]) prio = "최우선";
+    else if(!p.date) prio = "장기";
+    else if(p.date.getTime() - base.getTime() <= 3 * DAY_MS) prio = "최우선";
+    else if(nmDate && p.date.getTime() < nmDate.getTime()) prio = "높음";
+    else if(p.date.getTime() <= monthEnd.getTime()) prio = "중간";
+    else prio = "장기";
+    if(ESCALATE_RE.test(it.text + " " + it.purpose)) prio = PRIO_LIST[Math.max(0, PRIO[prio] - 1)];
+    it._prio = prio;
+    it._due = p;
+    it._deps = edges.filter(e => e.from === it);
+  });
+  rows.sort((a, b) => (PRIO[a._prio] - PRIO[b._prio]) || (dueSort(a, base) - dueSort(b, base)));
+
+  const out = ["| 항목 | 우선순위 | 마감일 | 의존관계 |", "| --- | --- | --- | --- |"];
+  rows.forEach(it => {
+    const due = dueLabel(it, base) || "미정";
+    let dep = it._deps.map(e => e.to.text + (e.basis === "추론" ? " (추정)" : "")).join("; ");
+    if(!dep && blockers[it.id]) dep = "선행 항목 — 다른 일이 이것을 기다립니다";
+    out.push("| " + cCell(it.text) + " | " + it._prio + " | " + cCell(due) + " | " + (cCell(dep) || "-") + " |");
+  });
+  return out.join("\n");
+}
+
+/* 순환이 생기면 근거가 추론인 간선을 버린다. 발화로 확인된 것만으로 순환이면
+   손대지 않는다 — 원문이 실제로 모순인 경우라 코드가 한쪽을 지우면 사실을 왜곡한다. */
+function breakCycles(edges){
+  let live = edges.slice();
+  for(let guard = 0; guard < 50; guard++){
+    const cyc = findCycle(live);
+    if(!cyc) break;
+    let drop = -1;
+    for(const i of cyc) if(live[i].basis === "추론"){ drop = i; break; }
+    if(drop < 0) break;
+    live.splice(drop, 1);
+  }
+  return live;
+}
+function findCycle(edges){
+  const adj = {}, nodes = {};
+  edges.forEach((e, i) => {
+    (adj[e.from.id] = adj[e.from.id] || []).push({ to: e.to.id, i });
+    nodes[e.from.id] = nodes[e.to.id] = true;
+  });
+  const state = {}, stack = [];
+  let found = null;
+  function dfs(n){
+    if(found) return;
+    state[n] = 1;
+    (adj[n] || []).forEach(e => {
+      if(found) return;
+      stack.push(e.i);
+      if(state[e.to] === 1){
+        let start = 0;
+        for(let k = stack.length - 1; k >= 0; k--) if(edges[stack[k]].from.id === e.to){ start = k; break; }
+        found = stack.slice(start);
+      }else if(!state[e.to]) dfs(e.to);
+      stack.pop();
+    });
+    state[n] = 2;
+  }
+  Object.keys(nodes).forEach(n => { if(!state[n]) dfs(n); });
+  return found;
+}
+
+/* ---------- 카톡·잘로용 평문 ---------- */
+
+/* 표는 화면·PDF·메일에서 그대로 쓰고 여기서만 한 줄로 푼다.
+   한도를 2,000 으로 두는 것은 카톡 말풍선이 길면 "전체보기" 로 접히기 때문이다.
+   접힌 것은 아무도 안 편다. 항상 배열을 돌려준다 — 호출부가 길이로만 다루면 된다. */
+function renderPlain(md, opts){
+  opts = opts || {};
+  const limit = opts.limit || 2000;
+  const lines = String(md || "").replace(/\r/g, "").split("\n");
+  let body = [];
+  for(let i = 0; i < lines.length; i++){
+    if(isTableRow(lines[i])){
+      const block = [];
+      while(i < lines.length && isTableRow(lines[i])){ block.push(lines[i]); i++; }
+      i--;
+      body = body.concat(tableToLines(block));
+      continue;
+    }
+    body.push(plainLine(lines[i]));
+  }
+  const text = body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  const head = [];
+  if(cS(opts.title)) head.push("◆ " + cS(opts.title));
+  const when = [cS(opts.when), cS(opts.place)].filter(Boolean).join(" · ");
+  if(when) head.push(when);
+  const headTxt = head.join("\n");
+  const foot = cS(opts.footer == null ? "— 대역 정리본. 원문과 다르면 회신 주세요." : opts.footer);
+
+  const chunks = [];
+  let cur = "";
+  splitSections(text).forEach(b => {
+    if(!cS(b)) return;
+    if(b.length > limit - 200){
+      if(cS(cur)){ chunks.push(cur.trim()); cur = ""; }
+      hardSplit(b, limit - 200).forEach(p => chunks.push(p));
+      return;
+    }
+    if((cur + "\n\n" + b).length > limit - 200){ chunks.push(cur.trim()); cur = b; }
+    else cur = cur ? cur + "\n\n" + b : b;
+  });
+  if(cS(cur)) chunks.push(cur.trim());
+  if(!chunks.length) chunks.push("");
+
+  return chunks.map((c, i) => {
+    const h = headTxt ? headTxt + (chunks.length > 1 ? " (" + (i+1) + "/" + chunks.length + ")" : "") + "\n\n" : "";
+    return h + c + (i === chunks.length - 1 && foot ? "\n\n" + foot : "");
+  });
+}
+
+const isTableRow = ln => /^\s*\|.*\|\s*$/.test(ln || "");
+
+// 표 → "▪ 항목 — 우선순위, 마감일 — 의존관계"
+function tableToLines(block){
+  const rows = block
+    .filter(l => !/^\s*\|[\s:|-]+\|\s*$/.test(l))
+    .map(l => l.replace(/^\s*\|/, "").replace(/\|\s*$/, "")
+               .split(/(?<!\\)\|/).map(c => inlineOff(cS(c)).replace(/\\\|/g, "|")));
+  if(rows.length < 2) return [];
+  return rows.slice(1).map(r => {
+    if(r.length >= 4){
+      const dep = r[3] && r[3] !== "-" ? " — " + r[3] : "";
+      return "▪ " + r[0] + " — " + [r[1], r[2]].filter(Boolean).join(", ") + dep;
+    }
+    return "▪ " + r.filter(Boolean).join(" — ");
+  });
+}
+
+function plainLine(ln){
+  const t = String(ln == null ? "" : ln);
+  if(/^\s*$/.test(t)) return "";
+  if(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(t)) return "";
+  let m = /^(#{1,6})\s*(.+?)\s*#*$/.exec(t);
+  if(m) return m[1].length <= 2 ? "【" + inlineOff(m[2]) + "】" : "▸ " + inlineOff(m[2]);
+  m = /^(\s*)[-*+]\s+(.*)$/.exec(t);
+  if(m){
+    const depth = Math.floor(m[1].replace(/\t/g, "  ").length / 2);
+    if(depth === 0 && /^\*\*[^*]+\*\*\s*$/.test(cS(m[2]))) return "▸ " + inlineOff(m[2]);
+    return (depth ? "  · " : "· ") + inlineOff(m[2]);
+  }
+  m = /^(\s*)(\d+[.)])\s+(.*)$/.exec(t);
+  if(m) return (m[1] ? "  " : "") + m[2] + " " + inlineOff(m[3]);
+  if(/^\s*>\s?/.test(t)) return "· " + inlineOff(t.replace(/^\s*>\s?/, ""));
+  return inlineOff(t);
+}
+
+// 인라인 기호를 걷어 낸다. 구조는 위에서 ▪ ▸ · 로 이미 살렸다.
+function inlineOff(t){
+  return String(t)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/`+([^`]*)`+/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\|/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function splitSections(text){
+  const out = [];
+  let cur = [];
+  text.split("\n").forEach(l => {
+    if(/^【.*】/.test(l) && cur.length){ out.push(cur.join("\n").trim()); cur = []; }
+    cur.push(l);
+  });
+  if(cur.length) out.push(cur.join("\n").trim());
+  return out;
+}
+
+// 절 하나가 한도를 넘으면 줄 경계에서 자른다. 문장 중간은 자르지 않는다.
+function hardSplit(block, limit){
+  const out = [];
+  let cur = "";
+  block.split("\n").forEach(l => {
+    if((cur + "\n" + l).length > limit && cS(cur)){ out.push(cur.trim()); cur = l; }
+    else cur = cur ? cur + "\n" + l : l;
+  });
+  if(cS(cur)) out.push(cur.trim());
+  return out;
+}
+
+/* =====================================================================
+   결론부 — 전사문 전체를 한 번에 읽고 구조를 뽑는다
+
+   왜 따로 두는가. 지금까지 결정·미결·할 일은 조각 요약을 다시 요약해서
+   만들었다. 그런데 결정은 조각 안에 존재하지 않는다. 앞에서 꺼낸 이야기가
+   한 시간 뒤에 뒤집히고, 합의 신호는 통역 턴에 실려 다른 조각에 떨어진다.
+   조각만 보는 눈에는 그 연결이 안 보인다. 같은 87분 회의를 통본으로 읽혔을
+   때 결정 8건이 나왔고, 셋으로 잘라 읽혔을 때 2건이 나왔다.
+
+   그래서 결론부만 전사문 전체를 한 번에 본다. 상세 기록은 지금처럼 조각으로
+   만든다 — 그쪽은 출력이 길어서 천장에 닿기 때문이다. 자르는 이유가 입력이
+   아니라 출력이었다는 것을 여기서 확실히 갈라 둔다.
+   ===================================================================== */
+
+const CONCLUSION_MODE = {
+  all:    "결정·미결·할 일·역할을 모두 낸다.",
+  decide: "이번에는 decision 과 open 만 낸다. todo·role 은 다른 호출이 맡으니 items 에 넣지 마라.",
+  act:    "이번에는 todo 와 role 만 낸다. summary 와 next_meeting 은 쓰지 마라. items 에 decision·open 을 넣지 마라."
+};
+
+const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 읽고 결론부만 뽑아내는 회의록 편집자다.
+결과는 본사 임원·현장 소장·베트남 협력사가 읽고, 그대로 계약·공정 판단의 근거가 된다.
+지어낸 한 줄이 분쟁을 만든다. 재료에 없는 것은 쓰지 않는다.
+
+[회의 종류] {{DOC_TYPE}}
+[분량 설정] {{LENGTH}}
+[회의 날짜] {{MEETING_DATE}}
+
+[참석자 명부]
+{{ROSTER}}
+
+[용어집]
+{{GLOSSARY}}
+
+[지난 회의에서 넘어온 것 — 미결과 용어]
+{{CARRY}}
+
+[전사문 — 전체]
+{{TRANSCRIPT}}
+
+■ 하는 일
+
+{{MODE}}
+
+전사문 전체를 끝까지 읽은 뒤에 판정한다. 앞에서 정한 것을 뒤에서 뒤집거나 다시
+확정하는 일이 잦으니, 앞부분만 보고 결론을 내리지 마라.
+
+전사문은 한국어·베트남어·영어가 섞여 있고, 자동 번역 구간은 문장이 끊겨 있을 수 있다.
+끊긴 문장 하나만으로 결정을 판정하지 마라. 앞뒤 발화로 뜻이 복원될 때만 쓴다.
+
+출력 언어는 한국어다. 다만 인명·기관명·표준번호·금액·면적·날짜는 원문 표기 그대로 옮긴다.
+
+■ 출력 형태
+
+아래 형태의 JSON 객체 하나만 출력한다. 코드펜스 금지, 앞뒤 설명 금지, 주석 금지.
+아래 설명(//)은 읽으라고 붙인 것이니 출력에는 넣지 않는다.
+
+{
+  "summary": "",                   // 3~5문장 한 문단. 불릿·줄바꿈·마크다운 금지
+  "topics": [ {"title":"", "points":["",""]} ],   // 주제별 소제목 2~5개. 항목은 완결 문장
+  "next_meeting": {
+    "when": "",                    // 원문 표기 그대로
+    "what": "",                    // 무엇을 정하는 자리인가
+    "who": "",                     // 누가 모이나
+    "alt": []                      // 다른 후보 일시가 더 나왔으면 원문 그대로
+  },
+  "items": [
+    {
+      "kind": "decision",          // decision | open | todo | role
+      "text": "",                  // 한 줄로 완결된 문장. 주어와 대상이 다 있어야 한다
+      "status": "합의",            // decision 만: 합의 | 추가논의 | 이견 | 보류
+      "rationale": "",             // decision 만: 왜 그렇게 정했나 한 문장
+      "positions": [{"who":"","stance":""}],   // 이견이 남은 경우만
+      "owner": "",                 // 명부의 이름 그대로
+      "support": [],               // 보조 담당자
+      "due": "",                   // 원문 표기 그대로
+      "purpose": "",               // todo 는 필수
+      "agreement": "",             // todo 만: 합의됨 | 제안됨 | 이견있음
+      "depends_on": [],            // 막고 있는 다른 항목의 text 앞부분
+      "dep_basis": "",             // 발화 | 추론
+      "needs_confirm": false,      // 신호가 하나뿐이라 다음 회의에서 확인해야 하면 true
+      "carried": false,            // 지난 회의 미결이 이어진 것이면 true
+      "quote": ""                  // 이 항목의 근거가 된 전사문 원문 15~60자
+    }
+  ]
+}
+
+값이 비는 키는 아예 쓰지 마라. 빈 문자열·빈 배열·false 를 적을 자리면 그 줄을 통째로
+생략한다. kind 와 text 와 quote 만 모든 항목에 반드시 있다. 위 예시는 쓸 수 있는 키의
+목록이지 매번 다 채우라는 뜻이 아니다. 빈 키를 채우느라 지면을 쓰면 정작 항목이 잘린다.
+
+■ 판정 규칙
+
+1. 결정
+   · 결론 문장(무엇을 어떻게 한다는 확정 진술)과 합의 신호(동의·수용·"그렇게 갑시다"·
+     반론 없이 다음 주제로 넘어감)가 둘 다 있으면 status 는 "합의" 다.
+   · 결론 문장은 뚜렷한데 합의 신호가 한 번뿐이면 decision 으로 두되 status 를
+     "추가논의", needs_confirm 을 true 로 세운다. 결정이 없었던 것처럼 미결로 내리지 마라.
+     통역 회의에서는 합의 신호가 통역 턴에 실려 구조적으로 잘 사라진다.
+   · 결론 문장 자체가 없을 때만 open 이다.
+   · 같은 내용이 통역으로 두 번 나온 것은 두 개의 신호가 아니다. 한 번으로 센다.
+   · 뒤에서 뒤집힌 것은 최종 상태만 남긴다. 뒤집혔다는 사실이 중요하면 rationale 에 적는다.
+   · 한 사안이 여러 번 나오면 항목을 하나로 합친다.
+
+2. 이견
+   · 이견이 남은 논점을 결정으로 굳히지 마라. 한쪽 결론만 적힌 회의록은 분쟁 도구가 된다.
+   · status 를 "이견" 으로 두고 positions 에 양쪽을 나란히 적는다. 옳고 그름을 판단하지 마라.
+   · 발주처·설계사·시공사·감리·병원 중 누구의 주장인지 who 에 밝힌다.
+
+3. 할 일
+   · 목적(왜 하는가)을 재료에서 한 문장으로 쓸 수 없으면 todo 로 올리지 말고 open 으로
+     내린다. 목적을 지어내지 마라.
+   · agreement 는 합의됨 / 제안됨 / 이견있음 중 하나. 제안만 한 것을 합의됨으로 쓰지 마라.
+
+4. 담당자
+   · 담당자는 한 명이다. 여럿이면 대표를 owner 에, 나머지를 support 에 넣는다.
+   · 같은 사람을 한 가지 표기로만 쓴다. 명부에 있으면 명부 표기를 끝까지 유지한다.
+     한 사람을 이름·역할·이름(역할) 세 가지로 갈라 쓰지 마라.
+   · 담당자나 기한이 비는 것은 결함이 아니다. 빈칸을 채우려고 추측하지 마라.
+     비었다는 사실이 다음 회의의 첫 안건이다.
+
+5. 역할
+   · 회의에서 확인된 소속·역할·책임 범위를 kind "role" 로 남긴다. 담당자는 필수다.
+
+6. 선후관계
+   · "A 가 끝나지 않으면 B 를 시작할 수 없다" 에만 depends_on 을 쓴다. 관련이 있다거나
+     순서대로 말했다는 이유로 넣지 마라. 없으면 키를 생략한다.
+   · 발화로 확인되면 dep_basis 를 "발화", 정황상 추론이면 "추론".
+
+7. 사람 이름 — 가장 위험한 자리
+   · 명부에 없는 이름을 만들어 쓰지 마라.
+   · 낯선 이름은 들린 대로 쓰고 뒤에 (?) 를 붙인다.
+   · 발음이 비슷하다는 이유로 유명 인사·정치인·전현직 고위직 이름으로 바꾸는 것은
+     어떤 경우에도 금지한다. 직함이 그럴듯해도 금지다.
+     실제로 지방 부위원장이 전 국가주석 이름으로 굳은 사고가 있었다.
+   · 직함만 들리고 이름이 없으면 직함만 쓴다. 이름을 보충하지 마라.
+
+8. 날짜·시각
+   · 원문 표기 그대로 옮긴다. "8월 22일 오전 9시", "9월 3일", "ngày 3/9" 를 다른
+     형식으로 바꾸거나 요일을 계산하지 마라. 변환은 프로그램이 한다.
+   · 다음 회의 일시, 제출 기한, 착수 예정일은 회의 전 구간에 흩어져 나온다.
+     끝부분만 보지 말고 전체에서 찾는다. 후보가 여럿이면 가장 구체적이고 가장 나중에
+     확정된 것을 next_meeting 의 when 에 두고 나머지는 alt 에 남긴다.
+   · 다음 회의 일시가 정말 없으면 when 을 쓰지 마라. 회의 날짜로 대신 채우지 마라.
+
+9. 숫자·단위
+   · tỷ 는 십억 동, triệu 는 백만 동이다. 원화로 환산하지 마라. 원문 단위 그대로 쓴다.
+   · 면적·수량·층수·병상수도 반올림하거나 단위를 바꾸지 마라.
+
+10. 용어
+   · 용어집의 한 줄에 등호로 이어진 표기들은 같은 것을 가리키며 맨 앞이 대표 표기다.
+     본문에서는 대표 표기로 통일한다.
+   · 지난 회의에서 넘어온 미결이 이번에 다시 다뤄졌으면 그 항목의 carried 를 true 로 한다.
+
+11. 근거
+   · 모든 항목에 quote 가 있어야 한다. 전사문에서 그대로 복사한 15~60자다.
+     다듬거나 번역하거나 이어 붙이지 마라. 프로그램이 원문과 대조한다.
+   · 번역 구간이라 문장이 끊겨 있으면 끊긴 그대로 옮긴다.
+   · 근거로 삼을 원문을 찾을 수 없으면 그 항목을 만들지 마라.
+
+■ 요약과 주제
+
+summary 는 3~5문장 한 문단이다. 불릿·표·머리말을 넣지 마라. 카톡·잘로에 그대로
+붙여넣어 읽히는 문단이어야 한다. 네 가지가 반드시 들어간다.
+(1) 핵심 쟁점이 무엇이었나 (2) 합의되지 못하고 남은 것 (3) 다음 조치와 담당자
+(4) 그 조치의 일시 (원문 표기 그대로)
+
+topics 는 회의에서 실제로 다룬 주제 이름을 소제목으로 삼는다. 예를 들면 "수술실 시공",
+"전기 인입" 같은 것이다. "결정사항"·"미결"·"할 일" 같은 절 이름을 소제목으로 쓰지 마라.
+그 절들은 이 아래에 그대로 실린다. 항목은 무엇이 어떻게 되었고 다음이 무엇인지
+알 수 있는 완결 문장으로 쓴다.
+
+■ 분량
+
+간결이면 결정과 미결은 하나도 빼지 않고 할 일만 성격이 같은 것끼리 묶는다. 요약 3문장.
+보통이면 위 그대로. 요약 4문장. 상세면 부수적 확인 사항과 역할까지 남긴다. 요약 5문장.
+어떤 설정에서도 결정과 이견이 남은 항목은 줄이지 않는다.
+
+■ 내보내기 전 스스로 확인할 것
+
+1. 명부에 없는 이름에 (?) 를 붙였나. 유명 인사 이름으로 바뀐 곳은 없나.
+2. 날짜를 원문 표기 그대로 뒀나.
+3. 다음 회의 일시를 전사문 전 구간에서 찾았나.
+4. 결론 문장이 뚜렷한데 미결로 내려 버린 항목은 없나.
+5. 이견이 있는데 한쪽만 적은 항목은 없나.
+6. 목적을 지어낸 할 일은 없나.
+7. 담당자·기한의 빈칸을 추측으로 채우지 않았나.
+8. 모든 항목에 원문 그대로의 quote 가 있나.
+9. 통화·수량 단위를 환산하지 않았나.
+10. 빈 값을 가진 키를 지웠나.
+11. JSON 이 문법적으로 유효한가. 주석·코드펜스·설명이 섞이지 않았나.
+
+이제 JSON 객체 하나만 출력한다.`;
+
+function conclusionPrompt(note, fullText, mode){
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const S = docSize(note);
+  /* 사전 자료 전문은 넣지 않는다. 12,000자를 통째로 넣으면 모델이 그것을 되뱉고,
+     회의에서 나오지 않은 것을 결정으로 올린다. 짧은 맥락 한 줄이면 족하다. */
+  return CONCLUSION_TMPL
+    .replace("{{DOC_TYPE}}",     (DOC_FORMS[note.docForm || "minutes"] || {}).label || "회의록")
+    .replace("{{LENGTH}}",       S.label || "보통")
+    .replace("{{MEETING_DATE}}", dayLabel(note.created))
+    .replace("{{ROSTER}}",       attendeeBlock(note) || "(등록된 참석자 없음)")
+    .replace("{{GLOSSARY}}",     String(CFG.gloss || "").trim() || "(없음)")
+    .replace("{{CARRY}}",        (ser && ser.carry) || "(없음)")
+    .replace("{{MODE}}",         CONCLUSION_MODE[mode || "all"])
+    .replace("{{TRANSCRIPT}}",   (note.ctx ? "[회의 맥락] " + note.ctx + "\n\n" : "") + fullText);
+}
+
+/* 모델이 내놓은 글에서 JSON 을 건져 낸다.
+
+   코드펜스 한 번, 응답 잘림 한 번이면 회의록이 통째로 날아간다. 그래서 두 겹으로 받는다.
+   먼저 펜스와 앞뒤 군말을 벗기고 통째로 파싱한다. 그것이 실패하면 중괄호가 닫힌
+   항목만 하나씩 떼어 낸다. 반쪽짜리 항목보다 없는 항목이 낫다. */
+function parseLooseJson(raw){
+  let t = String(raw || "").trim();
+  t = t.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  const a = t.indexOf("{");
+  if(a < 0) return null;
+  t = t.slice(a);
+  const b = t.lastIndexOf("}");
+  try{ return JSON.parse(b > 0 ? t.slice(0, b + 1) : t); }catch(e){ /* 아래에서 건진다 */ }
+
+  const out = { summary:"", topics:[], next_meeting:null, items:[] };
+  const ms = /"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(t);
+  if(ms){ try{ out.summary = JSON.parse('"' + ms[1] + '"'); }catch(e){ out.summary = ms[1]; } }
+  const mn = /"next_meeting"\s*:\s*(\{[\s\S]*?\})\s*,/.exec(t);
+  if(mn){ try{ out.next_meeting = JSON.parse(mn[1]); }catch(e){} }
+
+  const at = t.indexOf('"items"');
+  if(at >= 0){
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for(let i = t.indexOf("[", at); i >= 0 && i < t.length; i++){
+      const ch = t[i];
+      if(esc){ esc = false; continue; }
+      if(inStr){ if(ch === "\\") esc = true; else if(ch === '"') inStr = false; continue; }
+      if(ch === '"'){ inStr = true; continue; }
+      if(ch === "{"){ if(depth === 0) start = i; depth++; }
+      else if(ch === "}"){
+        depth--;
+        if(depth === 0 && start >= 0){
+          try{ out.items.push(JSON.parse(t.slice(start, i + 1))); }catch(e){}
+          start = -1;
+        }
+      }else if(ch === "]" && depth === 0) break;
+    }
+  }
+  return out.items.length ? out : null;
+}
+
+/* 근거 문장이 전사문에 실재하는지 본다.
+
+   "그대로 복사하라" 는 지시를 지키지 않았다는 것 자체가, 그 항목을 전사문이 아니라
+   상상으로 썼다는 신호다. 그렇다고 지우면 진짜 결정을 잃는다. 지우지 말고 표시만 한다. */
+function verifyQuotes(json, fullText){
+  const flat = s => String(s || "").replace(/[\s.,·、"'`~!?\-—…]/g, "").toLowerCase();
+  const hay = flat(fullText);
+  let bad = 0, judged = 0;
+  (json.items || []).forEach(it => {
+    const q = flat(it.quote);
+    if(q.length < 8) return;            // 너무 짧으면 판정하지 않는다
+    judged++;
+    if(hay.indexOf(q) < 0){ it.needs_confirm = true; it._quoteMiss = true; bad++; }
+  });
+  return judged ? bad / judged : 0;
+}
+
+/* 결론부 호출. JSON 이 깨져도 회의록은 나와야 한다. */
+async function callDocJson(prompt, budget){
+  for(let tries = 0; tries < 3; tries++){
+    const nudge = tries
+      ? "\n\n앞선 응답이 잘렸거나 형식이 어긋났다. 항목 수를 줄이지 말고, 비는 키를 생략해 더 짧게 써라. JSON 객체 하나만 출력한다."
+      : "";
+    let raw = "";
+    try{ raw = await callDocModel(prompt + nudge, budget, true); }
+    catch(e){ if(tries === 2) return null; continue; }
+    const j = parseLooseJson(raw);
+    if(j && Array.isArray(j.items)) return j;
+  }
+  return null;
+}
+
+/* 전사문이 길면 종류를 나눠 두 번 부른다.
+
+   시간으로 자르지 않는다는 원칙은 그대로다 — 두 호출 모두 전사문 전체를 본다.
+   한 번에 한 종류만 찾으면 긴 글 가운데가 묻히는 문제도 함께 누그러진다. */
+async function callConclusion(note, fullText){
+  if(fullText.length <= 24000)
+    return finishConclusion(await callDocJson(conclusionPrompt(note, fullText, "all"), 12000), fullText);
+
+  const a = await callDocJson(conclusionPrompt(note, fullText, "decide"), 8000);
+  const b = await callDocJson(conclusionPrompt(note, fullText, "act"), 8000);
+  if(!a && !b) return null;
+  if(!a) return finishConclusion(b, fullText);
+  if(!b) return finishConclusion(a, fullText);
+  return finishConclusion(Object.assign({}, a, { items: (a.items || []).concat(b.items || []) }), fullText);
+}
+
+function finishConclusion(json, fullText){
+  if(!json) return null;
+  /* 항목이 하나도 없이 돌아오는 실패가 있다. 그대로 실으면 "결정: 해당 없음" 이라는
+     자신만만하게 틀린 회의록이 나온다. 그건 지금의 붕괴보다 나쁘다. 실패로 친다. */
+  if(!(json.items || []).length && fullText.length > 3000) return null;
+  if(verifyQuotes(json, fullText) > 0.4) json._quoteWarn = true;
+  return json;
+}
+
+/* 다음 회의로 넘길 것을 코드가 만든다.
+
+   예전에는 앞부분을 만드는 모델 호출이 CARRY 블록을 함께 뱉었다. 그 호출을 없앴으니
+   여기서 만든다. 모델을 부를 이유가 없다 — 이미 구조가 있다.
+   용어도 모델이 아니라 전사문에서 정규식으로 긁는다. 그래야 잘못 들린 이름이
+   다음 회의의 용어집에 올라 스스로를 강화하는 고리가 끊긴다. */
+function buildCarry(json, fullText){
+  const n = normalizeDoc(json);
+  const lines = [];
+  n.items.forEach(it => {
+    if(it.kind === "open") lines.push(it.text + (it.dueRaw ? " (" + it.dueRaw + ")" : ""));
+    else if(it.kind === "todo") lines.push((it.owners[0] || "미지정") + " — " + it.text
+                                           + (it.dueRaw ? " — " + it.dueRaw : ""));
+    else if(it.kind === "decision" && it.status === "이견") lines.push("[이견] " + it.text);
+  });
+  const terms = scanAnchors(fullText)
+    .filter(a => (a.type === "person" || a.type === "org" || a.type === "ref")
+                 && a.count >= 2 && !a.soft)
+    .slice(0, 60).map(a => a.raw);
+  return "---CARRY---\n" + JSON.stringify({ carry: lines.slice(0, 8).join("\n"), terms });
+}
+
+async function makeMinutes(note, fullText, onStep, cache){
+  const S = docSize(note);
   const parts = splitParts(fullText, S.seg);
-  const total = parts.length + 3;   // 조각들 + 병합 + 앞부분 + 한 장 요약
+  const total = parts.length + 3;   // 조각들 + 병합 + 결론부
+
+  /* 조각 요약. 여기서 거두는 것은 "오간 이야기" 다.
+     결정·미결·할 일은 아래 결론부가 전사문 전체를 보고 따로 뽑는다.
+     조각을 나누는 이유는 입력이 길어서가 아니라 출력이 길어서다. 상세 기록은
+     길어서 한 번에 못 쓰지만 결론부는 짧다. 그래서 둘의 길을 갈랐다. */
   const digests = [];
-  for(let i=0;i<parts.length;i++){
+  for(let i = 0; i < parts.length; i++){
     if(onStep) onStep(i+1, total);
     const kept = cache && await cache.get("p" + i);
     if(kept){ digests.push(kept); continue; }
     const out = await callDocModel(digestPrompt(note, parts[i], i, parts.length), S.cap);
     digests.push(out);
     if(cache) await cache.set("p" + i, out);
-    await new Promise(s=>setTimeout(s, 600));   // 몰아치지 않는다
+    await new Promise(s => setTimeout(s, 600));   // 몰아치지 않는다
   }
 
-  // 결정·미결·할 일만 모아 앞부분을 만든다. 서술은 병합 쪽이 따로 다룬다.
-  const brief = digests.map(d=>{
-    const k = d.indexOf("## 이 구간의 결정");
-    return k >= 0 ? d.slice(k) : d;
-  }).join("\n\n");
-
-  const storyParts = digests.map(d=>{
-    const s = d.indexOf("## 오간 이야기");
-    if(s < 0) return "";
+  const storyParts = digests.map(d => {
+    const st = d.indexOf("## 오간 이야기");
+    if(st < 0) return "";
     const e = d.indexOf("## 이 구간의 결정");
-    return (e > s ? d.slice(s+9, e) : d.slice(s+9)).trim();
+    return (e > st ? d.slice(st+9, e) : d.slice(st+9)).trim();
   }).filter(Boolean);
 
   // 상세 기록 — 조각을 잇지 않고 병합한다
   if(onStep) onStep(parts.length+1, total);
   const detail = await mergeStory(note, storyParts, null, cache);
 
-  // 앞부분(결정·미결·할 일) — 구간 기록과 대조해 빠진 것을 잡는다
+  // 결론부 — 전사문 전체를 한 번에 본다
   if(onStep) onStep(parts.length+2, total);
+  let json = null;
+  const keptJson = cache && await cache.get("concl");
+  if(keptJson){ try{ json = JSON.parse(keptJson); }catch(e){} }
+  if(!json){
+    json = await callConclusion(note, fullText);
+    if(json && cache) await cache.set("concl", JSON.stringify(json));
+  }
+
+  if(!json){
+    /* 구조를 못 뽑았다. 예전 경로로 만든다. 현장에서는 회의 직후 한 번 만들고
+       끝이라 두 번째 기회가 없다. 다만 조용히 넘어가지는 않는다. */
+    const brief = digests.map(d => {
+      const k = d.indexOf("## 이 구간의 결정");
+      return k >= 0 ? d.slice(k) : d;
+    }).join("\n\n");
+    note.docNote = "결론부를 구조화하지 못해 예전 방식으로 만들었습니다. 결정과 기한을 한 번 더 확인해 주세요.";
+    return await legacyHead(note, brief, detail, cache);
+  }
+  note.docNote = json._quoteWarn
+    ? "근거 문장이 녹취와 여러 곳에서 어긋납니다. 결정사항을 한 번 더 확인해 주세요." : "";
+
+  const roster = (note.attendees || []).map(i => CFG.people[i]).filter(Boolean);
+  const conclMd = renderConclusion(json, {
+    roster: roster,
+    meetingDate: note.created,
+    headingLevel: 2,
+    meta: { when: dayLabel(note.created), who: roster.map(p => p.name).filter(Boolean).join(", ") }
+  });
+  const bodyMd = dedupeTopSections(conclMd + "\n\n## 상세 기록\n\n" + detail);
+
+  /* 검사에는 반드시 상세 기록까지 합친 본문을 넘긴다. 결론부만 넘기면
+     상세 기록에 살아 있는 것이 전부 누락으로 잡혀 경고가 도배된다. */
+  const audit = auditDoc(bodyMd, fullText, roster);
+  note._concl = json;
+  return bodyMd + (audit ? "\n\n" + audit : "") + "\n\n" + buildCarry(json, fullText);
+}
+
+/* 예전 방식으로 앞부분을 만든다. 결론부를 구조화하지 못했을 때만 탄다.
+
+   조각 요약을 다시 요약하는 길이다. 결정이 조각 안에 존재하지 않아 8건이 2건으로
+   무너지던 바로 그 경로지만, 아무것도 안 나오는 것보다는 낫다. */
+async function legacyHead(note, brief, detail, cache){
   let headDoc = cache && await cache.get("head2");
   if(!headDoc){
     headDoc = await callDocModel(reducePrompt(note, brief), 12000);
@@ -2725,16 +4356,13 @@ async function makeMinutes(note, fullText, onStep, cache){
     if(cache) await cache.set("head2", headDoc);
   }
 
-  /* 한 장 요약 — 따로 부른다. 앞부분을 만든 호출은 본문을 못 보므로
-     회의를 관통하는 요약을 쓸 수 없다. 목적이 다르면 호출도 다르다.
+  /* 한 장 요약은 따로 부른다. 앞부분을 만든 호출은 본문을 못 보므로 회의를 관통하는
+     요약을 쓸 수 없다. 목적이 다르면 호출도 다르다.
 
-     처음에는 핵심 절을 앞에 놓고 요약을 시켰더니, 모델이 요약을 쓰는 대신
-     그 절들을 소제목만 ### 으로 바꿔 통째로 베껴 왔다. 그래서 회의록에
-     같은 내용이 이중으로 실렸다. 지금은 상세 기록을 주 재료로 앞에 두고,
-     절 이름을 소제목으로 쓰는 것을 금지하고, 그래도 베껴 오면 걸러낸 뒤
-     한 번 더 시킨다. (캐시 열쇠가 one2 인 것은 베낀 결과가 one 에 저장돼
-     다시 만들기를 눌러도 그대로 나오던 일이 있었기 때문이다.) */
-  if(onStep) onStep(parts.length+3, total);
+     처음에는 핵심 절을 앞에 놓고 요약을 시켰더니, 모델이 요약을 쓰는 대신 그 절들을
+     소제목만 바꿔 통째로 베껴 왔다. 그래서 같은 내용이 이중으로 실렸다. 지금은 상세
+     기록을 주 재료로 앞에 두고, 절 이름을 소제목으로 쓰는 것을 금지하고, 그래도 베껴
+     오면 걸러낸 뒤 한 번 더 시킨다. */
   const onePrompt = (warn) =>
 `아래 상세 기록을 읽고 "한 장 요약" 을 새로 써라. 안 읽은 사람이 30초 안에 회의를 파악하는 글이다.
 ${warn ? "\n경고: 조금 전 너는 아래 참고 절을 그대로 베꼈다. 베끼지 말고 상세 기록을 근거로 새로 써라.\n" : ""}
@@ -2757,7 +4385,7 @@ ${headDoc.slice(0, 4000)}`;
     onePage = await callDocModel(onePrompt(false), 4000);
     if(copiedSections(onePage))                     // 그래도 베꼈다 — 경고를 붙여 한 번 더
       onePage = await callDocModel(onePrompt(true), 4000);
-    onePage = stripReserved(onePage);               // 남은 베낌은 걸러낸다
+    onePage = stripReserved(onePage);
     if(cache) await cache.set("one2", onePage);
   }
 
@@ -2765,9 +4393,8 @@ ${headDoc.slice(0, 4000)}`;
   let headBody = (carryAt >= 0 ? headDoc.slice(0, carryAt) : headDoc).trim();
   const carryTail = carryAt >= 0 ? "\n\n" + headDoc.slice(carryAt) : "";
 
-  /* 앞부분 호출에 "한 장 요약과 상세 기록은 쓰지 마라" 고 일렀는데도
-     쓰는 경우가 있다. 그대로 붙이면 한 장 요약이 두 번 나온다.
-     지시는 지시대로 두고, 나온 것은 여기서 들어낸다. */
+  /* "한 장 요약과 상세 기록은 쓰지 마라" 고 일렀는데도 쓰는 경우가 있다.
+     그대로 붙이면 한 장 요약이 두 번 나온다. 지시는 지시대로 두고 여기서 들어낸다. */
   headBody = cutSection(cutSection(headBody, "한 장 요약"), "상세 기록");
   const one = onePage.trim().replace(/^##\s*한\s*장\s*요약\s*\n+/, "");
 
@@ -4442,7 +6069,11 @@ function draftHint(n, fm, sz, len){
       '개가 남아 있습니다. 다시 누르면 그다음부터 이어서 합니다. '+
       '<button type="button" id="drop-draft" class="linkbtn">버리고 새로</button></p>' : "")
     + (n.docError ? '<p class="hint" style="padding:0 18px;color:var(--danger)">'+
-       esc(n.docError)+'</p>' : "");
+       esc(n.docError)+'</p>' : "")
+    /* 결론부를 구조화하지 못했거나 근거가 녹취와 어긋날 때 남기는 말.
+       조용히 넘어가면 사람이 그 회의록을 그대로 믿는다. */
+    + (n.docNote ? '<p class="hint" style="padding:0 18px;color:var(--warn)">'+
+       esc(n.docNote)+'</p>' : "");
 }
 
 async function renderDetail(){
@@ -4689,7 +6320,7 @@ async function renderDetail(){
         'font-size:12.5px">고쳐 쓰기</button>'+
       '</div>';
 
-    doc = docChips + tabs + bar + (cur.form==="minutes" && !editing ? statBar(body) : "")+
+    doc = docChips + tabs + bar + (cur.form==="minutes" && !editing ? statBar(body, cur.conclStale ? null : cur.concl) : "")+
       topEdit +
       (editing
         ? '<div style="padding:12px 18px 0">'+
@@ -4753,7 +6384,9 @@ async function renderDetail(){
 
     const vl2 = (cur.viewLang && cur.viewLang !== "__src__") ? cur.viewLang : null;
     if(vl2){ cur.i18n = Object.assign({}, cur.i18n); cur.i18n[vl2] = val; }
-    else    { cur.body = val; }
+    /* 사람이 본문을 고치면 결론부 JSON 은 그 순간 낡는다. 개수는 이제 본문에서 센다.
+       안 그러면 손으로 지운 결정이 지표에는 그대로 남아 있다. */
+    else    { cur.body = val; cur.conclStale = true; }
     cur.editedAt = Date.now();
 
     // 첫 문서를 고쳤으면 내보내기가 쓰는 값도 함께 맞춘다
@@ -4874,15 +6507,19 @@ async function genMinutes(n, cs, btn, target){
       // 갈아끼운다. 본문이 바뀌었으니 옛 번역본은 버린다.
       target.body = body; target.at = Date.now();
       target.i18n = {}; target.viewLang = "__src__";
+      target.concl = n._concl || null; target.conclStale = false;
       n.openDoc = target.id;
     } else {
+      /* 결론부 JSON 을 함께 담는다. 안 담으면 문서를 다시 열 때 개수를 셀 수 없고,
+         나중에 담당자별·일정 절만 다시 그리는 것도 못 한다. */
       const d = { id: uid(), form: fm, size: sz, body, at: Date.now(),
-                  i18n:{}, viewLang:"__src__" };
+                  i18n:{}, viewLang:"__src__", concl: n._concl || null };
       n.docs.push(d); n.openDoc = d.id;
     }
     docPicking = false;
     n.summary = body;                  // 예전 형식과 내보내기를 위해 남겨 둔다
     n.draft = null; n.docError = "";   // 다 만들었으니 조각과 오류 자국은 버린다
+    delete n._concl;                   // 문서 기록으로 옮겼다. 노트에 두면 두 벌이 된다.
     await put("notes", n);
     // 다음 모임에서 "지난 기도제목 후속" 을 쓸 수 있게 남겨 둔다.
     if(n.seriesId && fm==="prayer"){
@@ -4919,9 +6556,15 @@ async function genMinutes(n, cs, btn, target){
 }
 
 /* 회의록은 절 이름이 고정돼 있다. 그 사실을 이용해 한눈에 보이는 지표를 만든다. */
+/* 첫 일치를 쓰므로 순서가 중요하다. "담당자별 할 일" 이 "할 일" 보다 먼저 와야
+   담당자 절이 할 일 색으로 칠해지지 않는다. */
 const SECTION_KIND = [
-  ["안건 처리 현황","agenda"], ["지난 회의 후속","carry"], ["결정사항","decide"], ["미결사항","open"],
-  ["투두리스트","todo"], ["일반요약","recap"], ["확인 필요","check"]
+  ["안건 처리 현황","agenda"], ["지난 회의 후속","carry"],
+  ["담당자별","owners"], ["일정과 선후","time"], ["다음 회의","next"],
+  ["결정사항","decide"], ["다음에 정해야 할 것","open"], ["미결사항","open"],
+  ["할 일","todo"], ["투두리스트","todo"],
+  ["확인해 주세요","check"], ["확인 필요","check"],
+  ["한 장 요약","recap"], ["일반요약","recap"], ["상세 기록","recap"]
 ];
 const kindOf = name => (SECTION_KIND.find(([k])=>name.indexOf(k)>=0)||[,"recap"])[1];
 
@@ -4940,7 +6583,18 @@ function sectionStats(text){
   return s;
 }
 
-function statBar(text){
+/* 결론부 JSON 이 있으면 그것으로 센다. 절 이름을 세는 것보다 정확하다.
+
+   그렇다고 예전 방식을 지우면 안 된다. 요약·참석자별·기도회 세 형식과, 결론부가
+   없는 지난 회의록 전부가 그 길을 쓰고 있다. 갈아끼우지 말고 나란히 둔다. */
+function statBar(text, concl){
+  if(concl){
+    const c = conclusionStats(concl);
+    return '<div class="statbar">'
+      + '<span class="stat decide">결정 ' + c.decision + '</span>'
+      + '<span class="stat open">미결 ' + c.open + '</span>'
+      + '<span class="stat todo">할 일 ' + c.todo + '</span></div>';
+  }
   const s = sectionStats(text);
   const pick = n => Object.keys(s).find(k=>k.indexOf(n)>=0);
   const chips = [];
@@ -4968,8 +6622,19 @@ function mdFold(body){
 }
 
 function md(t){
-  const lines = esc(t).split("\n"); let out=[], inUl=false;
+  const lines = esc(t).split("\n"); let out=[], inUl=false, inTbl=false, hdr=false;
   for(let l of lines){
+    // 일정표는 표로 나온다. 표를 모르면 파이프 줄이 그대로 글이 되어 화면이 깨진다.
+    if(/^\s*\|.*\|\s*$/.test(l)){
+      if(inUl){out.push("</ul>");inUl=false;}
+      if(/^\s*\|[\s:|-]+\|\s*$/.test(l)) continue;          // 머리와 몸을 가르는 줄
+      if(!inTbl){ out.push('<table class="mdtbl">'); inTbl=true; hdr=true; }
+      const cells = l.replace(/^\s*\|/,"").replace(/\|\s*$/,"")
+                     .split(/(?<!\\)\|/).map(c=>bold(c.trim().replace(/\\\|/g,"|")));
+      out.push("<tr>"+cells.map(c=>hdr?"<th>"+c+"</th>":"<td>"+c+"</td>").join("")+"</tr>");
+      hdr=false; continue;
+    }
+    if(inTbl){ out.push("</table>"); inTbl=false; }
     if(/^##\s+/.test(l)){
       if(inUl){out.push("</ul>");inUl=false;}
       const name = l.replace(/^##\s+/,"");
@@ -4981,6 +6646,7 @@ function md(t){
     out.push("<p>"+bold(l)+"</p>");
   }
   if(inUl) out.push("</ul>");
+  if(inTbl) out.push("</table>");
   return out.join("");
 }
 const bold = s => s.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");
@@ -5176,7 +6842,10 @@ function exportPieces(n, cs){
       script += "\n";
     }
   }
-  return { doc, suffix, head, script,
+  /* 결론부만 따로 떼어 둔다. 카톡에 회의록 전체를 붙이면 조각이 열 개가 나고
+     아무도 안 읽는다. 상세 기록 앞까지가 사람이 실제로 읽는 부분이다. */
+  const concl = doc ? String(doc).split("\n## 상세 기록")[0].trim() : "";
+  return { doc, concl, suffix, head, script,
            fname: (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_") + ".md" };
 }
 
@@ -5331,7 +7000,16 @@ async function exportNote(){
           go: ()=> saveAudio(n, cs) };
 
   sheet("보내기", [
-    p.doc ? { label:"회의록만 보내기", sub:"카톡·잘로에 붙습니다. 대개 이것이면 됩니다.",
+    p.concl ? { label:"결론만 보내기", sub:"요약·결정·할 일·다음 회의. 카톡·잘로용입니다.",
+              go: async ()=>{
+                /* 표와 마크다운 기호를 걷어 내고 말풍선 길이에 맞춰 나눈다.
+                   안드로이드는 조각마다 공유창이 한 번씩 뜬다. 미리 알려 준다. */
+                const parts = renderPlain(p.concl, { title: n.title + p.suffix, when: dayLabel(n.created) });
+                if(parts.length > 1) toast(parts.length + "번에 나눠 보냅니다. 앱을 " + parts.length + "번 고르셔야 합니다.", 7000);
+                for(let i = 0; i < parts.length; i++)
+                  if(!await sendText(n.title, parts[i])) break;
+              } } : null,
+    p.doc ? { label:"회의록 전체 보내기", sub:"상세 기록까지 담습니다. 깁니다.",
               go: ()=> sendText(n.title, p.head + p.doc) } : null,
     { label:"전사 원본까지 보내기", sub:"말한 것을 전부 포함합니다. 깁니다.",
       go: ()=> sendText(n.title, p.head + (p.doc ? p.doc+"\n\n———\n\n" : "") + "전사 원본\n\n" + p.script) },
