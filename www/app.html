@@ -513,6 +513,19 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="setgroup">
       <h3>녹음</h3>
+      <button class="bigbtn ghost" id="s-lat" style="width:100%;margin:0 0 10px">이번 회의 지연 재기</button>
+      <p class="hint" style="margin:-4px 0 14px">무엇이 느린지 봅니다. 요금이 들지 않고,
+        회의를 방해하지도 않습니다. 회의를 한 건 하고 나서 눌러 주세요.</p>
+      <div class="field"><label for="s-stream">통역을 문장이 끝날 때마다 내보내기</label>
+        <select id="s-stream">
+          <option value="1">켜기 · 한 문장이 끝나면 바로 읽고 자막에 올립니다</option>
+          <option value="0">끄기 · 통역이 다 끝난 뒤 한꺼번에</option>
+        </select>
+        <p class="hint">통역기에 보내는 글은 예전과 <b>똑같이 구간 전체</b>입니다.
+          번역의 정확도는 달라지지 않습니다. 달라지는 것은 다 만들어질 때까지
+          기다리는가 하나뿐입니다.<br>
+          읽어 주는 소리가 겹치거나 문장 중간에서 끊기면 이것을 <b>끄기</b>로 바꿔 주세요.
+          회의 도중에 바꿔도 되고, 바꾸는 즉시 다음 구간부터 예전 방식으로 돌아갑니다.</p></div>
       <div class="field"><label for="s-livesum">회의 중 '지금까지' 정리</label>
         <select id="s-livesum">
           <option value="1">켜기 · 2분쯤마다 한 줄씩 쌓입니다</option>
@@ -796,7 +809,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.08.29-3";
+const APP_VERSION = "2026.08.29-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -898,7 +911,7 @@ const DEFAULTS = { oai:"", ant:"",
                    doc:"gpt-4o-mini",              // 회의록
                    trans:"gpt-4o-mini",            // 통역
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
-                   chunk:"30000", gloss:"", people:[], series:[],
+                   chunk:"30000", gloss:"", people:[], series:[], stream:"1",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
@@ -1081,11 +1094,23 @@ async function sttChunk(blob, prompt, terms){
     }
   }
 
-  const r = await fetch("https://api.openai.com/v1/audio/transcriptions",{
-    method:"POST", headers:{ Authorization:"Bearer "+CFG.oai }, body:fd
-  });
-  if(!r.ok) throw new Error("전사 실패 "+r.status+" · "+(await r.text()).slice(0,160));
-  const j = await r.json();
+  /* 시한은 바이트로 잡는다. 16kHz 16bit 모노는 초당 32,000 바이트라 45초 구간이 1.44MB 다.
+     아주 느린 회선(상행 100kbps)에서도 올릴 수 있게 잡되, 매달림은 끊는다.
+     최소 90초, 그리고 100kbps 기준으로 계산한 값 중 큰 쪽. */
+  const bytes = (blob && blob.size) || 0;
+  const budget = Math.max(90000, Math.round(bytes / 12500) * 1000 + 30000);
+  let text;
+  try{
+    text = await xhrPost("https://api.openai.com/v1/audio/transcriptions",
+      { Authorization: "Bearer " + CFG.oai }, fd, budget,
+      t => { latAdd("up", t.upMs); latAdd("srv", t.srvMs); });
+  }catch(e){
+    if(!e.slow) e.message = "전사 실패 · " + e.message;
+    throw e;
+  }
+  let j;
+  try{ j = JSON.parse(text); }
+  catch(e){ throw new Error("전사 응답을 읽지 못했습니다 · " + String(text).slice(0,120)); }
 
   /* diarize 는 말차례마다 화자를 준다. 화자가 바뀌는 자리에 이름을 붙여
      한 덩이 글로 만든다. 뒤의 걸러내기 장치들이 글만 다루기 때문이다. */
@@ -1143,19 +1168,34 @@ async function freeAudio(needBytes){
   const notes = await all("notes");
   const doneDiar = new Set(notes.filter(n=>n.script).map(n=>n.id));
   const cs = (await all("chunks")).filter(c=>c.blob);
-  // 화자 분리를 마친 회의의 녹음 → 오래된 것 → 순으로 버린다
+  /* 아직 전사하지 않은 조각의 소리는 맨 마지막에 버린다.
+
+     예전에는 이 순서에 status 가 없었다. 그래서 저장공간이 모자라면 전사를 기다리던
+     조각의 소리부터 지워질 수 있었고, 그러면 그 발언은 영영 사라진다. "다시 시도" 버튼이
+     있어도 소용이 없다 — 되살릴 소리가 없기 때문이다.
+     버리는 차례: 화자 분리를 마친 회의 → 전사가 끝난 것 → 오래된 것. */
+  const live = c => c.status !== "done";
   cs.sort((a,b)=>{
+    const LA = live(a) ? 1 : 0, LB = live(b) ? 1 : 0;
+    if(LA !== LB) return LA - LB;                  // 아직 전사 안 한 것은 맨 뒤로
     const A = doneDiar.has(a.noteId) ? 0 : 1, B = doneDiar.has(b.noteId) ? 0 : 1;
     return A!==B ? A-B : (a.created||0)-(b.created||0);
   });
-  let freed = 0;
+  let freed = 0, lost = 0;
   for(const c of cs){
+    if(freed >= needBytes) break;
     const sz = c.blob.size || 0;
+    /* 여기까지 왔다는 것은 지울 것이 이것밖에 안 남았다는 뜻이다.
+       그래도 버린다 — 저장소가 넘쳐 앱이 튕기면 회의록이 통째로 날아간다.
+       다만 조용히 넘어가지는 않는다. */
+    if(live(c)) lost++;
     c.blob = null; c.keepAudio = false;
     await putRaw("chunks", c);
     freed += sz;
-    if(freed >= needBytes) break;
   }
+  /* 전사 못 한 소리까지 버려야 했다면 조용히 넘어가지 않는다. 사람이 알아야 한다. */
+  if(lost) toast("저장공간이 모자라 아직 전사하지 않은 구간 " + lost +
+                 "개의 소리를 버렸습니다. 그 대목은 되살릴 수 없습니다.", 9000);
   return freed;
 }
 
@@ -1420,7 +1460,11 @@ let ttsSuspended = false;
 function noteSpoken(text){
   spokenLog.push({ at: Date.now(), text });
   const cut = Date.now() - 600000;
-  spokenLog = spokenLog.filter(s=>s.at > cut).slice(-80);
+  /* 상한을 80 에서 400 으로 올린다. 예전에는 구간 하나에 기록 하나라 분당 두 건쯤이었고
+     80칸이 40분 분량이었다. 문장 단위가 되면 분당 열 건쯤이라 80칸이 8분으로 줄어,
+     10분 창을 채우기도 전에 상한이 먼저 걸린다. 그러면 되울림 방어가 새고,
+     회의록이 앱 자기 말로 덮이던 사고로 되돌아간다. */
+  spokenLog = spokenLog.filter(s=>s.at > cut).slice(-400);
 }
 function spokenLately(text){
   const cut = Date.now() - 600000;
@@ -1437,7 +1481,9 @@ function ttsEchoSeen(){
   /* 대화 모드는 스피커로 트는 것이 정상이다. 되울린 문장을 걸러내는 것으로
      충분하고, 읽어주기를 멈춰 버리면 통역 자체가 서 버린다. */
   if(activeNote && activeNote.mode === "talk") return;
-  if(ttsSuspended || ttsEchoes < 3) return;
+  /* 문장 단위로 읽게 되면서 한 구간이 여러 번 세어질 수 있다. 문턱을 올린다.
+     여기서 너무 일찍 멈추면 멀쩡한 회의에서 읽어주기가 꺼진다. */
+  if(ttsSuspended || ttsEchoes < 5) return;
   ttsSuspended = true;
   ttsStop();
   toast("통역해 드린 말이 전사에 자꾸 섞여 들어옵니다. 기록을 지키기 위해 이 녹음 동안 읽어주기를 멈춥니다.", 9000);
@@ -1656,7 +1702,7 @@ async function extractTerms(brief){
   }catch(e){ return []; }
 }
 
-async function translateChunk(text, target, prevPair, ctxHint){
+async function translateChunk(text, target, prevPair, ctxHint, onSentence){
   if(!text) return "";
   const sys = [
     "You are a simultaneous interpreter for on-site construction and business meetings in Southeast Asia (Vietnam, Cambodia).",
@@ -1679,27 +1725,68 @@ async function translateChunk(text, target, prevPair, ctxHint){
     prevPair ? "Context only — the previous segment, already translated. Use it for pronouns and flow. It is NOT part of the text to translate, but the user's message must still be translated in full:\n"+prevPair : "",
     CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : ""
   ].filter(Boolean).join("\n\n");
-  const call = async (cap, extra) => {
-    const r = await fetch("https://api.openai.com/v1/chat/completions",{
+  /* 통역기에 보내는 것은 예전과 한 글자도 다르지 않다 — 구간 전체 한 덩이, 호출 한 번.
+     바뀌는 것은 다 만들어질 때까지 기다릴 것인가 하나뿐이다. 그래서 번역의 정확도가
+     원리적으로 안 바뀌고, 읽어 주는 것은 언제나 완결된 문장이며, 자막은 늘어나기만 한다.
+
+     한국어는 부정과 양태가 문장 끝에 온다. "승인하겠습니다" 와 "승인하기 어렵겠습니다" 가
+     마지막 어절에서 갈린다. 그래서 문장 중간을 먼저 내보내는 방식은 쓰지 않는다.
+     문장이 끝났을 때만 내보낸다. 문장을 가르는 잣대는 앱이 이미 쓰는 것 하나뿐이다. */
+  const call = async (cap, extra, stream) => {
+    const body = JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:cap,
+        stream: !!stream,
+        messages:[{role:"system",content: extra ? sys+"\n\n"+extra : sys},
+                  {role:"user",content:text}] });
+    const r = await fetchT("https://api.openai.com/v1/chat/completions",{
       method:"POST",
       headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
-      body: JSON.stringify({ model:CFG.trans, temperature:0.2, max_tokens:cap,
-        messages:[{role:"system",content: extra ? sys+"\n\n"+extra : sys},
-                  {role:"user",content:text}] })
-    });
+      body: body }, 90000);
     if(!r.ok) throw new Error("통역 실패 "+r.status);
-    const j = await r.json();
-    return { out: (j.choices?.[0]?.message?.content||"").trim(),
-             cut: j.choices?.[0]?.finish_reason === "length" };
+    if(!stream){
+      const j = await r.json();
+      return { out: (j.choices?.[0]?.message?.content||"").trim(),
+               cut: j.choices?.[0]?.finish_reason === "length" };
+    }
+    const rd = r.body.getReader(), dec = new TextDecoder();
+    let buf = "", acc = "", said = 0, fin = "";
+    const flush = force => {
+      const ss = sentences(acc);
+      const upto = force ? ss.length : ss.length - 1;   // 마지막 토막은 아직 안 끝났다
+      for(let i = said; i < upto; i++) onSentence(ss[i]);
+      if(upto > said) said = upto;
+    };
+    for(;;){
+      const { value, done } = await rd.read();
+      if(done) break;
+      buf += dec.decode(value, { stream:true });
+      let nl;
+      while((nl = buf.indexOf("\n")) >= 0){
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if(!line.startsWith("data:")) continue;
+        const d = line.slice(5).trim();
+        if(d === "[DONE]") continue;
+        let j; try{ j = JSON.parse(d); }catch(e){ continue; }
+        const ch = j.choices && j.choices[0];
+        if(!ch) continue;
+        if(ch.delta && ch.delta.content) acc += ch.delta.content;
+        if(ch.finish_reason) fin = ch.finish_reason;
+      }
+      flush(false);
+    }
+    flush(true);
+    return { out: acc.trim(), cut: fin === "length" };
   };
 
-  let t = await call(1600);
+  const wantStream = !!onSentence && CFG.stream !== "0" && CAN_STREAM;
+  let t = await call(1600, "", wantStream);
   /* 통역이 중간에서 멈추거나 앞머리를 건너뛰는 일이 있다. 상한에 걸렸거나
      원문 대비 지나치게 짧으면 끊긴 것으로 보고 한 번 더 시킨다.
      두 번째까지 짧으면 그대로 쓴다 — 원래 짧게 옮겨지는 말도 있다. */
   if(t.cut || (text.length > 120 && t.out.length < text.length * 0.4)){
+    /* 고쳐 부르는 것은 절대 흘려받지 않는다. 소리는 되돌릴 수 없다.
+       이미 읽어 준 문장을 다시 읽으면 회의가 엉킨다. 고친 것은 화면에만 반영한다. */
     const again = await call(3000,
-      "IMPORTANT: Your previous attempt was incomplete (it skipped part of the segment). Translate the ENTIRE user message, first word to last.");
+      "IMPORTANT: Your previous attempt was incomplete (it skipped part of the segment). Translate the ENTIRE user message, first word to last.", false);
     if(again.out.length > t.out.length) t = again;
   }
   return t.out;
@@ -1743,34 +1830,63 @@ const NativeDec = (function(){
 })();
 
 let ttsQueue = [], ttsBusy = false, ttsLast = "";
+/* 네이티브 speak() 는 안드로이드 엔진에 넘기자마자 대답한다. 낭독이 끝난 것이 아니다.
+   끝난 것은 ttsDone 으로 오는데 그것을 아무도 안 듣고 있었다. 그래서 ttsBusy 가 늘
+   false 였고, 아래의 "밀린 것 버리기" 가 한 번도 발동하지 않았으며, 밀린 낭독이 전부
+   엔진 큐로 넘어갔다. 그 큐에는 상한도 버리기도 없다.
+   좌우 나눔은 끝났다는 신호의 이름이 다르게 오므로 이름을 맞추려 들지 않고
+   "하나 끝났다" 로만 센다. 어차피 한 번에 하나만 읽는다. */
+let ttsPending = null, ttsWatch = null;
+if(NativeTts && NativeTts.addListener){
+  try{ NativeTts.addListener("ttsDone", () => { const f = ttsPending; ttsPending = null; if(f) f(); }); }
+  catch(e){}
+}
 /* pan 은 소리를 어느 귀로 보낼지다. -1 왼쪽, 0 가운데, +1 오른쪽.
    좌우를 나눠 들을 때만 쓴다. */
-function speakTrans(text, target, pan){
+function speakTrans(text, target, pan, gid){
   if(CFG.tts!=="1" || !text || !TTS_OK || ttsSuspended) return;
   // 방금 읽은 것과 같은 말이면 읽지 않는다. 같은 말을 두 번 듣는 일이 없게 한다.
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
   noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
-  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0 });
-  /* 처리가 밀리면 읽기가 한없이 뒤처진다. 밀린 것은 버리고 최근 것만 읽는다.
-     다만 좌우를 나눠 들을 때 한쪽 것만 남기면 반대쪽 사람이 제 차례를 통째로
-     놓친다. 그래서 귀마다 최근 하나씩을 남긴다. */
-  if(ttsQueue.length > 2){
-    const keep = new Map();
-    for(const j of ttsQueue) keep.set(j.pan, j);
-    ttsQueue = Array.from(keep.values()).slice(-2);
+  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "" });
+  /* 밀린 것을 버리는 단위가 발화에서 구간으로 바뀐다.
+
+     예전에는 한 구간이 발화 하나였다. 이제 한 구간이 문장 여러 개로 나뉘어 들어온다.
+     개수로 자르면 한 구간의 앞 문장만 읽고 뒤를 버려 "…승인하지 않았습니다" 만
+     홀로 읽히는 일이 생긴다. 그래서 개수가 아니라 구간 단위로 버린다.
+     오래된 구간은 통째로 버리고 최근 구간은 통째로 남긴다.
+     귀마다 따로 센다 — 좌우로 나눠 들을 때 한쪽만 남기면 반대쪽 사람이
+     제 차례를 통째로 놓친다. */
+  const byPan = new Map();
+  for(const j of ttsQueue){ if(!byPan.has(j.pan)) byPan.set(j.pan, []); byPan.get(j.pan).push(j); }
+  const keep = new Set();
+  for(const list of byPan.values()){
+    const gids = [];
+    for(const j of list) if(!gids.includes(j.gid)) gids.push(j.gid);
+    const live = new Set(gids.slice(-2));    // 읽는 중 하나 + 다음 하나
+    for(const j of list) if(live.has(j.gid)) keep.add(j);
   }
+  if(keep.size !== ttsQueue.length) ttsQueue = ttsQueue.filter(j => keep.has(j));
   ttsPump();
 }
 function ttsPump(){
   if(ttsBusy || !ttsQueue.length) return;
   const j = ttsQueue.shift(); ttsBusy = true;
-  const done = () => { ttsBusy = false; ttsPump(); };
+  const done = () => {
+    if(ttsWatch){ clearTimeout(ttsWatch); ttsWatch = null; }
+    ttsPending = null;
+    if(!ttsBusy) return;
+    ttsBusy = false; ttsPump();
+  };
   if(NativeTts){
-    // 네이티브는 자체 큐로 순서를 지킨다. 넘겨 두고 바로 다음으로 넘어간다.
+    /* 낭독이 끝나기를 기다린다. 다만 신호 하나에 목을 매면 그것을 놓쳤을 때
+       회의가 끝날 때까지 조용하다. 읽는 데 걸릴 만한 시간의 두 배쯤에서 강제로 푼다. */
+    ttsPending = done;
+    ttsWatch = setTimeout(done, Math.max(4000, j.text.length * 110));
     NativeTts.speak({ text:j.text, lang:j.lang, rate: parseFloat(CFG.ttsRate)||1,
                       pan: j.pan || 0 })
-      .then(done, done);
+      .then(r => { if(r && r.spoken === false) done(); }, done);
     return;
   }
   const u = new SpeechSynthesisUtterance(j.text);
@@ -1784,6 +1900,8 @@ function ttsPump(){
   try{ speechSynthesis.speak(u); }catch(e){ done(); }
 }
 function ttsStop(){
+  if(ttsWatch){ clearTimeout(ttsWatch); ttsWatch = null; }
+  ttsPending = null;
   ttsQueue.length = 0; ttsBusy = false;
   if(NativeTts){ try{ NativeTts.stop(); }catch(e){} return; }
   try{ speechSynthesis.cancel(); }catch(e){}
@@ -4574,6 +4692,46 @@ async function fetchT(url, opt, ms){
   }finally{ clearTimeout(t); }
 }
 
+/* 소리를 올릴 때는 맨 fetch 를 쓰지 않는다. 세 가지가 필요하다.
+
+   ① 시한. 대답이 없으면 영영 매달리고, 그동안 큐 전체가 선다.
+   ② 올린 시간과 서버가 답한 시간을 갈라 재기. 느린 것이 회선인지 서버인지
+      이것으로만 갈린다. fetch 는 올리는 진행을 안 알려 주고 XMLHttpRequest 는 알려 준다.
+   ③ 시한을 초 상수가 아니라 바이트로 잡기. 45초 구간은 1.44MB 다.
+      느린 회선에 25초 상수를 걸면 멀쩡한 구간이 죽는다. */
+/* 안드로이드 WebView 판에 따라 응답을 흘려 읽지 못하는 것이 있다. 미리 물어 둔다.
+   못 읽으면 예전처럼 다 기다렸다 한 번에 받는다. */
+const CAN_STREAM = (() => {
+  try{ return typeof ReadableStream === "function" && "body" in Response.prototype; }
+  catch(e){ return false; }
+})();
+
+function xhrPost(url, headers, body, timeoutMs, onTime){
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(), t0 = performance.now();
+    let upEnd = 0;
+    x.open("POST", url, true);
+    for(const k in headers) x.setRequestHeader(k, headers[k]);
+    x.timeout = timeoutMs || 90000;
+    x.upload.onloadend = () => { upEnd = performance.now() - t0; };
+    x.onload = () => {
+      const tot = performance.now() - t0;
+      if(onTime) onTime({ upMs: Math.round(upEnd), srvMs: Math.round(tot - upEnd) });
+      if(x.status >= 200 && x.status < 300) res(x.responseText);
+      else rej(new Error("HTTP " + x.status + " · " + String(x.responseText||"").slice(0,160)));
+    };
+    x.ontimeout = () => { const e = new Error("시간 안에 올리지 못했습니다"); e.slow = true; rej(e); };
+    x.onerror   = () => rej(new Error("연결이 끊겼습니다"));
+    x.send(body);
+  });
+}
+
+/* 이번 회의에서 잰 것. 어디가 느린지는 이 숫자로만 갈린다.
+   화면 어디에도 자동으로 뜨지 않는다. 설정에서 눌러야 보인다. */
+let lat = { up:[], srv:[], trans:[], first:[], dur:[] };
+const latAdd = (k, v) => { if(v > 0 && lat[k]){ lat[k].push(v); if(lat[k].length > 400) lat[k].shift(); } };
+const latMid = a => { if(!a.length) return 0; const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
+
 /* --- 로그인 (기기 흐름) --- */
 async function gStartLink(onCode, onWait){
   if(!CFG.gcid || !CFG.gcsec) throw new Error("구글 클라이언트 ID 와 시크릿을 먼저 넣어 주세요.");
@@ -5152,8 +5310,12 @@ async function drain(){
   working = true;
   try{
     for(;;){
-      const pend = (await all("chunks"))
-        .filter(c => c.status==="pending")
+      /* 만들어만 두고 아무도 안 쓰던 status 인덱스를 여기서 쓴다. 회의가 길어지면
+         조각이 수백 개가 되는데 그때마다 전부 읽어 거르고 있었다.
+         nextAt 은 방금 실패해 뒤로 민 구간이다. 아직 때가 안 됐으면 건너뛴다. */
+      const nowT = Date.now();
+      const pend = (await byIndex("chunks","status","pending"))
+        .filter(c => !c.nextAt || c.nextAt <= nowT)
         .sort((a,b)=> a.noteId===b.noteId ? a.seq-b.seq : a.created-b.created);
       if(!pend.length) break;
       const c = pend[0];
@@ -5249,9 +5411,10 @@ async function drain(){
           : note.target;
         if(tgt && c.text){
           const pair = prev && prev.text ? prev.text.slice(-260) : "";
-          c.trans = await translateChunk(c.text, tgt, pair, note.ctx);
           /* 읽어 주는 것은 지금 벌어지는 회의일 때만이다. 화면이 꺼져 밀린 것이
-             한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다. */
+             한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다.
+             이 판단을 통역 호출보다 앞으로 옮겼다 — 문장이 끝나는 대로 읽어 주려면
+             읽을지 말지를 미리 알고 있어야 한다. */
           const fresh = (Date.now() - (c.created||0)) < 90000;
 
           /* 대화 모드에서는 스피커 하나가 두 사람을 섬긴다. 그래서 둘 다 헷갈린다 —
@@ -5268,22 +5431,44 @@ async function drain(){
             else if(how === "splitL") pan = forMe ? -1 : 1;
             else if(how === "splitR") pan = forMe ?  1 : -1;
           }
-          if(say){
-            if(fresh && recording && activeNote && activeNote.id===c.noteId)
-              speakTrans(c.trans, tgt, pan);
-            else if(fresh && openId === c.noteId && !recording && CFG.tts==="1" && ttsUnlocked)
-              speakTrans(c.trans, tgt, pan);
-          }
+          const live = fresh && ((recording && activeNote && activeNote.id === c.noteId)
+                    || (openId === c.noteId && !recording && CFG.tts === "1" && ttsUnlocked));
+
+          /* 문장 하나가 끝날 때마다 그 자리에서 읽고 자막에 올린다.
+             통역기에 보낸 것은 구간 전체 한 덩이 그대로다. 기다리지 않을 뿐이다. */
+          const tStart = Date.now();
+          let partial = "", firstAt = 0;
+          const onSent = t0 => {
+            if(!firstAt){ firstAt = Date.now(); latAdd("first", firstAt - tStart); }
+            partial += (partial ? " " : "") + t0;
+            c.trans = partial;
+            renderIfOpen(c.noteId);
+            if(say && live) speakTrans(t0, tgt, pan, c.id);
+          };
+
+          c.trans = await translateChunk(c.text, tgt, pair, note.ctx, onSent);
+          latAdd("trans", Date.now() - tStart);
+          // 흘려받기가 꺼졌거나 안 되는 기기면 예전처럼 한 번에 읽는다
+          if(!partial && say && live) speakTrans(c.trans, tgt, pan, c.id);
         }
-        c.status = "done"; c.error = "";
+        c.status = "done"; c.error = ""; c.nextAt = 0; c.slow = 0;
         // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
         c.blob = (c.keepAudio || CFG.diar==="1") ? c.blob : null;
       }catch(err){
-        c.retry = (c.retry||0) + 1;
         c.error = err.message;
-        c.status = c.retry >= 3 ? "failed" : "pending";
-        if(c.status==="pending"){ await put("chunks",c); renderIfOpen(c.noteId); paintStrips();
-          working=false; setTimeout(drain, 2500*c.retry); return; }
+        /* 시한을 넘긴 것은 실패가 아니라 느림이다. 현장 회선을 실패로 세면
+           세 번 느린 것만으로 그 구간의 발언이 사라진다. 따로, 훨씬 너그럽게 센다. */
+        if(err.slow){
+          c.slow = (c.slow||0) + 1;
+          c.status = c.slow >= 5 ? "failed" : "pending";
+          c.nextAt = Date.now() + 4000 * c.slow;
+        }else{
+          c.retry = (c.retry||0) + 1;
+          c.status = c.retry >= 3 ? "failed" : "pending";
+          c.nextAt = Date.now() + 2500 * c.retry;
+        }
+        /* 예전에는 여기서 return 으로 큐를 통째로 빠져나갔다. 한 구간이 실패하면
+           뒤에 쌓인 구간까지 함께 멈췄다. 이제 이 구간만 뒤로 미루고 다음으로 간다. */
       }
       await put("chunks", c);
       renderIfOpen(c.noteId); paintStrips(); refreshList();
@@ -8062,6 +8247,7 @@ $("btn-settings").onclick = ()=>{
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
   $("s-livesum").value=CFG.liveSum || "1";
+  $("s-stream").value=CFG.stream || "1";
   $("s-ttsrate").value=CFG.ttsRate;
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
@@ -8076,6 +8262,28 @@ $("btn-settings").onclick = ()=>{
   checkCosts(false);           // 오래됐으면 조용히 새로 가져온다
   show("v-settings");
 };
+/* 어디가 느린지는 이 숫자로만 갈린다. 올리는 데 느린지, 서버가 늦는지,
+   아니면 통역을 다 기다리느라 늦는지. 셋은 고치는 법이 서로 다르다. */
+$("s-lat").onclick = ()=>{
+  const rows = [
+    ["소리 올리기", lat.up, "회선이 느리면 여기가 크다. 그러면 소리를 줄여 올리는 것이 답이다."],
+    ["서버가 답할 때까지", lat.srv, "여기가 크면 구간을 짧게 하거나 앞질러 보내는 것이 답이다."],
+    ["통역 전체", lat.trans, "예전에는 이만큼을 다 기다린 뒤에야 읽어 주었다."],
+    ["통역 첫 문장까지", lat.first, "지금은 여기서 읽기 시작한다. 위 값과의 차이가 줄어든 시간이다."]
+  ];
+  const body = rows.map(([k, a, why]) => {
+    const m = latMid(a);
+    return "- " + k + ": "
+         + (a.length ? (m/1000).toFixed(1) + "초 (가운뎃값 · " + a.length + "회)" : "잰 것 없음")
+         + "\n  " + why;
+  }).join("\n");
+  const gain = (latMid(lat.trans) && latMid(lat.first))
+    ? "\n\n통역을 다 기다리지 않아 아낀 시간: 약 "
+      + ((latMid(lat.trans) - latMid(lat.first)) / 1000).toFixed(1) + "초"
+    : "";
+  sheet("이번 회의 지연", [{ label: body + gain, sub:"앱을 다시 열면 지워집니다.", go: ()=>{} }]);
+};
+
 $("s-carry-out").onclick = async ()=>{
   const code = carryOut();
   try{
@@ -8210,7 +8418,7 @@ $("s-save").onclick = ()=>{
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
-  CFG.liveSum=$("s-livesum").value;
+  CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
   CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
