@@ -1721,6 +1721,14 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
     "NAMES — if a personal name is unclear, transliterate what you heard. Do NOT substitute a famous or plausible name. "
     + "Never introduce a public figure who was not clearly named.",
     "If a segment starts mid-sentence, translate it as a fragment. Do not invent a beginning.",
+    /* 한 문장 안에 한국어·베트남어·영어가 섞이는 자리다. 이미 목표 언어인 대목까지
+       다시 옮기면 뜻이 흔들린다. 그대로 통과시키게 한다. */
+    "MIXED INPUT — the transcript may mix Korean, Vietnamese and English in one sentence. "
+    + "Any part already in "+target+" must be passed through unchanged, not re-worded.",
+    /* 입력이 완성된 글이 아니라는 것을 알려 준다. 구두점이 빠지고 오인식이 섞여 있다.
+       모르면 모델이 뒤를 그럴듯하게 지어낸다. 이 앱은 그 사고를 이미 겪었다. */
+    "The input is live speech-to-text output: punctuation may be missing and some words "
+    + "may be misheard. Translate exactly as far as the text goes. Never invent a continuation.",
     ctxHint ? "Meeting context: "+ctxHint : "",
     prevPair ? "Context only — the previous segment, already translated. Use it for pronouns and flow. It is NOT part of the text to translate, but the user's message must still be translated in full:\n"+prevPair : "",
     CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : ""
@@ -1782,12 +1790,23 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
   /* 통역이 중간에서 멈추거나 앞머리를 건너뛰는 일이 있다. 상한에 걸렸거나
      원문 대비 지나치게 짧으면 끊긴 것으로 보고 한 번 더 시킨다.
      두 번째까지 짧으면 그대로 쓴다 — 원래 짧게 옮겨지는 말도 있다. */
-  if(t.cut || (text.length > 120 && t.out.length < text.length * 0.4)){
+  /* 글이 얼마나 늘거나 주는지는 방향마다 다르다. 베트남어·영어 200자를 한국어로
+     옮기면 70자쯤(35%)이 정상인데, 0.4 라는 하나의 잣대로 재면 제대로 옮긴 것까지
+     "끊겼다" 고 보고 매번 다시 부른다. 반대로 한국어를 베트남어로 옮기면 글이 길어져
+     정말 끊겼을 때도 안 걸린다. 즉 한쪽은 늘 헛돌고 한쪽은 늘 못 잡는다.
+
+     잣대를 미리 못 박지 않는다. 이 회의에서 실제로 나온 비를 방향마다 모아 두었다가
+     여덟 번이 넘으면 그 가운뎃값의 절반을 잣대로 쓴다. 그전에는 넉넉한 기본값을 쓴다 —
+     못 잡는 것보다 헛도는 편이 안전하다. 헛돌면 값이 좀 더 들 뿐이고,
+     못 잡으면 앞머리가 잘린 통역이 그대로 나간다. */
+  const need = transNeed(target);
+  if(t.cut || (text.length > 120 && t.out.length < text.length * need)){
     /* 고쳐 부르는 것은 절대 흘려받지 않는다. 소리는 되돌릴 수 없다.
        이미 읽어 준 문장을 다시 읽으면 회의가 엉킨다. 고친 것은 화면에만 반영한다. */
     const again = await call(3000,
       "IMPORTANT: Your previous attempt was incomplete (it skipped part of the segment). Translate the ENTIRE user message, first word to last.", false);
     if(again.out.length > t.out.length) t = again;
+    if(lat.trans2 !== undefined) lat.trans2++;
   }
   return t.out;
 }
@@ -4726,9 +4745,28 @@ function xhrPost(url, headers, body, timeoutMs, onTime){
   });
 }
 
+/* 통역이 방향마다 글을 얼마나 늘리고 줄이는지 스스로 배운다.
+   미리 정해 둔 숫자를 믿지 않는다 — 같은 언어쌍이라도 회의마다 말투가 다르다. */
+const transRatio = {};
+function noteRatio(target, srcLen, outLen){
+  if(!target || srcLen < 60 || !outLen) return;
+  const a = transRatio[target] || (transRatio[target] = []);
+  a.push(outLen / srcLen);
+  if(a.length > 60) a.shift();
+}
+function transNeed(target){
+  const a = transRatio[target];
+  if(!a || a.length < 8) return 0.4;          // 아직 모른다. 넉넉한 기본값
+  const b = a.slice().sort((x, y) => x - y);
+  const mid = b[b.length >> 1];
+  /* 가운뎃값의 절반. 정상보다 절반 아래로 짧으면 그때만 끊긴 것으로 본다.
+     0.2 아래로는 안 내린다 — 정말 끊긴 것을 놓치면 안 된다. */
+  return Math.max(0.2, Math.min(0.6, mid * 0.5));
+}
+
 /* 이번 회의에서 잰 것. 어디가 느린지는 이 숫자로만 갈린다.
    화면 어디에도 자동으로 뜨지 않는다. 설정에서 눌러야 보인다. */
-let lat = { up:[], srv:[], trans:[], first:[], dur:[] };
+let lat = { up:[], srv:[], trans:[], first:[], dur:[], trans2:0, calls:0 };
 const latAdd = (k, v) => { if(v > 0 && lat[k]){ lat[k].push(v); if(lat[k].length > 400) lat[k].shift(); } };
 const latMid = a => { if(!a.length) return 0; const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
 
@@ -5410,7 +5448,12 @@ async function drain(){
           ? (detectLang(c.text, note.langA, note.langB) === note.langA ? note.langB : note.langA)
           : note.target;
         if(tgt && c.text){
-          const pair = prev && prev.text ? prev.text.slice(-260) : "";
+          /* 앞 구간의 원문만 넘기고 있었다. 통역기는 자기가 앞에서 그 말을 뭐라고
+             옮겼는지 모른 채 다음 구간을 옮긴다. 같은 부서 이름이 구간마다 다르게
+             나오던 까닭이 이것이다. 원문과 번역을 짝으로 넘긴다. */
+          const pv = prev && prev.text  ? prev.text.slice(-200)  : "";
+          const pt = prev && prev.trans ? prev.trans.slice(-200) : "";
+          const pair = pv ? (pt ? pv + "\n→ " + pt : pv) : "";
           /* 읽어 주는 것은 지금 벌어지는 회의일 때만이다. 화면이 꺼져 밀린 것이
              한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다.
              이 판단을 통역 호출보다 앞으로 옮겼다 — 문장이 끝나는 대로 읽어 주려면
@@ -5448,6 +5491,8 @@ async function drain(){
 
           c.trans = await translateChunk(c.text, tgt, pair, note.ctx, onSent);
           latAdd("trans", Date.now() - tStart);
+          lat.calls++;
+          noteRatio(tgt, c.text.length, (c.trans||"").length);
           // 흘려받기가 꺼졌거나 안 되는 기기면 예전처럼 한 번에 읽는다
           if(!partial && say && live) speakTrans(c.trans, tgt, pan, c.id);
         }
@@ -8277,11 +8322,16 @@ $("s-lat").onclick = ()=>{
          + (a.length ? (m/1000).toFixed(1) + "초 (가운뎃값 · " + a.length + "회)" : "잰 것 없음")
          + "\n  " + why;
   }).join("\n");
+  const extra = lat.calls
+    ? "\n\n통역을 다시 부른 구간: " + lat.trans2 + " / " + lat.calls
+      + " (" + Math.round(lat.trans2 / lat.calls * 100) + "%)"
+      + "\n  끊긴 통역을 다시 부르는 자리다. 이 비율이 높으면 값이 그만큼 더 든다."
+    : "";
   const gain = (latMid(lat.trans) && latMid(lat.first))
     ? "\n\n통역을 다 기다리지 않아 아낀 시간: 약 "
       + ((latMid(lat.trans) - latMid(lat.first)) / 1000).toFixed(1) + "초"
     : "";
-  sheet("이번 회의 지연", [{ label: body + gain, sub:"앱을 다시 열면 지워집니다.", go: ()=>{} }]);
+  sheet("이번 회의 지연", [{ label: body + gain + extra, sub:"앱을 다시 열면 지워집니다.", go: ()=>{} }]);
 };
 
 $("s-carry-out").onclick = async ()=>{
