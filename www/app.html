@@ -809,7 +809,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-3";
+const APP_VERSION = "2026.09.03-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -5365,6 +5365,11 @@ let working = false;
 async function drain(){
   if(working || !navigator.onLine || !CFG.oai) return;
   working = true;
+  /* 화면이 꺼지면 브라우저가 이 화면을 멈추고 큐가 통째로 선다. 녹음할 때와
+     회의록 만들 때는 잡아 두고 있었는데 큐가 도는 동안은 아무도 안 잡았다.
+     그래서 파일을 불러와 전사만 하면 화면이 꺼지는 순간 거기서 멈췄고,
+     사람 눈에는 전사가 실패한 것으로 보였다. */
+  holdAwake("queue", true, true);
   try{
     for(;;){
       /* 만들어만 두고 아무도 안 쓰던 status 인덱스를 여기서 쓴다. 회의가 길어지면
@@ -5543,7 +5548,7 @@ async function drain(){
         maybeLiveSum(await byIndex("chunks", "note", c.noteId));
       }
     }
-  } finally { working = false; paintStrips(); }
+  } finally { working = false; holdAwake("queue", false, true); paintStrips(); }
 }
 setInterval(drain, 4000);
 $("liveshelf").onclick = ()=>{
@@ -5609,8 +5614,32 @@ async function keepAwake(on){
     } else if(webWake){ await webWake.release(); webWake = null; }
   }catch(e){}
 }
-// 브라우저는 탭을 벗어났다 돌아오면 잠금 방지가 풀린다. 녹음 중이면 다시 잡는다.
-addEventListener("visibilitychange", ()=>{ if(!document.hidden && recording) keepAwake(true); });
+/* 화면을 누가 왜 잡고 있는지 센다.
+
+   예전에는 잡는 곳마다 따로 켜고 껐다. 그래서 회의록을 만드는 중에 전사 큐가
+   끝나면 그쪽이 화면을 놓아 버려, 회의록 만들기가 화면 꺼짐과 함께 멈췄다.
+   잡는 사람이 하나라도 남아 있으면 놓지 않는다.
+
+   force 는 "화면 켜 두기" 설정이 꺼져 있어도 잡으라는 뜻이다.
+   사람이 방금 시작한 일이고 끝이 정해져 있을 때만 쓴다 — 전사 큐, 회의록 만들기,
+   구글 승인 기다리기. 녹음은 90분씩 가므로 여기에 넣지 않는다.
+   그쪽은 설정을 따르고, 꺼져 있으면 그렇다고 알려 준다. */
+const awakeHold = new Set();
+let awakeForce = 0, awakeSaved = null;
+
+function holdAwake(who, on, force){
+  if(on){
+    awakeHold.add(who);
+    if(force && !awakeForce++){ awakeSaved = CFG.awake; CFG.awake = "1"; }
+  }else{
+    const had = awakeHold.delete(who);
+    if(had && force && !--awakeForce){ CFG.awake = awakeSaved; awakeSaved = null; }
+  }
+  keepAwake(awakeHold.size > 0);
+}
+
+// 브라우저는 탭을 벗어났다 돌아오면 잠금 방지가 풀린다. 잡는 사람이 남아 있으면 다시 잡는다.
+addEventListener("visibilitychange", ()=>{ if(!document.hidden && awakeHold.size) keepAwake(true); });
 
 /* 네이티브가 남겨 둔 구간 파일을 받아 저장하고 지운다.
    저장이 끝난 뒤에야 지우므로, 중간에 앱이 잠들거나 죽어도 그 구간은 살아남는다. */
@@ -5927,7 +5956,7 @@ async function startRecording(){
   } else {
     nextSegment();
   }
-  keepAwake(true);   // 화면이 꺼지면 전사가 멈춘다
+  holdAwake("rec", true, false);   // 녹음은 설정을 따른다. 90분씩 가기 때문이다.
   if(CFG.awake !== "1")
     toast("화면 켜 두기가 꺼져 있습니다. 화면이 꺼지면 자막이 멈추고, 켜면 밀린 것을 몰아서 처리합니다.", 6000);
   // 시트를 닫고 전사 화면을 연다. 구간이 전사될 때마다 여기에 바로 쌓인다.
@@ -6156,7 +6185,7 @@ async function stopRecording(){
 async function finishRecording(){
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   releaseOnline();
-  keepAwake(false);
+  holdAwake("rec", false, false);
   if(activeNote){
     activeNote.duration = Math.max(0, Date.now()-startedAt-pausedTotal);
     await put("notes", activeNote);
@@ -6643,11 +6672,32 @@ async function renderDetail(){
 
   const held = cs.filter(c=>c.status==="held").length;
   const left = cs.filter(c=>c.status==="pending"||c.status==="sent").length;
+  /* 실패한 구간을 하나씩 누르게 두면 안 된다. 스무 개가 실패하면 스무 번 누른다. */
+  const bad = cs.filter(c=>c.status==="failed");
   const strip = $("d-strip");
-  if(held) strip.innerHTML = '<div class="strip warn"><span class="dot"></span>전사 대기 '+held+
+  if(bad.length) strip.innerHTML = '<div class="strip warn"><span class="dot"></span>전사 실패 '+bad.length+
+    '개<button id="retry-all">모두 다시 시도</button></div>';
+  else if(held) strip.innerHTML = '<div class="strip warn"><span class="dot"></span>전사 대기 '+held+
     '개<button id="go-now">지금 전사</button></div>';
   else if(left) strip.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중 · 남은 구간 '+left+'</div>';
   else strip.innerHTML = "";
+
+  const ra = $("retry-all");
+  if(ra) ra.onclick = async ()=>{
+    ra.disabled = true; ra.textContent = "되살리는 중…";
+    let back = 0, gone = 0;
+    for(const c of bad){
+      /* 소리가 이미 없는 것은 다시 시도해도 같은 자리에서 또 실패한다.
+         그것까지 큐에 넣으면 사람은 "다시 눌렀는데 또 실패했다" 만 본다. */
+      if(!c.blob){ gone++; continue; }
+      c.status = "pending"; c.retry = 0; c.slow = 0; c.nextAt = 0; c.error = "";
+      await put("chunks", c); back++;
+    }
+    renderDetail(); paintStrips(); drain();
+    toast(back ? back + "개를 다시 시도합니다."
+                 + (gone ? " " + gone + "개는 녹음이 남아 있지 않아 건너뜁니다." : "")
+               : "다시 시도할 수 있는 구간이 없습니다. 녹음이 이미 지워졌습니다.", 8000);
+  };
   const gn = $("go-now");
   if(gn) gn.onclick = async ()=>{
     for(const c of cs) if(c.status==="held"){ c.status="pending"; await put("chunks",c); }
@@ -7057,7 +7107,7 @@ async function genMinutes(n, cs, btn, target){
   /* 정리도 화면 쪽에서 도는 일이라, 화면이 꺼지면 그대로 멈춘다. 게다가 조각을
      열세 개 만들다 하나에서 멈추면 그때까지 쓴 것이 전부 날아간다. 화면을 켜 두고,
      만든 조각은 하나씩 저장해 다음에 이어서 하게 한다. */
-  const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
+  holdAwake("doc", true, true);
   // 형식이나 전사문이 달라졌으면 예전 조각은 버린다. 엉뚱한 것이 섞이면 안 된다.
   if(!n.draft || n.draft.form !== fm || n.draft.size !== sz || n.draft.len !== full.length
      || n.draft.pv !== PROMPT_VER)
@@ -7123,7 +7173,7 @@ async function genMinutes(n, cs, btn, target){
     btn.disabled=false; renderDetail();
   }finally{
     n.docSize = prevSize;
-    CFG.awake = wasAwake; if(!recording) keepAwake(false);
+    holdAwake("doc", false, true);
   }
 }
 
@@ -8470,7 +8520,7 @@ $("g-link").onclick = async ()=>{
   b.disabled = true; b.textContent = "연결 중…";
   /* 승인을 기다리는 동안 화면이 꺼지면 기다리는 일도 멈춘다. 그러면 구글에서
      승인해도 앱은 그것을 받지 못한 채 남는다. 기다리는 동안만 화면을 켜 둔다. */
-  const wasAwake = CFG.awake; CFG.awake = "1"; keepAwake(true);
+  holdAwake("glink", true, true);
   const paintBox = (d, note) =>
     '<strong style="display:block;font-size:15px;color:var(--ink);margin-bottom:6px">'+
     '다른 기기나 브라우저에서 아래 주소를 열고 코드를 넣어 주세요</strong>' +
@@ -8508,7 +8558,7 @@ $("g-link").onclick = async ()=>{
   }
   finally{
     b.disabled=false; b.textContent="구글 연결";
-    CFG.awake = wasAwake; if(!recording) keepAwake(false);
+    holdAwake("glink", false, true);
   }
 };
 $("s-eleven-show").onclick = ()=>{
@@ -8555,7 +8605,9 @@ $("s-save").onclick = ()=>{
   const nb = $("s-budget").value.trim();
   if(nb !== (CFG.budgetUsd||"")) CFG.budgetWarned = "";
   CFG.budgetUsd = nb;
-  if(recording) keepAwake(CFG.awake==="1");
+  /* 설정을 바꾸면 지금 잡고 있는 것에 바로 반영한다. 다만 셈을 거쳐야 한다 —
+     녹음만 보고 끄면 전사 큐나 회의록 만들기가 잡고 있던 것까지 함께 풀린다. */
+  keepAwake(awakeHold.size > 0);
   CFG.people = CFG.people.filter(p=>(p.name||"").trim());
   saveCfg(); toast("저장했습니다."); show(openId?"v-detail":"v-list"); drain();
 };
