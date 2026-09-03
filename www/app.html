@@ -289,6 +289,16 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .sechead{font-size:15px;font-weight:600;margin:26px 0 8px;letter-spacing:-.01em}
 .chiprow{display:flex;flex-wrap:wrap;gap:7px}
 .chiprow .chip{cursor:pointer}
+
+/* 한 줄로 두고 옆으로 미는 띠.
+
+   줄바꿈만 막으면 자리가 모자랄 때 칩이 눌린다. 그러면 글자가 한 자씩 세로로
+   쌓여 띠가 아래로 길게 늘어난다. 눌리지 않게 못 박고 글자를 안 꺾어야 한다.
+   스크롤 막대는 감춘다 — 폰에서는 손가락으로 밀지 막대를 잡지 않는다. */
+.chiprow.oneline{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+.chiprow.oneline::-webkit-scrollbar{display:none}
+.chiprow.oneline .chip{flex:0 0 auto;white-space:nowrap}
 .chiprow .none{color:var(--muted);font-size:13px}
 .pcard{border:1px solid var(--rule);border-radius:12px;padding:12px 13px;margin-bottom:10px;background:var(--card)}
 .pcard .row{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
@@ -820,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-11";
+const APP_VERSION = "2026.09.03-12";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6634,7 +6644,7 @@ async function refreshList(){
   if(groups.length >= 2){
     if(listFolder && groups.indexOf(listFolder) < 0) listFolder = "";
     box.innerHTML =
-      '<div class="chiprow" style="padding:12px 18px 4px;flex-wrap:nowrap;overflow-x:auto">' +
+      '<div class="chiprow oneline" style="padding:12px 18px 4px">' +
       '<button class="chip' + (listFolder ? "" : " on") + '" data-fd="">전체</button>' +
       groups.map(g => '<button class="chip' + (listFolder === g ? " on" : "") +
                       '" data-fd="' + esc(g) + '">' + esc(g) + '</button>').join("") +
@@ -6998,7 +7008,7 @@ async function renderDetail(){
     '<div style="padding:12px 18px 0">'+
 
       (n.script ?
-        '<div class="chiprow"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">실시간 자막</button>'+
+        '<div class="chiprow oneline"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">실시간 자막</button>'+
         '<button class="chip'+(scriptView?" on":"")+'" data-sv="1">화자별 기록</button>'+
         '<button class="chip" id="redo-diar">다시 분리</button></div>'
        : (hasAudio && CFG.eleven ?
@@ -7143,7 +7153,7 @@ async function renderDetail(){
   const cur = docs.find(d=>d.id===n.openDoc) || docs[0] || null;
   const picking = docPicking || !docs.length;
 
-  const docChips = docs.length ? '<div class="chiprow" style="padding:14px 18px 0">'+
+  const docChips = docs.length ? '<div class="chiprow oneline" style="padding:14px 18px 0">'+
       docs.map(d=>'<button class="chip'+(cur&&d.id===cur.id&&!picking?" on":"")+'" data-doc="'+d.id+'">'+
         DOC_FORMS[d.form].label + (d.size!=="normal" ? " · "+DOC_SIZES[d.size].label : "") +
         '</button>').join("")+
@@ -9133,7 +9143,7 @@ function wireUpdateUI(){
         toast("새 버전 " + res.version + " 을 받았습니다. '지금 적용'을 누르면 바뀝니다.");
       }
       else if(res.status === "latest") toast("이미 최신입니다.");
-      else                             toast(res.message || "확인하지 못했다.");
+      else                             toast(res.message || "확인하지 못했습니다.");
     }catch(e){ toast("확인하지 못했습니다. 인터넷 연결을 확인해 주세요."); }
     finally{ c.disabled=false; c.textContent="지금 업데이트 확인"; paintUpdateState(); }
   };
