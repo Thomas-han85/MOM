@@ -658,7 +658,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 </button>
 
 <div class="updbar" id="updbar">
-  <span>새 버전 <strong id="updbar-v"></strong> 이 준비됐다</span>
+  <span>새 버전 <strong id="updbar-v"></strong> 이 준비됐습니다</span>
   <button id="updbar-go">지금 적용</button>
   <button id="updbar-x" aria-label="닫기">✕</button>
 </div>
@@ -820,7 +820,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-10";
+const APP_VERSION = "2026.09.03-11";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6566,6 +6566,7 @@ async function importFiles(files){
    ===================================================================== */
 let openId = null, curTab = "doc";
 let listFolder = "";      // 목록에서 지금 고른 폴더. 빈 문자열이면 전체
+let retitleDone = false;  // 이미 있는 회의의 이름을 한 번 다시 지었는가
 
 function show(v){
   ["v-list","v-detail","v-settings"].forEach(x=>$(x).classList.toggle("on", x===v));
@@ -6578,8 +6579,42 @@ function paintFab(){
   f.style.display = ($("v-list").classList.contains("on") && !recording) ? "" : "none";
 }
 
+/* 이미 있는 회의의 이름도 다시 짓는다.
+
+   이름 규칙을 바꿔도 새로 만드는 것에만 걸리면, 목록에는 "기록 10:07" 이 그대로
+   남아 어제 것과 오늘 것이 달라 보인다. 규칙을 바꿨으면 있는 것에도 걸어야 한다.
+
+   다만 사람이 지은 이름을 건드리면 안 된다. 앱이 붙인 것이 확실한 이름만 바꾼다 —
+   "기록 10:07", "대화 10:07" 처럼 시각뿐인 것. 파일 이름으로 지은 것은 사람이
+   고른 파일이라 뜻이 있을 수 있어 건드리지 않는다.
+
+   한 번 바꾸면 titleSet 이 아니라 titleAuto 로 적어 둔다. 그래야 나중에
+   폴더를 옮기면 또 따라간다. */
+const AUTO_TITLE_RE = /^(기록|대화)\s+\d{1,2}:\d{2}$/;
+
+async function retitleOld(notes){
+  let changed = 0;
+  for(const nt of notes){
+    if(nt.titleSet) continue;
+    if(!nt.titleAuto && !AUTO_TITLE_RE.test(String(nt.title||"").trim())) continue;
+    // 묶음이 있으면 그 이름. 없으면 회의록이 지은 이름.
+    let t = autoTitle(nt);
+    if(!t){
+      migrateDocs(nt);
+      const d = (nt.docs||[]).find(x => x && x.concl && cS(x.concl.title));
+      if(d) t = cS(d.concl.title).replace(/\s*회의록$/, "");
+    }
+    if(t && t !== nt.title){
+      nt.title = t; nt.titleAuto = true;
+      await put("notes", nt); changed++;
+    }
+  }
+  return changed;
+}
+
 async function refreshList(){
   const notes = (await all("notes")).sort((a,b)=>b.created-a.created);
+  if(!retitleDone){ retitleDone = true; if(await retitleOld(notes)) return refreshList(); }
   const chunks = await all("chunks");
   const box = $("list");
   if(!notes.length){
@@ -7074,9 +7109,9 @@ async function renderDetail(){
             ? '<p class="hint">화자 '+Object.keys(n.spkNames).length+'명에 이름이 붙어 있습니다. 그 이름으로 정리합니다.</p>'
             : '<p class="hint" style="color:var(--warn)">아직 이름을 붙이지 않았습니다. '+
               '<strong>원본 탭 → 화자별 기록</strong> 에서 이름을 적고 저장하면 그 이름으로 정리합니다. '+
-              '안 붙이면 "화자 1, 화자 2" 로 나온다.</p>')
+              '안 붙이면 "화자 1, 화자 2" 로 나옵니다.</p>')
         : '<p class="hint" style="color:var(--warn)">화자 분리를 아직 하지 않았습니다. '+
-          '<strong>원본 탭</strong> 에서 먼저 화자를 가르면 훨씬 정확해진다. '+
+          '<strong>원본 탭</strong> 에서 먼저 화자를 가르면 훨씬 정확합니다. '+
           '지금 만들면 말투로 추정만 합니다.</p>') : "")+
       '<label style="display:block;font-size:12.5px;color:var(--muted);margin:14px 0 8px">분량</label>'+
       '<div class="segctl">'+
