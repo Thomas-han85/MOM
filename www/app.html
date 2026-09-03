@@ -809,7 +809,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.02-3";
+const APP_VERSION = "2026.09.03-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3451,14 +3451,26 @@ const cKey = v => cS(v).toLowerCase().replace(/[\s.\-_'’]/g, "");
 
 /* 절 이름은 고정이다. 20분 회의와 87분 회의의 절 이름이 다르면
    시리즈에서 회차마다 문서가 달라 보인다. keep 은 비어도 남길 절. */
+/* 회의를 다룬 절과 서류 칸을 나눈다.
+
+   예전에는 절 이름이 전부 서류 칸이었다 — 한 장 요약, 결정사항, 할 일.
+   회의가 무엇이었는지는 한 글자도 안 말한다. 그래서 "9월 자금 부족" 이나
+   "현장별 수금 현황" 같은 대목이 갈 자리가 없었다. 결정도 미결도 할 일도
+   아닌 것들이다. 그런 것은 버려지거나(너무 축약) 상세 기록에 날것으로
+   쏟아졌다(너무 벌어짐). 둘 다 읽히지 않는다.
+
+   이제 주제 절이 본문이 된다. 이름은 회의에서 나온 말로 짓는다.
+   서류 칸은 그 뒤에 온다 — 결정과 할 일은 여전히 따로 뽑아야 하기 때문이다.
+   그것이 남의 회의록에 없는 우리 몫이다. */
 const CONC_SECTIONS = [
   { key:"summary",  title:"한 장 요약",         keep:true  },
   { key:"next",     title:"다음 회의",           keep:true  },
+  { key:"topics",   title:"",                   keep:false },   // 이름은 회의가 정한다
   { key:"decision", title:"결정사항",            keep:true  },
   { key:"open",     title:"다음에 정해야 할 것", keep:false },
   { key:"todo",     title:"할 일",               keep:true  },
   { key:"owners",   title:"담당자별 할 일",      keep:false },
-  { key:"timeline", title:"일정과 선후",         keep:false }
+  { key:"steps",    title:"다음 단계",           keep:false }
 ];
 
 // kind 표기 흔들림 흡수
@@ -3477,11 +3489,8 @@ const STATUS_LABEL = {
   제안됨:"제안", 제안:"제안", proposed:"제안", suggested:"제안"
 };
 
-const PRIO_LIST = ["최우선","높음","중간","장기"];
-const PRIO = { 최우선:0, 높음:1, 중간:2, 장기:3 };
-
-/* 계약금액·공기·안전은 한 단계 올린다. 뒤로 밀리면 돈과 사람이 다친다.
-   giá 에 경계를 두는 것은 감리(giám sát)에 걸려 모든 항목이 승격되던 일 때문이다. */
+/* 계약금액·공기·안전에는 표시를 붙인다. 뒤로 밀리면 돈과 사람이 다친다.
+   giá 에 경계를 두는 것은 감리(giám sát)에 걸려 모든 항목이 걸리던 일 때문이다. */
 const ESCALATE_RE = new RegExp([
   "계약","금액","대금","기성","공사비","증액","감액",
   "공기","공정","준공","납기","지연","마일스톤",
@@ -3687,11 +3696,14 @@ function normalizeDoc(doc){
   if(typeof nm === "string") nm = { when: nm };
 
   return {
+    title: cFirst(doc.title, doc.doc_title),
+    headline: cFirst(doc.headline, doc.subtitle, doc.lead),
     summary: cS(cArr(doc.summary || doc.one_pager || doc.overview).map(cS).filter(Boolean).join(" ")),
     topics: cArr(doc.topics).map(t => ({
       title: cFirst(t && t.title, t && t.name),
+      body: cFirst(t && t.body, t && t.text, t && t.summary),
       points: cArr(t && (t.points || t.items)).map(cS).filter(Boolean)
-    })).filter(t => t.title || t.points.length),
+    })).filter(t => t.title && (t.body || t.points.length)),
     next: nm ? {
       when:  cFirst(nm.when, nm.date, nm.datetime, nm.날짜),
       what:  cFirst(nm.what, nm.agenda_text, nm.purpose),
@@ -3780,22 +3792,37 @@ function renderConclusion(doc, opts){
   n.items.forEach(it => (byKind[it.kind] || byKind.todo).push(it));
 
   const out = [];
+  /* 문서는 이름으로 시작한다. 라벨로 시작하지 않는다.
+
+     예전에는 "## 한 장 요약" 이 첫 줄이었다. 그것은 서류 칸 이름이지 이 회의가
+     무엇이었는지를 말하지 않는다. 문서를 받은 사람이 제목만 보고 무슨 회의인지
+     알 수 있어야 한다. 굵은 한 줄이 그 다음에 온다 — 이 회의를 한 문장으로. */
+  if(n.title) out.push("# " + n.title, "");
+  if(n.headline) out.push("**" + n.headline + "**", "");
   if(opts.meta){
-    if(opts.meta.when) out.push("- 일시: " + opts.meta.when);
-    if(opts.meta.who)  out.push("- 참석: " + opts.meta.who);
-    if(out.length) out.push("");
+    const m = [];
+    if(opts.meta.when) m.push(opts.meta.when);
+    if(opts.meta.who)  m.push("참석 " + opts.meta.who);
+    if(m.length) out.push(m.join(" · "), "");
   }
 
   CONC_SECTIONS.forEach(sec => {
     if(compact && (sec.key === "owners" || sec.key === "timeline")) return;
     let body = "";
     switch(sec.key){
-      case "summary": {
+      case "summary":
+        body = n.summary;
+        break;
+      case "topics": {
+        /* 주제마다 절 하나. 여기가 회의록의 몸통이다.
+           문단이 먼저고 목록은 정말 셀 것이 있을 때만 뒤에 붙는다.
+           전부 불릿으로 만들면 무엇이 중요한지 알 수 없는 목록이 된다. */
         const bits = [];
-        if(n.summary) bits.push(n.summary);
         n.topics.forEach(t => {
-          if(t.title) bits.push("### " + t.title);
-          t.points.forEach(p => bits.push("- " + p));
+          if(!t.title) return;
+          bits.push(h + t.title);
+          if(t.body) bits.push(t.body);
+          if(t.points.length) bits.push(t.points.map(p => "- " + p).join("\n"));
         });
         body = bits.join("\n\n");
         break;
@@ -3822,8 +3849,8 @@ function renderConclusion(doc, opts){
       case "owners":
         body = renderOwners(byKind.todo.concat(byKind.role), opts.roster, { meetingDate: base });
         break;
-      case "timeline":
-        body = renderTimeline(n.items, base, n.next);
+      case "steps":
+        body = renderSteps(n, base);
         break;
     }
     /* 빈 절 처리. 결정·할 일·요약·다음 회의는 "해당 없음" 을 남긴다 — 없다는 것도 정보다.
@@ -3832,7 +3859,8 @@ function renderConclusion(doc, opts){
       if(!sec.keep) return;
       body = sec.key === "next" ? "다음 일정 미정 — 회의에서 정해지지 않았습니다." : "해당 없음";
     }
-    out.push(h + sec.title, "", body, "");
+    if(sec.title) out.push(h + sec.title, "", body, "");
+    else out.push(body, "");
   });
 
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
@@ -3919,28 +3947,33 @@ function renderOwners(items, roster, opts){
     });
   });
 
-  const out = [];
+  /* 표로 낸다. 사람 밑에 할 일을 늘어놓으면 세로로 길어져 한눈에 안 들어온다.
+     할 일과 담당자를 나란히 놓으면 "이건 누구 몫인가" 를 훑으며 찾을 수 있다.
+     회의가 끝나고 실제로 쓰이는 방식이 그것이다. */
+  const out = ["| 할 일 | 담당 | 기한 |", "| --- | --- | --- |"];
+  const row = (t, who, it) =>
+    out.push("| " + cCell(t) + " | " + cCell(who) + " | "
+             + cCell(dueLabel(it, base) || "미정") + " |");
+
   order.forEach(c => {
     const g = groups[c];
     g.items.sort((a, b) => dueSort(a, base) - dueSort(b, base));
-    out.push("- **" + g.display + "**" + (roleOf[c] ? " — " + roleOf[c] : ""));
-    g.items.slice(0, max).forEach(it =>
-      out.push("  - " + it.text + " — " + (dueLabel(it, base) || "기한 미정")
-               + (it.purpose ? " (목적: " + it.purpose + ")" : "")));
-    if(g.items.length > max) out.push("  - 외 " + (g.items.length - max) + "건");
+    const who = g.display + (roleOf[c] ? " (" + roleOf[c] + ")" : "");
+    g.items.slice(0, max).forEach(it => row(it.text, who, it));
+    if(g.items.length > max) row("외 " + (g.items.length - max) + "건", who, {});
   });
 
   if(none.length){
-    out.push("- **담당자 미정**");        // 항상 맨 끝
     none.sort((a, b) => dueSort(a, base) - dueSort(b, base));
-    none.slice(0, max).forEach(it => out.push("  - " + it.text + " — " + (dueLabel(it, base) || "기한 미정")));
-    if(none.length > max) out.push("  - 외 " + (none.length - max) + "건");
+    none.slice(0, max).forEach(it => row(it.text, "미정", it));
+    if(none.length > max) row("외 " + (none.length - max) + "건", "미정", {});
   }
+  if(out.length <= 2) return "";
   // 역할만 있고 할 일이 없는 사람도 한 줄 남긴다
   Object.keys(roleOf).forEach(c => {
     if(groups[c]) return;
     const p = findCanon(ros, c);
-    if(p) out.push("- **" + p.display + "** — " + roleOf[c]);
+    if(p) out.push("| — | " + cCell(p.display) + " (" + cCell(roleOf[c]) + ") | — |");
   });
   return out.join("\n");
 }
@@ -3957,121 +3990,60 @@ function asItems(items){
   return normalizeDoc({ items: a }).items;
 }
 
-/* ---------- 일정과 선후 ---------- */
+/* 날짜로 묶은 다음 단계.
 
-/* 우선순위는 규칙으로 계산한다. 모델에게 맡기면 회차마다 뒤집힌다.
-     다른 항목이 이것을 기다림  → 최우선
-     기한이 회의일 +3일 이내    → 최우선
-     기한이 다음 회의 전        → 높음
-     기한이 이달 안             → 중간
-     기한 없음 / 한 달 초과     → 장기
-   계약금액·공기·안전이면 한 단계 올린다. */
-function renderTimeline(items, meetingDate, nextMeeting){
-  const base = cDate(meetingDate) || cMidnight(new Date());
-  const all = asItems(items);
-  if(!all.length) return "";
+   일정표는 우선순위로 줄을 세운다. 그것은 무엇이 급한지를 보는 눈이다.
+   그런데 회의가 끝나고 실제로 움직일 때는 "언제까지" 로 묶여 있어야 한다.
+   같은 날 할 일이 흩어져 있으면 그 날짜에 무엇을 해야 하는지 매번 훑어야 한다.
 
-  const nmDate = parseDue(nextMeeting && (typeof nextMeeting === "string" ? nextMeeting : nextMeeting.when), base).date;
+   기한이 없는 것은 여기 넣지 않는다. 날짜 묶음에 "미정" 칸을 만들면
+   그 칸이 제일 길어지고, 그러면 날짜로 묶은 뜻이 없다. */
+function renderSteps(n, base){
+  /* 무엇이 무엇을 막고 있는지는 날짜만으로 안 보인다. 표를 따로 두는 대신
+     막고 있는 항목에 표시를 붙인다. 표가 둘이면 같은 항목이 두 곳에 나오고,
+     읽는 사람은 어느 쪽이 참인지 매번 대조하게 된다.
 
-  /* 모델은 id 대신 문장 앞부분을 적는다. 그래서 접두 대조로 찾는다.
-     예전에는 열쇠를 40자로 잘라 저장하고 짧은 앞부분으로 찾았다. 길이가 달라
-     영원히 안 맞았고, 선후관계가 통째로 죽어 있었다. */
-  const index = [];
-  all.forEach(it => { index.push({ k: cKey(it.id), it }); index.push({ k: cKey(it.text), it }); });
-  function lookup(ref){
+     모델은 항목 번호 대신 문장 앞부분을 적는다. 그래서 접두로 맞춰 본다.
+     너무 짧은 것은 엉뚱한 데 붙으므로 여섯 자 아래는 버린다. */
+  const blocks = new Set();
+  n.items.forEach(it => it.depends_on.forEach(ref => {
     const r = cKey(ref);
-    if(r.length < 6) return null;                 // 너무 짧으면 엉뚱한 것에 붙는다
+    if(r.length < 6) return;
     let best = null;
-    for(const e of index){
-      if(e.k === r || e.k.indexOf(r) === 0 || r.indexOf(e.k) === 0){
-        if(!best || e.k.length > best.k.length) best = e;
-      }
-    }
-    return best ? best.it : null;
-  }
-
-  let edges = [];
-  all.forEach(it => it.depends_on.forEach(ref => {
-    const to = lookup(ref);
-    if(to && to !== it) edges.push({ from: it, to, basis: it.dep_basis });
+    n.items.forEach(x => {
+      const k = cKey(x.text);
+      if(k === r || k.indexOf(r) === 0 || r.indexOf(k) === 0)
+        if(!best || cKey(best.text).length > k.length) best = x;
+    });
+    if(best && best !== it) blocks.add(best.id);
   }));
-  edges = breakCycles(edges);
 
-  const blockers = {};
-  edges.forEach(e => { blockers[e.to.id] = true; });
-
-  const rows = all.filter(it => {
-    if(it.kind === "decision" || it.kind === "role") return false;
-    return !!it.dueRaw || blockers[it.id] || edges.some(e => e.from === it);
+  const rows = [];
+  if(n.next && n.next.when)
+    rows.push({ key: n.next.when, at: parseDue(n.next.when, base).date,
+                text: (n.next.what ? n.next.what : "다음 회의")
+                      + (n.next.who ? " (" + n.next.who + ")" : "") });
+  n.items.forEach(it => {
+    if(it.kind !== "todo" && it.kind !== "decision") return;
+    if(!it.dueRaw) return;
+    rows.push({ key: dueLabel(it, base), at: parseDue(it.dueRaw, base).date,
+                text: it.text + (it.owners.length ? " — " + it.owners[0] : "")
+                      + (blocks.has(it.id) ? " · 이것이 끝나야 다음이 갑니다" : "")
+                      + (ESCALATE_RE.test(it.text + " " + it.purpose) ? " ⚑" : "") });
   });
   if(!rows.length) return "";
 
-  const monthEnd = cMonthEnd(base.getFullYear(), base.getMonth());
-  rows.forEach(it => {
-    const p = parseDue(it.dueRaw, base);
-    let prio;
-    if(blockers[it.id]) prio = "최우선";
-    else if(!p.date) prio = "장기";
-    else if(p.date.getTime() - base.getTime() <= 3 * DAY_MS) prio = "최우선";
-    else if(nmDate && p.date.getTime() < nmDate.getTime()) prio = "높음";
-    else if(p.date.getTime() <= monthEnd.getTime()) prio = "중간";
-    else prio = "장기";
-    if(ESCALATE_RE.test(it.text + " " + it.purpose)) prio = PRIO_LIST[Math.max(0, PRIO[prio] - 1)];
-    it._prio = prio;
-    it._due = p;
-    it._deps = edges.filter(e => e.from === it);
+  rows.sort((a, b) => (a.at ? a.at.getTime() : Number.MAX_SAFE_INTEGER)
+                    - (b.at ? b.at.getTime() : Number.MAX_SAFE_INTEGER));
+  const out = [];
+  let last = null, flagged = false;
+  rows.forEach(r => {
+    if(r.key !== last){ out.push("**" + r.key + "**"); last = r.key; }
+    out.push("- " + r.text);
+    if(r.text.indexOf("⚑") >= 0) flagged = true;
   });
-  rows.sort((a, b) => (PRIO[a._prio] - PRIO[b._prio]) || (dueSort(a, base) - dueSort(b, base)));
-
-  const out = ["| 항목 | 우선순위 | 마감일 | 의존관계 |", "| --- | --- | --- | --- |"];
-  rows.forEach(it => {
-    const due = dueLabel(it, base) || "미정";
-    let dep = it._deps.map(e => e.to.text + (e.basis === "추론" ? " (추정)" : "")).join("; ");
-    if(!dep && blockers[it.id]) dep = "선행 항목 — 다른 일이 이것을 기다립니다";
-    out.push("| " + cCell(it.text) + " | " + it._prio + " | " + cCell(due) + " | " + (cCell(dep) || "-") + " |");
-  });
+  if(flagged) out.push("", "⚑ 는 돈·공기·안전이 걸린 것입니다. 밀리면 되돌리기 어렵습니다.");
   return out.join("\n");
-}
-
-/* 순환이 생기면 근거가 추론인 간선을 버린다. 발화로 확인된 것만으로 순환이면
-   손대지 않는다 — 원문이 실제로 모순인 경우라 코드가 한쪽을 지우면 사실을 왜곡한다. */
-function breakCycles(edges){
-  let live = edges.slice();
-  for(let guard = 0; guard < 50; guard++){
-    const cyc = findCycle(live);
-    if(!cyc) break;
-    let drop = -1;
-    for(const i of cyc) if(live[i].basis === "추론"){ drop = i; break; }
-    if(drop < 0) break;
-    live.splice(drop, 1);
-  }
-  return live;
-}
-function findCycle(edges){
-  const adj = {}, nodes = {};
-  edges.forEach((e, i) => {
-    (adj[e.from.id] = adj[e.from.id] || []).push({ to: e.to.id, i });
-    nodes[e.from.id] = nodes[e.to.id] = true;
-  });
-  const state = {}, stack = [];
-  let found = null;
-  function dfs(n){
-    if(found) return;
-    state[n] = 1;
-    (adj[n] || []).forEach(e => {
-      if(found) return;
-      stack.push(e.i);
-      if(state[e.to] === 1){
-        let start = 0;
-        for(let k = stack.length - 1; k >= 0; k--) if(edges[stack[k]].from.id === e.to){ start = k; break; }
-        found = stack.slice(start);
-      }else if(!state[e.to]) dfs(e.to);
-      stack.pop();
-    });
-    state[n] = 2;
-  }
-  Object.keys(nodes).forEach(n => { if(!state[n]) dfs(n); });
-  return found;
 }
 
 /* ---------- 카톡·잘로용 평문 ---------- */
@@ -4255,8 +4227,12 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 아래 설명(//)은 읽으라고 붙인 것이니 출력에는 넣지 않는다.
 
 {
+  "title": "",                     // 이 회의록의 제목. 아래 "문서 제목" 을 읽어라
+  "headline": "",                  // 이 회의를 한 문장으로. 제목 밑에 굵게 실린다
   "summary": "",                   // 3~5문장 한 문단. 불릿·줄바꿈·마크다운 금지
-  "topics": [ {"title":"", "points":["",""]} ],   // 주제별 소제목 2~5개. 항목은 완결 문장
+  "topics": [                      // 회의록의 몸통. 아래 "주제 절" 을 읽어라
+    { "title":"", "body":"", "points":[] }
+  ],
   "next_meeting": {
     "when": "",                    // 원문 표기 그대로
     "what": "",                    // 무엇을 정하는 자리인가
@@ -4360,20 +4336,63 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 ■ 요약과 주제
 
 summary 는 3~5문장 한 문단이다. 불릿·표·머리말을 넣지 마라. 카톡·잘로에 그대로
-붙여넣어 읽히는 문단이어야 한다. 네 가지가 반드시 들어간다.
+붙여넣어 읽히는 문단이어야 한다.
+
+**첫 문장은 이 회의가 무엇이었는지를 말한다** — 언제, 누가 모였고, 무엇을 정하는
+자리였는지. 예: "9월 3일, 현장 책임자와 재무 담당이 모여 9월 자금 계획과
+부족분 대응을 점검했다."
+
+이어지는 문장에 네 가지가 들어간다.
 (1) 핵심 쟁점이 무엇이었나 (2) 합의되지 못하고 남은 것 (3) 다음 조치와 담당자
 (4) 그 조치의 일시 (원문 표기 그대로)
 
-topics 는 회의에서 실제로 다룬 주제 이름을 소제목으로 삼는다. 예를 들면 "수술실 시공",
-"전기 인입" 같은 것이다. "결정사항"·"미결"·"할 일" 같은 절 이름을 소제목으로 쓰지 마라.
-그 절들은 이 아래에 그대로 실린다. 항목은 무엇이 어떻게 되었고 다음이 무엇인지
-알 수 있는 완결 문장으로 쓴다.
+■ 문서 제목과 한 줄
+
+title 은 이 회의록의 제목이다. 회의에서 실제로 다룬 것으로 짓는다.
+예: "프로젝트 자금 계획 및 부족분 대응 회의록", "벤쩨 병원 마감재 협의 회의록".
+"회의록", "정기 회의" 처럼 아무 회의에나 붙는 이름을 쓰지 마라.
+
+headline 은 그 밑에 굵게 실리는 한 문장이다. 문서를 받은 사람이 이 한 줄만 읽고
+무슨 일이 있었는지 알 수 있어야 한다. 숫자를 넣어라.
+예: "9월 말 현금 잔액이 66 tỷ 부족한 것으로 집계되어, 현장별 수금·지출 자료를
+     전수 재검토하고 내일 다시 모이기로 한 회의."
+
+■ 주제 절 (topics) — 이것이 회의록의 몸통이다
+
+이 회의를 안 들은 사람이 이 절들만 읽고 회의를 알 수 있어야 한다.
+결정과 할 일은 뒤에 따로 나오니 여기서는 **무슨 이야기가 오갔는지**를 쓴다.
+
+· **제목은 이 회의에서 나온 말로 짓는다.** "9월 자금 현황과 부족 규모",
+  "현장별 수금 실적", "은행 여신 문제", "데이터 신뢰성" 처럼 그 회의가 실제로
+  다룬 것의 이름이다. "결정사항"·"미결"·"할 일"·"논의 내용"·"기타" 같은
+  서류 칸 이름을 제목으로 쓰지 마라. 그런 것은 뒤에 이미 있다.
+
+· **body 는 문단이다. 불릿이 아니다.** 2~5문장으로 이어서 쓴다.
+  숫자·금액·날짜·기관명·사람 이름을 문장 안에 그대로 담는다.
+  "논의하였다", "공유되었다" 로 끝나는 빈 문장을 쓰지 마라 —
+  무엇이 얼마였고 왜 문제인지가 문장 안에 있어야 한다.
+
+  나쁜 예: "자금 현황에 대해 논의하였다."
+  좋은 예: "9월 10일 기준 잔액은 마이너스 44 tỷ 이며 월말에는 66 tỷ 로
+           늘어난다. 여기에 미처리 지급 37 tỷ 가 빠져 있어 실질 부족액은
+           100 tỷ 에 이를 수 있다는 지적이 나왔다."
+
+· **points 는 정말 셀 것이 있을 때만 쓴다.** 현장별 금액, 은행별 조건처럼
+  나열이 본질인 것만이다. 셀 것이 없으면 빈 배열로 두고 body 만 쓴다.
+  문단으로 쓸 것을 불릿으로 쪼개면 무엇이 중요한지 알 수 없는 목록이 된다.
+
+· 주제는 **3~6개**다. 두 개면 회의를 뭉갠 것이고 여덟 개면 회의를 안 정리한 것이다.
+  분량이 "간결" 이어도 3개 아래로 내려가지 마라. 줄일 것은 각 절의 길이이지 절의 수가 아니다.
+
+· 이야기가 결론까지 갔으면 그 결론도 문단 안에 쓴다. 뒤의 결정사항 절과 겹쳐도 된다.
+  읽는 사람은 이 절을 먼저 읽고, 뒤는 확인용으로 본다.
 
 ■ 분량
 
-간결이면 결정과 미결은 하나도 빼지 않고 할 일만 성격이 같은 것끼리 묶는다. 요약 3문장.
-보통이면 위 그대로. 요약 4문장. 상세면 부수적 확인 사항과 역할까지 남긴다. 요약 5문장.
-어떤 설정에서도 결정과 이견이 남은 항목은 줄이지 않는다.
+간결이면 주제 절의 body 를 2~3문장으로 줄인다. 보통이면 3~4문장. 상세면 4~5문장에
+부수적 확인 사항과 역할까지 남긴다.
+어떤 설정에서도 줄이지 않는 것 셋 — 주제의 개수(3개 아래로 안 내려간다),
+결정, 그리고 이견이 남은 항목. 숫자와 금액도 줄이지 마라.
 
 ■ 내보내기 전 스스로 확인할 것
 
@@ -7115,7 +7134,7 @@ const SECTION_KIND = [
   ["안건 처리 현황","agenda"], ["지난 회의 후속","carry"],
   ["담당자별","owners"], ["일정과 선후","time"], ["다음 회의","next"],
   ["결정사항","decide"], ["다음에 정해야 할 것","open"], ["미결사항","open"],
-  ["할 일","todo"], ["투두리스트","todo"],
+  ["할 일","todo"], ["투두리스트","todo"], ["다음 단계","time"],
   ["확인해 주세요","check"], ["확인 필요","check"],
   /* 발주처가 받는 문서는 베트남어다. 절 이름을 여기 등록하지 않으면 번역본은
      절 색이 하나도 없이 나간다. DOC_LANG 의 heads 와 글자가 같아야 한다. */
