@@ -817,7 +817,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-6";
+const APP_VERSION = "2026.09.03-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -4853,7 +4853,23 @@ function transNeed(target){
    화면 어디에도 자동으로 뜨지 않는다. 설정에서 눌러야 보인다. */
 let lat = { up:[], srv:[], trans:[], first:[], dur:[], trans2:0, calls:0 };
 const latAdd = (k, v) => { if(v > 0 && lat[k]){ lat[k].push(v); if(lat[k].length > 400) lat[k].shift(); } };
-const latMid = a => { if(!a.length) return 0; const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
+const latMid = a => { if(!a || !a.length) return 0; const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
+
+/* 잰 값을 남긴다.
+
+   처음에는 화면 안에만 두었다. 그래서 앱을 껐다 켜면 지워졌고, 정작 보려고 하면
+   늘 비어 있었다. 재는 자리를 만들어 놓고 못 보는 셈이었다.
+   가운뎃값만 남긴다 — 400개를 다 남길 이유가 없고, 판단에 쓰는 것은 가운뎃값뿐이다. */
+function latSave(){
+  if(!lat.up.length && !lat.trans.length) return;
+  CFG.latLast = {
+    at: Date.now(),
+    up: latMid(lat.up), srv: latMid(lat.srv),
+    trans: latMid(lat.trans), first: latMid(lat.first),
+    calls: lat.calls, trans2: lat.trans2
+  };
+  saveCfg();
+}
 
 /* --- 로그인 (기기 흐름) --- */
 async function gStartLink(onCode, onWait){
@@ -5615,7 +5631,7 @@ async function drain(){
         maybeLiveSum(await byIndex("chunks", "note", c.noteId));
       }
     }
-  } finally { working = false; holdAwake("queue", false, true); paintStrips(); }
+  } finally { working = false; holdAwake("queue", false, true); latSave(); paintStrips(); }
 }
 setInterval(drain, 4000);
 $("liveshelf").onclick = ()=>{
@@ -8538,6 +8554,24 @@ $("btn-settings").onclick = ()=>{
 /* 어디가 느린지는 이 숫자로만 갈린다. 올리는 데 느린지, 서버가 늦는지,
    아니면 통역을 다 기다리느라 늦는지. 셋은 고치는 법이 서로 다르다. */
 $("s-lat").onclick = ()=>{
+  /* 이번에 켠 뒤로 잰 것이 있으면 그것을, 없으면 지난번에 남긴 것을 보여 준다.
+     앱을 껐다 켜면 화면 안의 값은 지워지는데, 사람은 그것을 모르고 "안 잰다" 고 본다. */
+  const old = CFG.latLast;
+  const live = lat.up.length || lat.trans.length;
+  if(!live && old){
+    const w = (k, v, why) => "- " + k + ": " + (v ? (v/1000).toFixed(1) + "초" : "잰 것 없음") + "\n  " + why;
+    sheet("지난번에 잰 지연", [{ label:
+      [w("소리 올리기", old.up, "회선이 느리면 여기가 큽니다."),
+       w("서버가 답할 때까지", old.srv, "여기가 크면 구간을 짧게 하는 것이 답입니다."),
+       w("통역 전체", old.trans, "예전에는 이만큼을 다 기다린 뒤에야 읽어 주었습니다."),
+       w("통역 첫 문장까지", old.first, "지금은 여기서 읽기 시작합니다.")].join("\n")
+      + ((old.trans && old.first) ? "\n\n다 기다리지 않아 아낀 시간: 약 "
+          + ((old.trans - old.first)/1000).toFixed(1) + "초" : "")
+      + (old.calls ? "\n통역을 다시 부른 구간: " + old.trans2 + " / " + old.calls : ""),
+      sub: dayLabel(old.at) + " 에 잰 것입니다. 이번에 켠 뒤로는 아직 전사한 것이 없습니다.",
+      go: ()=>{} }]);
+    return;
+  }
   const rows = [
     ["소리 올리기", lat.up, "회선이 느리면 여기가 크다. 그러면 소리를 줄여 올리는 것이 답이다."],
     ["서버가 답할 때까지", lat.srv, "여기가 크면 구간을 짧게 하거나 앞질러 보내는 것이 답이다."],
