@@ -200,9 +200,9 @@ const FG = `<?xml version="1.0" encoding="utf-8"?>
     android:viewportWidth="108" android:viewportHeight="108">
   <path android:strokeColor="${PAPER}" android:strokeWidth="6"
         android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M31,36 L47,48 L31,60 L47,72" />
+        android:pathData="M30,36 L46,48 L30,60 L46,72" />
   <path android:fillColor="${PAPER}" android:fillType="evenOdd"
-        android:pathData="M63,40 H77 A3,3 0 0 1 80,43 V65 A3,3 0 0 1 77,68 H63 A3,3 0 0 1 60,65 V43 A3,3 0 0 1 63,40 Z M63.5,46.5 H76.5 V50.5 H63.5 Z M63.5,57.5 H76.5 V61.5 H63.5 Z" />
+        android:pathData="M60,37 H78 A3,3 0 0 1 81,40 V68 A3,3 0 0 1 78,71 H60 A3,3 0 0 1 57,68 V40 A3,3 0 0 1 60,37 Z M60.5,45 H77.5 V49 H60.5 Z M60.5,59 H77.5 V63 H60.5 Z" />
 </vector>
 `;
 
@@ -223,9 +223,9 @@ const LEGACY = `<?xml version="1.0" encoding="utf-8"?>
   <path android:fillColor="${GREEN}" android:pathData="M0,0 H108 V108 H0 Z" />
   <path android:strokeColor="${PAPER}" android:strokeWidth="6"
         android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M31,36 L47,48 L31,60 L47,72" />
+        android:pathData="M30,36 L46,48 L30,60 L46,72" />
   <path android:fillColor="${PAPER}" android:fillType="evenOdd"
-        android:pathData="M63,40 H77 A3,3 0 0 1 80,43 V65 A3,3 0 0 1 77,68 H63 A3,3 0 0 1 60,65 V43 A3,3 0 0 1 63,40 Z M63.5,46.5 H76.5 V50.5 H63.5 Z M63.5,57.5 H76.5 V61.5 H63.5 Z" />
+        android:pathData="M60,37 H78 A3,3 0 0 1 81,40 V68 A3,3 0 0 1 78,71 H60 A3,3 0 0 1 57,68 V40 A3,3 0 0 1 60,37 Z M60.5,45 H77.5 V49 H60.5 Z M60.5,59 H77.5 V63 H60.5 Z" />
 </vector>
 `;
 
