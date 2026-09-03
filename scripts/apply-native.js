@@ -7,6 +7,7 @@
  *   1. native/*.java 를 앱 패키지로 복사
  *   2. MainActivity 에 registerPlugin 삽입
  *   3. AndroidManifest 에 권한과 service 선언 삽입
+ *   4. 홈 화면 아이콘을 우리 마크로 바꾼다
  *
  * 멱등하다. 여러 번 돌려도 중복되지 않는다.
  */
@@ -175,4 +176,96 @@ if (!mf.includes("RecorderService")) {
 } else ok("RecorderService 이미 선언됨");
 
 fs.writeFileSync(MANIFEST, mf);
+
+/* ---------- 4. 홈 화면 아이콘 ----------
+
+   여기까지 손대지 않으면 Capacitor 기본 아이콘이 그대로 남는다. 홈 화면에
+   낯선 그림이 뜨고, 사용자는 그것이 무슨 앱인지 알아볼 수가 없다.
+
+   벡터 드로어블로 넣는다. PNG 를 여러 해상도로 만들어 커밋하는 것보다
+   파일 하나가 낫고, 어느 화면 밀도에서도 뭉개지지 않는다.
+   안드로이드 8 이상은 적응형 아이콘(배경 + 전경 두 겹)을 쓴다. 폰마다
+   원으로 자르기도 하고 사각으로 자르기도 하는데, 알맹이를 가운데 66% 안에
+   두면 어느 쪽으로 잘려도 안전하다. 우리 마크는 그 조건에 맞춰 그렸다.
+
+   왼쪽 획은 두 언어 사이를 오가는 말, 오른쪽 한 장은 남는 기록이다. */
+const RES = path.join(APP, "res");
+const GREEN = "#1F4E46";     // 앱이 쓰는 깊은 녹색
+const PAPER = "#F7F6F3";     // 종이색
+
+const FG = `<?xml version="1.0" encoding="utf-8"?>
+<!-- 전경. 108 격자 가운데 66dp 원 안에 알맹이가 들어간다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+  <path android:strokeColor="${PAPER}" android:strokeWidth="6"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M31,36 L47,48 L31,60 L47,72" />
+  <path android:fillColor="${PAPER}" android:fillType="evenOdd"
+        android:pathData="M63,40 H77 A3,3 0 0 1 80,43 V65 A3,3 0 0 1 77,68 H63 A3,3 0 0 1 60,65 V43 A3,3 0 0 1 63,40 Z M63.5,46.5 H76.5 V50.5 H63.5 Z M63.5,57.5 H76.5 V61.5 H63.5 Z" />
+</vector>
+`;
+
+const BG = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+  <path android:fillColor="${GREEN}" android:pathData="M0,0 H108 V108 H0 Z" />
+</vector>
+`;
+
+/* 적응형을 모르는 옛 폰(안드로이드 7 이하)이 쓸 한 장짜리.
+   배경과 전경을 한 파일에 겹쳐 둔다. */
+const LEGACY = `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+  <path android:fillColor="${GREEN}" android:pathData="M0,0 H108 V108 H0 Z" />
+  <path android:strokeColor="${PAPER}" android:strokeWidth="6"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M31,36 L47,48 L31,60 L47,72" />
+  <path android:fillColor="${PAPER}" android:fillType="evenOdd"
+        android:pathData="M63,40 H77 A3,3 0 0 1 80,43 V65 A3,3 0 0 1 77,68 H63 A3,3 0 0 1 60,65 V43 A3,3 0 0 1 63,40 Z M63.5,46.5 H76.5 V50.5 H63.5 Z M63.5,57.5 H76.5 V61.5 H63.5 Z" />
+</vector>
+`;
+
+const ADAPTIVE = `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>
+`;
+
+function put(rel, body) {
+  const f = path.join(RES, rel);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, body);
+}
+
+/* 기본 프로젝트가 넣어 둔 PNG 아이콘을 먼저 치운다. 남겨 두면 밀도별 PNG 가
+   벡터보다 우선해서, 고쳐도 옛 그림이 계속 뜬다. */
+let wiped = 0;
+for (const d of fs.readdirSync(RES)) {
+  if (!d.startsWith("mipmap")) continue;
+  const dir = path.join(RES, d);
+  for (const f of fs.readdirSync(dir)) {
+    if (/^ic_launcher.*\.(png|webp)$/.test(f)) { fs.unlinkSync(path.join(dir, f)); wiped++; }
+  }
+}
+
+put("drawable/ic_launcher_foreground.xml", FG);
+put("drawable/ic_launcher_background.xml", BG);
+put("mipmap-anydpi-v26/ic_launcher.xml", ADAPTIVE);
+put("mipmap-anydpi-v26/ic_launcher_round.xml", ADAPTIVE);
+put("drawable/ic_launcher.xml", LEGACY);
+put("drawable/ic_launcher_round.xml", LEGACY);
+
+/* 옛 폰은 mipmap 에서 찾는다. 벡터를 mipmap 에 두면 경고가 나므로
+   매니페스트가 drawable 을 가리키게 한다. */
+mf = fs.readFileSync(MANIFEST, "utf8");
+mf = mf.replace(/android:icon="[^"]*"/g, 'android:icon="@drawable/ic_launcher"')
+       .replace(/android:roundIcon="[^"]*"/g, 'android:roundIcon="@drawable/ic_launcher_round"');
+fs.writeFileSync(MANIFEST, mf);
+ok("홈 화면 아이콘 주입" + (wiped ? " (기본 PNG " + wiped + "개 치움)" : ""));
 console.log("\n네이티브 주입 완료. 이제 android/ 에서 gradlew assembleDebug 를 돌리면 된다.");

@@ -83,7 +83,7 @@ public class SaverPlugin extends Plugin {
 
     @PluginMethod
     public void save(PluginCall call) {
-        String name   = call.getString("name", "meetnote.json");
+        String name   = call.getString("name", "transmom.json");
         String mime   = call.getString("mime", "application/octet-stream");
         String b64    = call.getString("data", "");
         String append = call.getString("append", "");   // "" | start | more | end

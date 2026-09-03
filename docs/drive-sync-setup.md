@@ -36,7 +36,7 @@ https://console.cloud.google.com 에 **설정을 만들 계정**으로 접속.
 **API 및 서비스 → OAuth 동의 화면**
 
 1. User Type **외부(External)** → 만들기
-2. 앱 이름 `대역`, 지원 이메일과 개발자 이메일을 넣고 저장
+2. 앱 이름 `trans-mom`, 지원 이메일과 개발자 이메일을 넣고 저장
 3. 범위(Scope)와 테스트 사용자는 건너뛴다
 4. **대시보드에서 "앱 게시(Publish app)" → 프로덕션으로 전환**
 
