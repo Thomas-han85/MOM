@@ -50,6 +50,9 @@ public class SaverPlugin extends Plugin {
     private OutputStream openOut = null;
     private String openName = null;
     private String openWhere = null;
+    /* 저장한 자리의 주소. 이것이 있어야 저장한 파일을 곧바로 다른 앱으로 보낼 수 있다.
+       주소가 없으면 사람이 파일 관리자를 열어 찾아서 붙여야 한다. 아무도 안 한다. */
+    private String openUri = null;
 
     private void closeOpen() {
         if (openOut != null) {
@@ -71,6 +74,7 @@ public class SaverPlugin extends Plugin {
             if (uri == null) throw new Exception("저장할 자리를 잡지 못했습니다.");
             openOut = getContext().getContentResolver().openOutputStream(uri);
             if (openOut == null) throw new Exception("파일을 열지 못했습니다.");
+            openUri = uri.toString();
             return "다운로드 폴더";
         }
         File dir = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
@@ -78,6 +82,7 @@ public class SaverPlugin extends Plugin {
             dir.mkdirs();
         File f = new File(dir, name);
         openOut = new FileOutputStream(f);
+        openUri = null;          // 옛 폰은 앱 전용 폴더라 다른 앱이 못 읽는다
         return f.getAbsolutePath();
     }
 
@@ -103,6 +108,7 @@ public class SaverPlugin extends Plugin {
                 closeOpen();
                 JSObject r = new JSObject();
                 r.put("saved", true); r.put("where", where); r.put("name", name);
+                if (openUri != null) r.put("uri", openUri);
                 call.resolve(r);
                 return;
             }
@@ -124,6 +130,7 @@ public class SaverPlugin extends Plugin {
             r.put("saved", "end".equals(append));
             r.put("where", openWhere);
             r.put("name", openName);
+            if (openUri != null) r.put("uri", openUri);
             if ("end".equals(append)) closeOpen();
             call.resolve(r);
 
