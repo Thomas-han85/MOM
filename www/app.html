@@ -250,6 +250,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .mdtbl{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0;display:block;overflow-x:auto}
 .mdtbl th,.mdtbl td{border:1px solid var(--rule);padding:5px 7px;text-align:left;vertical-align:top}
 .mdtbl th{background:var(--accent-soft);font-weight:600;white-space:nowrap}
+.sheet .fl{display:block;font-size:12.5px;color:var(--muted);margin:12px 0 6px}
+.sheet input[type=text]{width:100%;padding:13px 14px;border:1px solid var(--rule);
+  border-radius:11px;background:var(--paper);font-size:16px;color:var(--ink)}
 .grab{width:38px;height:4px;border-radius:4px;background:var(--rule);margin:8px auto 16px}
 .pickhead{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0 0 12px}
 .pickrow{display:block;width:100%;text-align:left;padding:14px 15px;margin-bottom:8px;
@@ -418,7 +421,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <button class="iconbtn" id="btn-back" aria-label="뒤로">
       <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
     </button>
-    <h1 id="d-title">—<span class="sub" id="d-meta"></span></h1>
+    <h1 id="d-title" role="button" tabindex="0" style="cursor:pointer">—<span class="sub" id="d-meta"></span></h1>
     <button class="iconbtn" id="btn-share" aria-label="내보내기">
       <svg viewBox="0 0 24 24"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
     </button>
@@ -817,7 +820,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-8";
+const APP_VERSION = "2026.09.03-9";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6523,6 +6526,7 @@ async function importFiles(files){
    화면
    ===================================================================== */
 let openId = null, curTab = "doc";
+let listFolder = "";      // 목록에서 지금 고른 폴더. 빈 문자열이면 전체
 
 function show(v){
   ["v-list","v-detail","v-settings"].forEach(x=>$(x).classList.toggle("on", x===v));
@@ -6544,8 +6548,34 @@ async function refreshList(){
       '아래 버튼으로 회의를 녹음하거나, 이미 있는 녹음 파일을 불러와 전사할 수 있습니다.</div>';
     return;
   }
+  /* 폴더로 걸러 본다.
+
+     회의가 쌓이면 목록이 길어져 무엇을 찾으려면 계속 내려야 한다.
+     시리즈는 이미 회의를 묶고 있지만 회의를 시작할 때 정해야 하고, 파일에서
+     불러온 회의에는 대개 없다. 폴더는 나중에 아무 때나 붙일 수 있는 이름표다.
+     폴더가 없으면 시리즈 이름을 그 자리에 쓴다 — 두 가지를 따로 관리하게 하면
+     둘 다 안 쓰게 된다. */
+  const groupOf = nt => cS(nt.folder) ||
+    (nt.seriesId && findSeries(nt.seriesId) ? findSeries(nt.seriesId).name : "");
+  const groups = [];
+  notes.forEach(nt => { const g = groupOf(nt); if(g && groups.indexOf(g) < 0) groups.push(g); });
+  if(groups.length >= 2){
+    if(listFolder && groups.indexOf(listFolder) < 0) listFolder = "";
+    box.innerHTML =
+      '<div class="chiprow" style="padding:12px 18px 4px;flex-wrap:nowrap;overflow-x:auto">' +
+      '<button class="chip' + (listFolder ? "" : " on") + '" data-fd="">전체</button>' +
+      groups.map(g => '<button class="chip' + (listFolder === g ? " on" : "") +
+                      '" data-fd="' + esc(g) + '">' + esc(g) + '</button>').join("") +
+      '</div>';
+  }else{
+    box.innerHTML = "";
+    listFolder = "";
+  }
+  const chipRow = box.innerHTML;
+
   let html = "", day = "";
   for(const n of notes){
+    if(listFolder && groupOf(n) !== listFolder) continue;
     const d = dayLabel(n.created);
     if(d !== day){ html += '<div class="daygroup">'+d+'</div>'; day = d; }
     const mine = chunks.filter(c=>c.noteId===n.id);
@@ -6562,8 +6592,9 @@ async function refreshList(){
       (n.seriesId && findSeries(n.seriesId) ? ' · '+esc(findSeries(n.seriesId).name) : '')+
       '</span>'+badge+'</button>';
   }
-  box.innerHTML = html;
+  box.innerHTML = chipRow + (html || '<div class="empty">이 폴더에는 아직 회의가 없습니다.</div>');
   box.querySelectorAll(".note").forEach(b=>b.onclick=()=>openNote(b.dataset.id));
+  box.querySelectorAll("[data-fd]").forEach(b=>b.onclick=()=>{ listFolder = b.dataset.fd; refreshList(); });
 }
 
 function paintStrips(){
@@ -6688,6 +6719,59 @@ function absorbIntoSeries(n){
   return got.join(" · ");
 }
 
+/* 회의 이름과 폴더를 바꾼다.
+
+   폴더는 나중에 아무 때나 붙이는 이름표다. 시리즈처럼 회의를 시작할 때 정할
+   필요가 없고, 파일에서 불러온 회의에도 붙일 수 있다.
+   이미 쓴 폴더 이름을 함께 보여 준다 — 손으로 다시 치게 하면 "벤쩨" 와 "벤째" 가
+   따로 서고, 그러면 폴더가 둘로 갈려 거르는 뜻이 없어진다. */
+async function editNote(n){
+  const notes = await all("notes");
+  const used = [];
+  notes.forEach(x => { const f = cS(x.folder); if(f && used.indexOf(f) < 0) used.push(f); });
+
+  const old = $("picksheet"); if(old) old.remove();
+  const d = document.createElement("div");
+  d.id = "picksheet";
+  d.innerHTML =
+    '<div class="scrim on" data-x="1"></div>' +
+    '<div class="sheet on">' +
+      '<div class="grab"></div>' +
+      '<div class="pickhead">회의 이름과 폴더</div>' +
+      '<label class="fl">이름</label>' +
+      '<input id="en-title" type="text" value="' + esc(n.title || "") + '">' +
+      '<label class="fl">폴더 · 비워 두면 폴더 없이 둡니다</label>' +
+      '<input id="en-folder" type="text" value="' + esc(n.folder || "") + '" placeholder="예: 벤쩨 병원">' +
+      (used.length ? '<div class="chiprow" style="margin:8px 0 0">' +
+        used.map(f => '<button class="chip" data-uf="' + esc(f) + '">' + esc(f) + '</button>').join("") +
+        '</div>' : "") +
+      '<button class="bigbtn" data-yes="1" style="width:100%;margin:14px 0 0">저장</button>' +
+      '<button class="bigbtn ghost" data-x="1" style="width:100%;margin:10px 0 0">그만두기</button>' +
+    '</div>';
+  document.body.appendChild(d);
+  const close = ()=> d.remove();
+  d.querySelectorAll("[data-x]").forEach(b => b.onclick = close);
+  d.querySelectorAll("[data-uf]").forEach(b =>
+    b.onclick = ()=>{ d.querySelector("#en-folder").value = b.dataset.uf; });
+  d.querySelector("[data-yes]").onclick = async ()=>{
+    const t = d.querySelector("#en-title").value.trim();
+    const f = d.querySelector("#en-folder").value.trim();
+    close();
+    const cur = await get("notes", n.id);
+    if(!cur) return;
+    if(t && t !== cur.title){
+      cur.title = t;
+      cur.titleSet = true;    // 사람이 지은 이름은 회의록이 덮어쓰지 않는다
+      cur.titleAuto = false;
+    }
+    cur.folder = f;
+    cur.updated = Date.now();
+    await put("notes", cur);
+    renderDetail(); refreshList(); syncDrive(false);
+    toast("바꿨습니다.", 4000);
+  };
+}
+
 function seriesRow(n){
   const s = n.seriesId ? findSeries(n.seriesId) : null;
   const opts = '<option value="">시리즈 없음 (단발 회의)</option>'
@@ -6764,6 +6848,9 @@ async function renderDetail(){
   const n = await get("notes", openId); if(!n) return;
   const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
   $("d-title").firstChild.nodeValue = n.title;
+  /* 제목을 누르면 이름과 폴더를 바꾼다. 따로 버튼을 두면 상단바가 또 붐빈다.
+     제목은 누를 만한 자리이고, 실제로 누르는 사람이 있다. */
+  $("d-title").onclick = ()=> editNote(n);
   $("d-meta").textContent = dayLabel(n.created).replace(/년 |월 /g,".").replace("일","")+
     " · "+Math.max(1,Math.round(n.duration/60000))+"분"+(n.target?" · "+n.target:"");
 
@@ -7237,6 +7324,20 @@ async function genMinutes(n, cs, btn, target){
     }
     docPicking = false;
     n.summary = body;                  // 예전 형식과 내보내기를 위해 남겨 둔다
+
+    /* 회의록이 스스로 제목을 지었으면 회의 이름으로 올린다.
+
+       지금까지 목록에 "기록 10:07" 같은 시각이 떠 있었다. 회의가 열 건 쌓이면
+       어느 것이 무슨 회의인지 알 수가 없어 하나씩 열어 봐야 한다.
+       회의록 첫 줄에 이미 제 이름이 적혀 있으니 그것을 쓴다.
+
+       사람이 손으로 지은 이름은 건드리지 않는다. 앱이 붙인 기본 이름
+       (기록 10:07, 대화 10:07, 파일 이름)일 때만 바꾼다. */
+    const made = n._concl && cS(n._concl.title);
+    if(made && !n.titleSet){
+      n.title = made.replace(/\s*회의록$/, "");
+      n.titleAuto = true;
+    }
     n.draft = null; n.docError = "";   // 다 만들었으니 조각과 오류 자국은 버린다
     delete n._concl;                   // 문서 기록으로 옮겼다. 노트에 두면 두 벌이 된다.
     await put("notes", n);
