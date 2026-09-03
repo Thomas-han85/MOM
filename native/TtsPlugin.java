@@ -223,7 +223,14 @@ public class TtsPlugin extends Plugin {
             track = new AudioTrack(
                     new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            /* 말(SPEECH)이 아니라 음악(MUSIC)이라고 알린다.
+
+                               말이라고 하면 폰이 알아듣기 좋게 만들어 준다며 손을 댄다.
+                               삼성의 음성 보정과 적응형 사운드가 그 자리에서 걸리고,
+                               그중 하나가 좌우를 섞는다. 한쪽을 0 으로 채워 보내도
+                               양쪽에서 들리는 까닭이 이것이다. 유튜브는 음악으로 보내서
+                               한쪽씩만 들린다. 우리도 그렇게 보낸다. */
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build(),
                     new AudioFormat.Builder()
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
