@@ -820,7 +820,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-9";
+const APP_VERSION = "2026.09.03-10";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1046,6 +1046,34 @@ const mmss = ms => { const s=Math.floor(ms/1000); return pad(Math.floor(s/60))+"
 const esc = s => (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function toast(msg,ms=2800){ const t=$("toast"); t.textContent=msg; t.classList.add("on");
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),ms); }
+/* 회의 이름을 짓는다.
+
+   묶음(폴더나 시리즈)이 있으면 그 이름에 날짜만 붙인다. 같은 회의가 매달 열리는
+   자리라 이름이 매번 달라지면 오히려 못 찾는다. "벤쩨 정례 9월 3일" 처럼
+   묶음 이름이 앞에 오고 날짜가 뒤에 와야 목록에서 세로로 줄이 맞는다.
+
+   묶음이 없으면 회의록이 지은 이름을 쓴다. 그것은 회의가 끝나야 나오므로,
+   그때까지는 시각으로 둔다.
+
+   사람이 손으로 고친 이름은 어느 쪽이든 건드리지 않는다. */
+function shortDay(ts){
+  const d = new Date(ts);
+  return (d.getMonth()+1) + "월 " + d.getDate() + "일";
+}
+
+function groupName(n){
+  const f = String(n.folder || "").trim();
+  if(f) return f;
+  const ser = n.seriesId ? findSeries(n.seriesId) : null;
+  return ser ? ser.name : "";
+}
+
+function autoTitle(n){
+  const g = groupName(n);
+  if(g) return g + " " + shortDay(n.created);
+  return "";        // 묶음이 없다. 회의록이 지을 때까지 기다린다.
+}
+
 function dayLabel(ts){ const d=new Date(ts); return d.getFullYear()+"년 "+pad(d.getMonth()+1)+"월 "+pad(d.getDate())+"일"; }
 function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d.getMinutes()); }
 
@@ -5982,7 +6010,12 @@ async function startRecording(){
 
   const title = $("r-title").value.trim();
   const talk = mode === "talk";
-  activeNote = { id:uid(), title: title || (talk ? "대화 " : "기록 ") + timeLabel(Date.now()),
+  /* 시리즈를 고르셨으면 그 이름으로 시작한다. 회의록이 나올 때까지 기다릴 까닭이 없다. */
+  const ser0 = $("r-series").value ? findSeries($("r-series").value) : null;
+  const auto0 = ser0 ? ser0.name + " " + shortDay(Date.now()) : "";
+  activeNote = { id:uid(),
+    title: title || auto0 || (talk ? "대화 " : "기록 ") + timeLabel(Date.now()),
+    titleSet: !!title,
     created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
     target: talk ? "" : $("r-target").value, summary:"", mode,
     langA: talk ? $("r-lang-a").value : "",   // 내 언어
@@ -6421,7 +6454,10 @@ async function importNative(){
   files.sort((a,b)=> String(a.name).localeCompare(String(b.name), "ko", { numeric:true }));
 
   const base = files[0].name.replace(/\.[^.]+$/,"").replace(/[_-]?\d+$/,"") || "회의";
-  const note = { id:uid(), title: files.length>1 ? base : files[0].name.replace(/\.[^.]+$/,""),
+  const ser0 = $("r-series").value ? findSeries($("r-series").value) : null;
+  const note = { id:uid(),
+    title: ser0 ? ser0.name + " " + shortDay(Date.now())
+                : (files.length>1 ? base : files[0].name.replace(/\.[^.]+$/,"")),
     created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
     target:$("r-target").value, summary:"", mode:"file",
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
@@ -6482,7 +6518,10 @@ async function importFiles(files){
   const many = files.length > 1;
   const base = files[0].name.replace(/\.[^.]+$/,"").replace(/[_-]?\d+$/,"") || "회의";
 
-  const note = { id:uid(), title: many ? base : files[0].name.replace(/\.[^.]+$/,""),
+  const ser0 = $("r-series").value ? findSeries($("r-series").value) : null;
+  const note = { id:uid(),
+    title: ser0 ? ser0.name + " " + shortDay(Date.now())
+                : (many ? base : files[0].name.replace(/\.[^.]+$/,"")),
     created: Date.now(), duration:0, ctx:$("r-ctx").value.trim(),
     target:$("r-target").value, summary:"", mode:"file",
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
@@ -6555,10 +6594,8 @@ async function refreshList(){
      불러온 회의에는 대개 없다. 폴더는 나중에 아무 때나 붙일 수 있는 이름표다.
      폴더가 없으면 시리즈 이름을 그 자리에 쓴다 — 두 가지를 따로 관리하게 하면
      둘 다 안 쓰게 된다. */
-  const groupOf = nt => cS(nt.folder) ||
-    (nt.seriesId && findSeries(nt.seriesId) ? findSeries(nt.seriesId).name : "");
   const groups = [];
-  notes.forEach(nt => { const g = groupOf(nt); if(g && groups.indexOf(g) < 0) groups.push(g); });
+  notes.forEach(nt => { const g = groupName(nt); if(g && groups.indexOf(g) < 0) groups.push(g); });
   if(groups.length >= 2){
     if(listFolder && groups.indexOf(listFolder) < 0) listFolder = "";
     box.innerHTML =
@@ -6575,7 +6612,7 @@ async function refreshList(){
 
   let html = "", day = "";
   for(const n of notes){
-    if(listFolder && groupOf(n) !== listFolder) continue;
+    if(listFolder && groupName(n) !== listFolder) continue;
     const d = dayLabel(n.created);
     if(d !== day){ html += '<div class="daygroup">'+d+'</div>'; day = d; }
     const mine = chunks.filter(c=>c.noteId===n.id);
@@ -6764,7 +6801,14 @@ async function editNote(n){
       cur.titleSet = true;    // 사람이 지은 이름은 회의록이 덮어쓰지 않는다
       cur.titleAuto = false;
     }
+    const folderChanged = cS(cur.folder) !== f;
     cur.folder = f;
+    /* 폴더를 바꿨는데 이름이 앱이 지은 것이면 새 폴더 이름으로 다시 짓는다.
+       안 그러면 "벤쩨 정례 9월 3일" 이 자금 회의 폴더에 들어앉는다. */
+    if(folderChanged && !cur.titleSet){
+      const g = autoTitle(cur);
+      if(g) cur.title = g;
+    }
     cur.updated = Date.now();
     await put("notes", cur);
     renderDetail(); refreshList(); syncDrive(false);
@@ -7333,10 +7377,12 @@ async function genMinutes(n, cs, btn, target){
 
        사람이 손으로 지은 이름은 건드리지 않는다. 앱이 붙인 기본 이름
        (기록 10:07, 대화 10:07, 파일 이름)일 때만 바꾼다. */
-    const made = n._concl && cS(n._concl.title);
-    if(made && !n.titleSet){
-      n.title = made.replace(/\s*회의록$/, "");
-      n.titleAuto = true;
+    if(!n.titleSet){
+      /* 묶음이 있으면 그 이름에 날짜. 없을 때만 회의록이 지은 이름을 쓴다. */
+      const g = autoTitle(n);
+      const made = n._concl && cS(n._concl.title);
+      const t = g || (made ? made.replace(/\s*회의록$/, "") : "");
+      if(t && t !== n.title){ n.title = t; n.titleAuto = true; }
     }
     n.draft = null; n.docError = "";   // 다 만들었으니 조각과 오류 자국은 버린다
     delete n._concl;                   // 문서 기록으로 옮겼다. 노트에 두면 두 벌이 된다.
