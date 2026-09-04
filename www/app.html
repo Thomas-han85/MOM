@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.04-3";
+const APP_VERSION = "2026.09.04-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -5015,11 +5015,22 @@ function xhrPost(url, headers, body, timeoutMs, onTime){
     x.onload = () => {
       const tot = performance.now() - t0;
       if(onTime) onTime({ upMs: Math.round(upEnd), srvMs: Math.round(tot - upEnd) });
-      if(x.status >= 200 && x.status < 300) res(x.responseText);
-      else rej(new Error("HTTP " + x.status + " · " + String(x.responseText||"").slice(0,160)));
+      if(x.status >= 200 && x.status < 300){ res(x.responseText); return; }
+      const e = new Error("HTTP " + x.status + " · " + String(x.responseText||"").slice(0,160));
+      /* 429 는 "너무 자주 불렀다", 5xx 는 "저쪽이 잠깐 아프다" 는 뜻이다.
+         둘 다 이 구간의 잘못이 아니므로 실패로 세지 않는다. 기다렸다 다시 부른다.
+         429 는 창이 1분이라, 몇 초 만에 다시 두드리면 세 번을 다 태우고 죽는다. */
+      if(x.status === 429 || x.status >= 500){
+        e.soft = true;
+        const ra = parseFloat(x.getResponseHeader("retry-after") || "");
+        if(ra > 0) e.after = Math.min(120000, ra * 1000);
+        else if(x.status === 429) e.after = 30000;
+      }
+      rej(e);
     };
     x.ontimeout = () => { const e = new Error("시간 안에 올리지 못했습니다"); e.slow = true; rej(e); };
-    x.onerror   = () => rej(new Error("연결이 끊겼습니다"));
+    /* 끊김은 그 구간의 잘못이 아니다. 현장 회선은 원래 끊긴다. 지나가는 일로 센다. */
+    x.onerror   = () => { const e = new Error("연결이 끊겼습니다"); e.soft = true; rej(e); };
     x.send(body);
   });
 }
@@ -5638,9 +5649,56 @@ function scriptText(note){
    큐 워커 — 온라인일 때만 pending 청크를 seq 순서로 처리
    ===================================================================== */
 let working = false;
+let workingAt = 0;        // 마지막으로 실제로 한 발 나아간 시각
+let unsticking = false;
+
+/* 화면이 잠들면 진행 중이던 await 가 그 자리에서 얼어붙는다. 시한을 재는 타이머도
+   함께 얼어 스스로 깨어나지 못한다. 그러면 working 이 켜진 채 남는다.
+
+   그 뒤로는 drain 을 몇 번 불러도 첫 줄에서 그냥 돌아간다. 새 조각이 들어와도,
+   화면을 다시 켜도, 사람이 "다시 시도" 를 눌러도 아무 일이 없다. 큐가 죽은 것이다.
+   사람 눈에는 "전사가 중간에 꺼졌다" 로 보이고, 눌러도 반응이 없으니 계속 누르게 된다.
+
+   working 을 되돌리는 곳이 어디에도 없었다. 앱을 껐다 켜야만 풀렸다.
+
+   그래서 마지막으로 나아간 시각을 남기고, 너무 오래 멈춰 있으면 얼어붙은 것으로 보고
+   푼다. 한 조각이 정말 오래 걸릴 수도 있으니(느린 회선에서 큰 조각은 2분 넘게 간다)
+   넉넉히 잡는다. */
+const STUCK_MS = 240000;
+
+function drainStuck(){
+  return working && workingAt > 0 && (Date.now() - workingAt > STUCK_MS);
+}
+
+async function unstick(){
+  if(unsticking) return false;
+  unsticking = true;
+  try{
+    working = false; workingAt = 0;
+    /* 보내던 중이던 조각은 "sent" 로 멈춰 있다. 그 상태로는 큐가 다시 집어 가지
+       않는다. 되돌린다. 얼어붙은 것은 그 조각의 잘못이 아니므로 너그럽게 센다. */
+    let back = 0;
+    for(const c of await byIndex("chunks","status","sent")){
+      c.slow = (c.slow||0) + 1;
+      c.status = c.slow >= 8 ? "failed" : "pending";
+      c.nextAt = 0;
+      await put("chunks", c);
+      back++;
+    }
+    if(back) toast("멈춰 있던 구간 " + back + "개를 다시 넣었습니다.", 4000);
+    return true;
+  } finally { unsticking = false; }
+}
+
+// 사람이 아무것도 안 해도 스스로 풀린다
+setInterval(()=>{ if(drainStuck()) drain(); }, 30000);
 async function drain(){
+  if(working){
+    if(!drainStuck()) return;      // 제대로 돌고 있다
+    await unstick();               // 얼어붙었다. 풀고 이어서 간다
+  }
   if(working || !navigator.onLine || !CFG.oai) return;
-  working = true;
+  working = true; workingAt = Date.now();
   /* 화면이 꺼지면 브라우저가 이 화면을 멈추고 큐가 통째로 선다. 녹음할 때와
      회의록 만들 때는 잡아 두고 있었는데 큐가 도는 동안은 아무도 안 잡았다.
      그래서 파일을 불러와 전사만 하면 화면이 꺼지는 순간 거기서 멈췄고,
@@ -5652,6 +5710,7 @@ async function drain(){
          조각이 수백 개가 되는데 그때마다 전부 읽어 거르고 있었다.
          nextAt 은 방금 실패해 뒤로 민 구간이다. 아직 때가 안 됐으면 건너뛴다. */
       const nowT = Date.now();
+      workingAt = nowT;
       const all0 = await byIndex("chunks","status","pending");
       const pend = all0
         .filter(c => !c.nextAt || c.nextAt <= nowT)
@@ -5720,6 +5779,7 @@ async function drain(){
         if(rms !== null && rms < floor){
           c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
         } else {
+          workingAt = Date.now();
           const raw = await sttChunk(c.blob, prompt, terms);
           let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
 
@@ -5798,6 +5858,7 @@ async function drain(){
             if(say && live) speakTrans(t0, tgt, pan, c.id);
           };
 
+          workingAt = Date.now();
           c.trans = await translateChunk(c.text, tgt, pair, note.ctx, onSent);
           latAdd("trans", Date.now() - tStart);
           lat.calls++;
@@ -5812,10 +5873,13 @@ async function drain(){
         c.error = err.message;
         /* 시한을 넘긴 것은 실패가 아니라 느림이다. 현장 회선을 실패로 세면
            세 번 느린 것만으로 그 구간의 발언이 사라진다. 따로, 훨씬 너그럽게 센다. */
-        if(err.slow){
+        if(err.slow || err.soft){
+          /* 느린 것과 지나가는 것은 이 구간의 잘못이 아니다. 너그럽게, 그리고
+             무엇보다 넉넉한 사이를 두고 다시 부른다. 짧게 여러 번 두드리는 것은
+             기다리는 것보다 나쁘다 — 429 는 그 두드림 때문에 창이 안 열린다. */
           c.slow = (c.slow||0) + 1;
-          c.status = c.slow >= 5 ? "failed" : "pending";
-          c.nextAt = Date.now() + 4000 * c.slow;
+          c.status = c.slow >= 8 ? "failed" : "pending";
+          c.nextAt = Date.now() + (err.after || Math.min(60000, 5000 * c.slow));
         }else{
           c.retry = (c.retry||0) + 1;
           c.status = c.retry >= 3 ? "failed" : "pending";
@@ -5833,7 +5897,7 @@ async function drain(){
         maybeLiveSum(await byIndex("chunks", "note", c.noteId));
       }
     }
-  } finally { working = false; holdAwake("queue", false, true); latSave(); paintStrips(); }
+  } finally { working = false; workingAt = 0; holdAwake("queue", false, true); latSave(); paintStrips(); }
 }
 setInterval(drain, 4000);
 $("liveshelf").onclick = ()=>{
