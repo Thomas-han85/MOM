@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.04-2";
+const APP_VERSION = "2026.09.04-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3549,6 +3549,7 @@ const cKey = v => cS(v).toLowerCase().replace(/[\s.\-_'’]/g, "");
    그것이 남의 회의록에 없는 우리 몫이다. */
 const CONC_SECTIONS = [
   { key:"summary",  title:"한 장 요약",         keep:true  },
+  { key:"principle",title:"이 회의를 관통하는 것", keep:false },
   { key:"next",     title:"다음 회의",           keep:true  },
   { key:"topics",   title:"",                   keep:false },   // 이름은 회의가 정한다
   { key:"decision", title:"결정사항",            keep:true  },
@@ -3563,7 +3564,8 @@ const KIND_ALIAS = {
   decision:"decision", decisions:"decision", decide:"decision", 결정:"decision", 결정사항:"decision",
   todo:"todo", todos:"todo", action:"todo", actions:"todo", task:"todo", 할일:"todo", 투두:"todo",
   open:"open", opens:"open", issue:"open", issues:"open", pending:"open", 미결:"open", 미결사항:"open",
-  role:"role", roles:"role", assignment:"role", 역할:"role"
+  role:"role", roles:"role", assignment:"role", 역할:"role",
+  principle:"principle", 원리:"principle", 원칙:"principle"
 };
 
 const STATUS_LABEL = {
@@ -3743,6 +3745,7 @@ function normalizeDoc(doc){
       needsConfirm: (o.needs_confirm === true || o.needsConfirm === true),
       carried: (o.carried === true),
       quoteMiss: (o._quoteMiss === true),
+      at: cS(o._at), at2: cS(o._at2),
       positions: [],
       depends_on: cArr(o.depends_on || o.deps || o.blocked_by).map(cS).filter(Boolean),
       dep_basis: /추론|infer|guess|assum/i.test(cFirst(o.dep_basis, o.basis)) ? "추론" : "발화",
@@ -3758,7 +3761,8 @@ function normalizeDoc(doc){
     cArr(o.positions || o.views || o.stances || o.입장).forEach(p => {
       if(typeof p === "string") it.positions.push({ who:"", stance: cS(p) });
       else it.positions.push({
-        who: cFirst(p && p.who, p && p.name, p && p.party, p && p.side),
+        side: cFirst(p && p.side, p && p.찬반, p && p.label),
+        who: cFirst(p && p.who, p && p.name, p && p.party),
         stance: cFirst(p && p.stance, p && p.text, p && p.position, p && p.opinion)
       });
     });
@@ -3882,7 +3886,7 @@ function renderConclusion(doc, opts){
   const h = "#".repeat(Math.max(1, Math.min(4, opts.headingLevel || 2))) + " ";
   const compact = opts.compact === true;      // 카톡용 — 같은 할 일을 세 번 싣지 않는다
 
-  const byKind = { decision:[], todo:[], open:[], role:[] };
+  const byKind = { decision:[], todo:[], open:[], role:[], principle:[] };
   n.items.forEach(it => (byKind[it.kind] || byKind.todo).push(it));
 
   const out = [];
@@ -3928,6 +3932,11 @@ function renderConclusion(doc, opts){
         body = bits.join("\n\n");
         break;
       }
+      case "principle":
+        body = byKind.principle.map(it =>
+          "- " + it.text + atTag(it)
+          + (it.rationale ? "\n  - " + it.rationale : "")).join("\n");
+        break;
       case "next":
         body = renderNext(n.next, base);
         break;
@@ -3938,14 +3947,14 @@ function renderConclusion(doc, opts){
         body = byKind.open.map(it => {
           const due = dueLabel(it, base);
           const who = cUniq(it.owners.map(o => { const r = resolveOwner(o, ros); return r ? r.display : o; }));
-          return "- " + it.text
+          return "- " + it.text + atTag(it)
             + (due ? " — " + due + " 까지 결정" : "")
             + (who.length ? " (담당: " + who.join(", ") + ")" : "")
             + (it.carried ? " [지난 회의에서 넘어옴]" : "");
         }).join("\n");
         break;
       case "todo":
-        body = byKind.todo.map(it => "- " + todoLine(it, base, ros)).join("\n");
+        body = byKind.todo.map(it => "- " + todoLine(it, base, ros) + atTag(it)).join("\n");
         break;
       case "owners":
         body = renderOwners(byKind.todo.concat(byKind.role), opts.roster, { meetingDate: base });
@@ -3984,10 +3993,21 @@ function renderNext(next, base){
   return lines.join("\n");
 }
 
+/* 녹취의 어디에서 나온 말인지 붙인다.
+
+   회의록을 의심할 때 사람이 제일 먼저 하는 일이 "그거 진짜 그렇게 말했나" 다.
+   그때 녹취를 처음부터 듣게 하면 아무도 확인하지 않는다. 몇 분인지 적혀 있으면
+   그 자리로 바로 간다. 확인할 수 있는 회의록과 없는 회의록은 다른 물건이다. */
+function atTag(it){
+  const a = cS(it.at), b = cS(it.at2);
+  if(!a) return "";
+  return " [" + (b && b !== a ? a + "–" + b : a) + "]";
+}
+
 function renderDecision(it, base, ros){
   /* 라벨이 비면 "확인필요" 다. 합의로 단정하지 않는다.
      합의 아닌 것이 합의로 찍히면 그 한 줄이 분쟁의 근거가 된다. */
-  const line = ["- [" + (it.status || "확인필요") + "] " + it.text];
+  const line = ["- [" + (it.status || "확인필요") + "] " + it.text + atTag(it)];
   const tail = [];
   const who = cUniq(it.owners.map(o => { const r = resolveOwner(o, ros); return r ? r.display : o; }));
   if(who.length) tail.push("담당 " + who.join(", "));
@@ -3995,9 +4015,19 @@ function renderDecision(it, base, ros){
   if(due) tail.push("기한 " + due);
   if(tail.length) line[0] += " (" + tail.join(" / ") + ")";
 
-  // 이견이면 입장을 나란히 놓는다. 한쪽만 적으면 그게 결론처럼 읽힌다.
-  if(it.status === "이견" && it.positions.length)
-    it.positions.forEach(p => line.push("  - " + (p.who ? p.who + ": " : "") + p.stance));
+  /* 이견은 표로 세운다. 불릿으로 늘어놓으면 어느 쪽이 무엇을 말했는지 세로로
+     견줄 수 없고, 결국 먼저 적힌 쪽이 결론처럼 읽힌다. */
+  if(it.positions.length >= 2){
+    line.push("");
+    line.push("| 입장 | 누가 | 논거 |");
+    line.push("| --- | --- | --- |");
+    it.positions.forEach(p => line.push(
+      "| " + cCell(p.side || "") + " | " + cCell(p.who || "") + " | " + cCell(p.stance) + " |"));
+    line.push("");
+  } else if(it.positions.length === 1){
+    const p = it.positions[0];
+    line.push("  - " + (p.who ? p.who + ": " : "") + p.stance);
+  }
 
   if(it.rationale) line.push("  - 근거: " + it.rationale);
   if(it.carried) line.push("  - 지난 회의에서 넘어온 사안입니다.");
@@ -4009,7 +4039,15 @@ function renderDecision(it, base, ros){
 // 할 일 한 줄: 담당자 — 할 일 — 기한 (목적)
 function todoLine(it, base, ros){
   const who = cUniq(it.owners.map(o => { const r = resolveOwner(o, ros); return r ? r.display : o; }));
-  let line = [who.length ? who.join(", ") : "미지정", it.text, dueLabel(it, base) || "기한 미정"].join(" — ");
+  /* 담당도 기한도 없는 할 일을 이제 정상으로 받는다. 회의에서 오간 지시는 대개
+     그렇게 생겼다. 그러면 "미지정 — … — 기한 미정" 이 거의 모든 줄에 붙어, 정작
+     담당이 정해진 줄이 눈에 안 띈다. 있는 것만 적는다. */
+  const due = dueLabel(it, base);
+  let line = it.text;
+  const tail = [];
+  if(who.length) tail.push("담당 " + who.join(", "));
+  if(due)        tail.push("기한 " + due);
+  if(tail.length) line += " (" + tail.join(" / ") + ")";
   if(it.purpose) line += " (목적: " + it.purpose + ")";
   if(it.status && it.status !== "합의") line += " [" + it.status + "]";
   if(it.needsConfirm) line += " [확인 필요]";
@@ -4336,7 +4374,7 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
       "table": { "head":["",""], "rows":[["",""]] },   // 같은 것을 여럿에 대해 훑었으면
       "points":[] }
   ],
-  "next_meeting": {
+  "next_meeting": {                // 다시 "모이기로 한" 것이 있을 때만. 아래 규칙 8 을 읽어라
     "when": "",                    // 원문 표기 그대로
     "what": "",                    // 무엇을 정하는 자리인가
     "who": "",                     // 누가 모이나
@@ -4344,11 +4382,11 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
   },
   "items": [
     {
-      "kind": "decision",          // decision | open | todo | role
+      "kind": "decision",          // decision | open | todo | role | principle
       "text": "",                  // 한 줄로 완결된 문장. 주어와 대상이 다 있어야 한다
       "status": "합의",            // decision 만: 합의 | 추가논의 | 이견 | 보류
       "rationale": "",             // decision 만: 왜 그렇게 정했나 한 문장
-      "positions": [{"who":"","stance":""}],   // 이견이 남은 경우만
+      "positions": [{"side":"","who":"","stance":""}],  // 이견이 남은 경우만. side 는 찬성|반대|결정타
       "owner": "",                 // 명부의 이름 그대로
       "support": [],               // 보조 담당자
       "due": "",                   // 원문 표기 그대로
@@ -4383,6 +4421,9 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 2. 이견
    · 이견이 남은 논점을 결정으로 굳히지 마라. 한쪽 결론만 적힌 회의록은 분쟁 도구가 된다.
    · status 를 "이견" 으로 두고 positions 에 양쪽을 나란히 적는다. 옳고 그름을 판단하지 마라.
+   · positions 의 side 는 "찬성" / "반대" 로 가른다. 프로그램이 표로 세워 세로로 견주게 한다.
+   · 어느 한마디에 논쟁이 기울었으면 그 말을 side "결정타" 로 한 줄 더 넣는다.
+     회의를 안 들은 사람이 왜 그렇게 결론 났는지 알 수 있는 것은 대개 그 한마디다.
    · 발주처·설계사·시공사·감리·병원 중 누구의 주장인지 who 에 밝힌다.
 
 3. 할 일 · 요청 · 지시
@@ -4429,6 +4470,12 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
      끝부분만 보지 말고 전체에서 찾는다. 후보가 여럿이면 가장 구체적이고 가장 나중에
      확정된 것을 next_meeting 의 when 에 두고 나머지는 alt 에 남긴다.
    · 다음 회의 일시가 정말 없으면 when 을 쓰지 마라. 회의 날짜로 대신 채우지 마라.
+   · **후속이 회의가 아닌 경우가 많다.** 개별 면담, 자료 회람, 의견 청취, 별도 미팅으로
+     이어지는 회의가 그렇다. 그런 회의에는 next_meeting 이 아예 없다. 비워 두고 그
+     후속들을 todo 로 내라. 회의로 안 이어진다고 해서 다음 일정을 만들어 붙이지 마라.
+   · 이 회의가 결론을 내는 자리였는지, 초안을 보여 주고 의견을 듣는 자리였는지,
+     정보를 나누는 자리였는지를 먼저 판정하라. 초안 리뷰 자리라면 결론이 적은 것이
+     정상이고, 후속은 회의가 아니라 개별 청취인 경우가 많다.
 
 9. 숫자·단위
    · tỷ 는 십억 동, triệu 는 백만 동이다. 원화로 환산하지 마라. 원문 단위 그대로 쓴다.
@@ -4442,10 +4489,20 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 11. 근거
    · 모든 항목에 quote 가 있어야 한다. 전사문에서 그대로 복사한 15~60자다.
      다듬거나 번역하거나 이어 붙이지 마라. 프로그램이 원문과 대조한다.
+   · quote 에 [12:34] 같은 시각 표시를 넣지 마라. 그 항목이 녹취의 몇 분인지는
+     프로그램이 quote 를 찾아 스스로 적는다. 네가 쓴 시각은 대조할 길이 없다.
    · 번역 구간이라 문장이 끊겨 있으면 끊긴 그대로 옮긴다.
    · 근거로 삼을 원문을 찾을 수 없으면 그 항목을 만들지 마라.
 
-12. 빠뜨린 사안 — 내보내기 직전에 반드시 한다
+12. 관통하는 원리
+   · 이 회의의 결정 여럿을 한꺼번에 설명하는 한 문장이 재료에 있으면 kind "principle"
+     로 낸다. 조직을 바꾸는 회의에는 대개 하나 있다 — 무엇을 어디에 두느냐가 아니라
+     누가 그것을 소유하느냐를 바꾸는 문장 같은 것이다.
+   · 그 문장을 누군가 실제로 말했을 때만 쓴다. 결정들을 보고 네가 지어내지 마라.
+     quote 가 곧 그 문장이어야 한다. 없으면 principle 을 만들지 마라. 많아야 둘이다.
+   · rationale 에 이 원리가 어느 결정들을 설명하는지 한 문장으로 적는다.
+
+13. 빠뜨린 사안 — 내보내기 직전에 반드시 한다
    · topics 를 다 쓴 뒤, 각 절에서 오간 사안을 하나씩 짚으며 그것이 items 의
      decision·open·todo 중 어디에 들어갔는지 확인한다.
    · 어디에도 없는 사안이 있으면 그것은 결론이 안 난 것이다. open 으로 넣어라.
@@ -4549,7 +4606,8 @@ headline 은 그 밑에 굵게 실리는 한 문장이다. 문서를 받은 사�
 10. 빈 값을 가진 키를 지웠나.
 11. topics 에서 길게 오간 사안 중 items 어디에도 없는 것은 없나.
 12. 이름이 불린 팀과 사람이 모두 어딘가에 남아 있나.
-13. JSON 이 문법적으로 유효한가. 주석·코드펜스·설명이 섞이지 않았나.
+13. 후속이 회의가 아닌데 다음 회의 일시를 지어 붙이지 않았나.
+14. JSON 이 문법적으로 유효한가. 주석·코드펜스·설명이 섞이지 않았나.
 
 이제 JSON 객체 하나만 출력한다.`;
 
@@ -4649,15 +4707,38 @@ function verifyNext(json, fullText){
   return true;
 }
 
+/* 전사문을 한 덩어리로 납작하게 펴면서, 어느 자리가 몇 분이었는지를 함께 적어 둔다.
+   납작하게 펴는 까닭은 띄어쓰기와 문장부호가 조금씩 달라도 근거를 찾기 위해서다. */
+function flatIndex(fullText){
+  const flat = v => String(v || "").replace(/[\s.,·、"'`~!?\-—…]/g, "").toLowerCase();
+  const marks = [];
+  let hay = "";
+  String(fullText || "").split("\n").forEach(line => {
+    const m = /^\s*\[(\d{1,3}:\d{2}(?::\d{2})?)\]\s*/.exec(line);
+    const body = flat(m ? line.slice(m[0].length) : line);
+    if(!body) return;
+    marks.push({ pos: hay.length, t: m ? m[1] : "" });
+    hay += body;
+  });
+  return { hay, marks, flat };
+}
+
+function atOf(idx, pos){
+  let t = "";
+  for(const m of idx.marks){ if(m.pos > pos) break; t = m.t; }
+  return t;
+}
+
 function verifyQuotes(json, fullText){
-  const flat = s => String(s || "").replace(/[\s.,·、"'`~!?\-—…]/g, "").toLowerCase();
-  const hay = flat(fullText);
+  const idx = flatIndex(fullText), hay = idx.hay;
   let bad = 0, judged = 0;
   (json.items || []).forEach(it => {
-    const q = flat(it.quote);
+    const q = idx.flat(it.quote);
     if(q.length < 8) return;            // 너무 짧으면 판정하지 않는다
     judged++;
-    if(hay.indexOf(q) < 0){ it.needs_confirm = true; it._quoteMiss = true; bad++; }
+    const at = hay.indexOf(q);
+    if(at < 0){ it.needs_confirm = true; it._quoteMiss = true; bad++; }
+    else { it._at = atOf(idx, at); it._at2 = atOf(idx, at + q.length - 1); }
   });
   return judged ? bad / judged : 0;
 }
