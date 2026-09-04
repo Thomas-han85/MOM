@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.03-12";
+const APP_VERSION = "2026.09.04-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -5513,10 +5513,18 @@ async function drain(){
          조각이 수백 개가 되는데 그때마다 전부 읽어 거르고 있었다.
          nextAt 은 방금 실패해 뒤로 민 구간이다. 아직 때가 안 됐으면 건너뛴다. */
       const nowT = Date.now();
-      const pend = (await byIndex("chunks","status","pending"))
+      const all0 = await byIndex("chunks","status","pending");
+      const pend = all0
         .filter(c => !c.nextAt || c.nextAt <= nowT)
         .sort((a,b)=> a.noteId===b.noteId ? a.seq-b.seq : a.created-b.created);
-      if(!pend.length) break;
+      if(!pend.length){
+        /* 지금 할 것은 없지만 뒤로 미뤄 둔 것이 있으면, 그때가 되면 스스로 깨어난다.
+           이 예약이 없으면 미뤄 둔 조각은 다음 조각이 들어오거나 사람이 화면을
+           만질 때까지 그대로 선다. */
+        const soon = all0.map(c => c.nextAt || 0).filter(t => t > nowT).sort((a,b)=>a-b)[0];
+        if(soon) setTimeout(drain, Math.max(500, Math.min(soon - nowT + 200, 30000)));
+        break;
+      }
       const c = pend[0];
       const note = await get("notes", c.noteId);
       if(!note){ await del("chunks", c.id); continue; }
