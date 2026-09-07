@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.07-2";
+const APP_VERSION = "2026.09.07-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2412,6 +2412,8 @@ function docRules(note){
   그럴듯한 이름일수록 아무도 의심하지 않아 더 위험하다.
 
 [돈] 베트남어 tỷ 는 십억 동, triệu 는 백만 동이다. **원으로 환산하지 마라.**
+  영어로 million·billion 이라 들렸으면 그 말 그대로 적는다. 억·조로 바꾸지 마라.
+  통화가 안 들렸으면 통화를 붙이지 마라. 반올림하지 마라.
   "42 tỷ" 는 "42 tỷ(약 420억 동)" 처럼 원문 단위를 살려 쓴다.
   다른 앱이 42 tỷ 를 "420억 원" 으로 적어 19배 부풀린 사고가 있었다.
   한 문서 안에서 "원" 과 "동" 을 섞지 마라.
@@ -4365,6 +4367,9 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 [지난 회의에서 넘어온 것 — 미결과 용어]
 {{CARRY}}
 
+[화제 목록 — 이 전사문을 구간별로 나눠 읽어 정리한 상세 기록의 소제목. 번호 순서가 회의 순서다. 1번이 회의 첫머리다]
+{{OUTLINE}}
+
 [전사문 — 전체]
 {{TRANSCRIPT}}
 
@@ -4374,6 +4379,7 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 
 전사문 전체를 끝까지 읽은 뒤에 판정한다. 앞에서 정한 것을 뒤에서 뒤집거나 다시
 확정하는 일이 잦으니, 앞부분만 보고 결론을 내리지 마라.
+{{COVERAGE}}
 
 전사문은 한국어·베트남어·영어가 섞여 있고, 자동 번역 구간은 문장이 끊겨 있을 수 있다.
 끊긴 문장 하나만으로 결정을 판정하지 마라. 앞뒤 발화로 뜻이 복원될 때만 쓴다.
@@ -4400,7 +4406,8 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
   "summary": "",                   // 3~5문장 한 문단. 불릿·줄바꿈·마크다운 금지
   "topics": [                      // 회의록의 몸통. 아래 "주제 절" 을 읽어라
     { "title":"", "body":"",
-      "table": { "head":["",""], "rows":[["",""]] },   // 같은 것을 여럿에 대해 훑었으면
+      "table": { "head":["",""], "rows":[["",""]],    // 같은 것을 여럿에 대해 훑었으면
+                 "quotes":[""] },                      // 행마다 근거. rows 와 길이가 같다
       "points":[] }
   ],
   "next_meeting": {                // 다시 "모이기로 한" 것이 있을 때만. 아래 규칙 8 을 읽어라
@@ -4508,6 +4515,10 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 
 9. 숫자·단위
    · tỷ 는 십억 동, triệu 는 백만 동이다. 원화로 환산하지 마라. 원문 단위 그대로 쓴다.
+   · 영어로 million·billion 이라 들렸으면 그 말 그대로 million·billion 으로 적는다.
+     억·조로 바꾸지 마라. 통화가 안 들렸으면 통화도 붙이지 마라 — "<숫자> million" 을
+     "<숫자>억 동" 으로 적으면 단위와 통화를 둘 다 지어낸 것이다.
+   · 반올림하지 마라. 들린 숫자를 그대로 적는다.
    · 면적·수량·층수·병상수도 반올림하거나 단위를 바꾸지 마라.
 
 10. 용어
@@ -4603,12 +4614,19 @@ headline 은 그 밑에 굵게 실리는 한 문장이다. 문서를 받은 사�
   · 칸은 2~4개다. 첫 칸은 대상의 이름이고 나머지는 그 회의에서 실제로 말한 값이다.
   · 값이 없는 칸은 빈 문자열로 둔다. 지어내지 마라.
   · 표로 낼 것이 없으면 table 키를 아예 쓰지 마라.
+  · **행마다 근거를 단다.** quotes 는 rows 와 길이가 같고, i 번째가 i 번째 행의 근거다 —
+    그 대상의 이름과 값이 함께 들린 전사문 원문 15~60자를 그대로 복사한다.
+    같은 대목에 그 대상의 이름이 없으면 그 값은 그 대상의 것이 아니다. 다른 대상의
+    값을 이름만 바꿔 앉히지 마라. 프로그램이 행마다 이름과 값을 원문과 대조해
+    확인되지 않은 행에 표시를 붙인다.
 
 · **points 는 표도 문단도 아닌 것에만 쓴다.** 서로 견줄 것이 아니라 그냥 여럿인 것이다.
   셀 것이 없으면 빈 배열로 두고 body 만 쓴다.
   문단으로 쓸 것을 불릿으로 쪼개면 무엇이 중요한지 알 수 없는 목록이 된다.
 
-· 주제는 **4~7개**다. 세 개 이하면 회의를 뭉갠 것이다. 회의가 한 시간 가까이 갔다면
+· 주제는 **4~7개**다. 다만 위 화제 목록이 스무 개를 넘으면 열 개까지 늘려도 된다.
+  어느 경우든 회의의 앞·가운데·뒤가 모두 topics 에 있어야 한다.
+  세 개 이하면 회의를 뭉갠 것이다. 회의가 한 시간 가까이 갔다면
   다룬 것이 셋일 리가 없다. 전사문을 처음부터 끝까지 훑으며 화제가 바뀐 자리를 세어라.
   분량이 "간결" 이어도 4개 아래로 내려가지 마라. 줄일 것은 각 절의 길이이지 절의 수가 아니다.
 
@@ -4642,23 +4660,71 @@ headline 은 그 밑에 굵게 실리는 한 문장이다. 문서를 받은 사�
 12. 이름이 불린 팀과 사람이 모두 어딘가에 남아 있나.
 13. 후속이 회의가 아닌데 다음 회의 일시를 지어 붙이지 않았나.
 14. JSON 이 문법적으로 유효한가. 주석·코드펜스·설명이 섞이지 않았나.
+15. 화제 목록의 앞·가운데·뒤가 topics 에 다 있나. 목록 앞쪽 화제에서 open 을 찾았나.
+16. 표의 행마다 quotes 가 있고, 그 근거 대목에 그 행의 대상 이름이 정말 있나.
 
 이제 JSON 객체 하나만 출력한다.`;
 
-function conclusionPrompt(note, fullText, mode){
+/* 상세 기록의 소제목만 뽑는다. 결론부에 넘길 지도다. */
+function outlineOf(detail){
+  const heads = [];
+  for(const m of String(detail || "").matchAll(/^###\s+(.+)$/gm)){
+    const h = m[1].trim();
+    if(h) heads.push(h);
+  }
+  return heads;
+}
+
+/* 결론부가 회의 전체를 덮게 하는 지시. 화제가 몇 개 안 되는 짧은 회의에는 넣지 않는다.
+
+   94분 회의에서 앞 48분이 통째로 빠진 회의록이 나왔다. 상세 기록은 구간별로 읽어
+   만들기 때문에 소제목 65개로 첫 5분부터 다 있었는데, 결론부는 전사문 69,000자를
+   한 번에 읽으면서 뒷부분에 쏠렸다. 요약·주제·결정·미결·할 일이 전부 48분 이후 것이었다.
+
+   결론부를 조각으로 읽게 되돌리지는 않는다 — 그 길은 9월 3일에 결정 8건이 2건으로
+   무너져 되돌린 길이다. 대신 이미 만들어 둔 상세 기록의 소제목을 지도로 준다.
+   지도에 있는 화제가 결론부에 없으면 모델이 스스로 알아챈다. */
+function coverageBlock(n){
+  if(n < 6) return "";
+  return `
+■ 회의 전체를 덮는다
+
+위 화제 목록 ${n}개는 전사문을 구간별로 나눠 읽어 만든 것이라 회의의 처음부터 끝까지를
+빠짐없이 덮는다. 전사문을 한 번에 읽으면 뒷부분에 쏠린다 — 실제로 그렇게 앞 절반이
+통째로 빠진 회의록이 나온 적이 있다. 앞 절반은 논의였고 뒤 절반은 숫자였는데,
+요약도 주제도 미결도 전부 뒤 절반 것이었다.
+
+그래서 내보내기 전에 화제 목록과 대조한다.
+  · topics 는 목록의 앞·가운데·뒤에서 고루 나와야 한다. 목록 앞 3분의 1 (1~${Math.ceil(n / 3)}번)
+    에서 topics 가 하나도 안 나왔으면 전사문 앞부분을 다시 읽어라.
+  · 목록의 화제마다 결론이 났는지 안 났는지 묻는다. 문제가 제기됐는데 결론이 안 났으면
+    그것이 open 이다. 앞부분이 논의 위주여서 decision 이 없더라도 open 은 있다.
+  · 화제 목록은 지도일 뿐이다. quote 는 여전히 전사문에서만 그대로 복사한다.
+    목록의 문장을 quote 로 쓰지 마라 — 프로그램이 전사문과 대조해 걸러 낸다.
+`;
+}
+
+function conclusionPrompt(note, fullText, mode, outline){
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
   const S = docSize(note);
+  const heads = outline || [];
   /* 사전 자료 전문은 넣지 않는다. 12,000자를 통째로 넣으면 모델이 그것을 되뱉고,
      회의에서 나오지 않은 것을 결정으로 올린다. 짧은 맥락 한 줄이면 족하다. */
-  return CONCLUSION_TMPL
-    .replace("{{DOC_TYPE}}",     (DOC_FORMS[note.docForm || "minutes"] || {}).label || "회의록")
-    .replace("{{LENGTH}}",       S.label || "보통")
-    .replace("{{MEETING_DATE}}", dayLabel(note.created))
-    .replace("{{ROSTER}}",       attendeeBlock(note) || "(등록된 참석자 없음)")
-    .replace("{{GLOSSARY}}",     String(CFG.gloss || "").trim() || "(없음)")
-    .replace("{{CARRY}}",        (ser && ser.carry) || "(없음)")
-    .replace("{{MODE}}",         CONCLUSION_MODE[mode || "all"])
-    .replace("{{TRANSCRIPT}}",   (note.ctx ? "[회의 맥락] " + note.ctx + "\n\n" : "") + fullText);
+  const vals = {
+    DOC_TYPE:     (DOC_FORMS[note.docForm || "minutes"] || {}).label || "회의록",
+    LENGTH:       S.label || "보통",
+    MEETING_DATE: dayLabel(note.created),
+    ROSTER:       attendeeBlock(note) || "(등록된 참석자 없음)",
+    GLOSSARY:     String(CFG.gloss || "").trim() || "(없음)",
+    CARRY:        (ser && ser.carry) || "(없음)",
+    MODE:         CONCLUSION_MODE[mode || "all"],
+    OUTLINE:      heads.length ? heads.map((h, i) => (i + 1) + ". " + h).join("\n") : "(없음)",
+    COVERAGE:     coverageBlock(heads.length),
+    TRANSCRIPT:   (note.ctx ? "[회의 맥락] " + note.ctx + "\n\n" : "") + fullText
+  };
+  /* 문자열로 바꿔 넣으면 그 글 안의 "$&" 같은 것을 replace 가 특별하게 읽는다.
+     전사문에 그런 글자가 있으면 자리 이름이 끼어든다. 함수로 넣으면 글자 그대로다. */
+  return Object.keys(vals).reduce((t, k) => t.replace("{{" + k + "}}", () => vals[k]), CONCLUSION_TMPL);
 }
 
 /* 모델이 내놓은 글에서 JSON 을 건져 낸다.
@@ -4740,7 +4806,7 @@ const CANARY = [
   "현장별 수금·지출 자료를 전수 재검토",
   "실제 수금 여부 재확인 필요",
   "입금이 아닌 발행 청구서 기준",
-  "○○○", "○○ 현장", "<대상>", "<그 값>", "<무엇>", "<얼마>",
+  "○○○", "○○ 현장", "<대상>", "<그 값>", "<무엇>", "<얼마>", "<숫자>",
   "<첫 번째 대상 이름>", "<덧붙일 말>", "[mm:ss]"
 ];
 
@@ -4852,12 +4918,13 @@ async function callDocJson(prompt, budget){
 
    시간으로 자르지 않는다는 원칙은 그대로다 — 두 호출 모두 전사문 전체를 본다.
    한 번에 한 종류만 찾으면 긴 글 가운데가 묻히는 문제도 함께 누그러진다. */
-async function callConclusion(note, fullText){
+async function callConclusion(note, fullText, detail){
+  const outline = outlineOf(detail);
   if(fullText.length <= 24000)
-    return finishConclusion(await callDocJson(conclusionPrompt(note, fullText, "all"), 12000), fullText);
+    return finishConclusion(await callDocJson(conclusionPrompt(note, fullText, "all", outline), 12000), fullText);
 
-  const a = await callDocJson(conclusionPrompt(note, fullText, "decide"), 8000);
-  const b = await callDocJson(conclusionPrompt(note, fullText, "act"), 8000);
+  const a = await callDocJson(conclusionPrompt(note, fullText, "decide", outline), 8000);
+  const b = await callDocJson(conclusionPrompt(note, fullText, "act", outline), 8000);
   if(!a && !b) return null;
   if(!a) return finishConclusion(b, fullText);
   if(!b) return finishConclusion(a, fullText);
@@ -4872,7 +4939,60 @@ function finishConclusion(json, fullText){
   if(verifyQuotes(json, fullText) > 0.4) json._quoteWarn = true;
   if(verifyNext(json, fullText)) json._quoteWarn = true;
   if(verifyCanary(json).length) json._quoteWarn = true;
+  json._tableWarn = verifyTables(json, fullText);
   return json;
+}
+
+/* 표의 행마다 근거를 대조한다.
+
+   근거 검사는 여태 항목(items)만 봤다. 주제 절의 표는 아무도 안 봤다. 그래서 현장별
+   계획·실제 표에서 다른 현장의 숫자가 이름만 바뀌어 앉고, 그 대목에 이름이 없는
+   현장이 행 하나를 차지해도 아무 표시 없이 나갔다. 숫자는 다 실제로 오간 것이라
+   눈으로는 못 알아본다.
+
+   행마다 quotes 를 요구하고 두 가지를 본다 — 그 근거가 원문에 정말 있나, 그리고
+   그 근거 대목 근처에 그 행의 대상 이름이 정말 있나. 이름은 앞 네 글자만 견준다.
+   전사가 이름을 뭉개기 때문이다(Bến Tre → Bentray). 용어집에 같은 줄로 묶인 표기는
+   전부 같은 이름으로 친다.
+
+   못 믿을 행은 지우지 않고 이름 뒤에 (?) 를 붙인다. 이 앱이 낯선 이름에 쓰는 표시다.
+   숫자 자체는 실제로 오간 것일 때가 많아, 지우면 회의에서 나온 말을 버리는 것이 된다. */
+function verifyTables(json, fullText){
+  const idx = flatIndex(fullText), hay = idx.hay;
+  /* 성조·đ 를 벗긴다. anDeAccent 는 NFD 로 풀어 놓기만 하는데, 한글은 그러면 자모로
+     흩어져 가-힣 범위를 벗어난다. NFC 로 다시 모아야 한글 이름이 살아남는다. */
+  const plain = s => anDeAccent(s).normalize("NFC").toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+  const aliases = name => {
+    const out = [name];
+    String(CFG.gloss || "").split("\n").forEach(ln => {
+      const parts = ln.split("=").map(plain).filter(Boolean);
+      if(parts.indexOf(name) >= 0) parts.forEach(p => { if(out.indexOf(p) < 0) out.push(p); });
+    });
+    return out;
+  };
+  const key = a => a.length >= 5 ? a.slice(0, 4) : a;
+  let bad = 0;
+  (json.topics || []).forEach(t => {
+    const tb = t && t.table;
+    if(!tb || !Array.isArray(tb.rows)) return;
+    const qs = Array.isArray(tb.quotes) ? tb.quotes : [];
+    tb.rows.forEach((row, i) => {
+      if(!Array.isArray(row) || !row.length) return;
+      const q = idx.flat(qs[i]);
+      let ok = false;
+      if(q.length >= 8){
+        const at = hay.indexOf(q);
+        if(at >= 0){
+          const name = plain(row[0]);
+          const win = plain(hay.slice(Math.max(0, at - 300), at + q.length + 300));
+          ok = !name || aliases(name).some(a => key(a) && win.indexOf(key(a)) >= 0);
+        }
+      }
+      if(!ok){ row[0] = String(row[0] || "") + " (?)"; bad++; }
+    });
+    delete tb.quotes;   // 검사가 끝났다. 본문에 실릴 것이 아니다
+  });
+  return bad;
 }
 
 /* 다음 회의로 넘길 것을 코드가 만든다.
@@ -4937,7 +5057,7 @@ async function makeMinutes(note, fullText, onStep, cache){
   const keptJson = cache && await cache.get("concl");
   if(keptJson){ try{ json = JSON.parse(keptJson); }catch(e){} }
   if(!json){
-    json = await callConclusion(note, fullText);
+    json = await callConclusion(note, fullText, detail);   // 상세 기록을 지도로 넘긴다
     if(json && cache) await cache.set("concl", JSON.stringify(json));
   }
 
@@ -4951,8 +5071,10 @@ async function makeMinutes(note, fullText, onStep, cache){
     note.docNote = "결론부를 구조화하지 못해 예전 방식으로 만들었습니다. 결정과 기한을 한 번 더 확인해 주세요.";
     return await legacyHead(note, brief, detail, cache);
   }
-  note.docNote = json._quoteWarn
-    ? "근거 문장이 녹취와 여러 곳에서 어긋납니다. 결정사항을 한 번 더 확인해 주세요." : "";
+  const notes = [];
+  if(json._quoteWarn) notes.push("근거 문장이 녹취와 여러 곳에서 어긋납니다. 결정사항을 한 번 더 확인해 주세요.");
+  if(json._tableWarn) notes.push("표에서 " + json._tableWarn + "행은 이름과 값이 원문의 같은 자리에서 확인되지 않아 (?) 를 붙였습니다.");
+  note.docNote = notes.join(" ");
 
   const roster = (note.attendees || []).map(i => CFG.people[i]).filter(Boolean);
   const conclMd = renderConclusion(json, {
