@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.07-5";
+const APP_VERSION = "2026.09.07-6";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2360,17 +2360,54 @@ async function callDocOnce(prompt, budget, json){
     const txt = (d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
     return json ? "{" + txt : txt;
   }
+  /* 스트리밍으로 받는다.
+
+     다 만들어질 때까지 기다렸다 한 번에 받으면, 긴 병합은 2~3분 동안 한 바이트도 안 오는
+     HTTPS 요청이 된다. 그 침묵을 중간 장비(공유기·VPN·프록시)가 끊는다. 랩탑에서
+     17/19 병합 단계에서 세 번 죽고서야 끝난 것이 그것이다. 짧은 호출 열여섯은 살아남고
+     긴 호출 둘만 죽었다. 바이트가 계속 흐르면 끊길 일이 없다. 통역이 이미 이렇게 받는다.
+
+     덤으로 잘렸는지(finish_reason=length)를 알 수 있다. docLastCut 에 남긴다. */
+  docLastCut = false;
   const r = await fetch("https://api.openai.com/v1/chat/completions",{
     method:"POST",
     headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
     body: JSON.stringify({ model: CFG.doc.indexOf("claude")===0 ? "gpt-4o-mini" : CFG.doc,
       max_tokens: cap, temperature: json ? 0 : 0.3,
       ...(json ? { response_format:{ type:"json_object" } } : {}),
+      stream: CAN_STREAM,
       messages:[{role:"user",content:prompt}] })
   });
   if(!r.ok) throw new Error("정리 실패 "+r.status+" · "+(await r.text()).slice(0,160));
-  return ((await r.json()).choices?.[0]?.message?.content||"").trim();
+  if(!CAN_STREAM){
+    const j = await r.json();
+    docLastCut = j.choices?.[0]?.finish_reason === "length";
+    return (j.choices?.[0]?.message?.content||"").trim();
+  }
+  const rd = r.body.getReader(), dec = new TextDecoder();
+  let buf = "", acc = "", fin = "";
+  for(;;){
+    const { value, done } = await rd.read();
+    if(done) break;
+    buf += dec.decode(value, { stream:true });
+    let nl;
+    while((nl = buf.indexOf("\n")) >= 0){
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if(!line.startsWith("data:")) continue;
+      const d = line.slice(5).trim();
+      if(d === "[DONE]") continue;
+      let j; try{ j = JSON.parse(d); }catch(e){ continue; }
+      const ch = j.choices && j.choices[0];
+      if(!ch) continue;
+      if(ch.delta && ch.delta.content) acc += ch.delta.content;
+      if(ch.finish_reason) fin = ch.finish_reason;
+    }
+  }
+  docLastCut = fin === "length";
+  return acc.trim();
 }
+/* 마지막 회의록 호출이 출력 상한에 걸려 잘렸는가. 부르는 쪽이 보고 다시 나눠 부른다. */
+let docLastCut = false;
 
 /* 시리즈의 지난 회의록. 이번 회의를 그 뒤에 이어 붙이기 위한 것이다. */
 function prevDoc(note){
@@ -3038,7 +3075,11 @@ function mergeSameHeadings(text){
    같은 주제면 같은 소제목을 다시 쓰게 한다. 그러면 묶음 사이의 중복은
    이름이 같아지므로, 마지막에 이름으로 합치면 된다. */
 async function mergeStory(note, storyParts, onStep, cache){
-  const BATCH = 14000;
+  /* 14,000 이었다. 구간 요약이 줄마다 시각을 달면서 조각이 세 배로 늘자 묶음 하나의
+     병합 출력이 1만 토큰, 한 호출이 2~3분이 됐고 그 사이 안드로이드가 앱을 죽였다.
+     17/19 에서 세 번 죽고서야 끝났다. 짧은 호출 열여섯은 살아남고 긴 호출 둘만 죽었다.
+     묶음을 줄여 한 호출을 1분 안쪽으로 둔다. 호출 수는 늘지만 죽지 않는 편이 싸다. */
+  const BATCH = 6000;
   const groups = [];
   let buf = [];
   let len = 0;
@@ -3056,8 +3097,7 @@ async function mergeStory(note, storyParts, onStep, cache){
     let out;
     if(kept){ out = kept; }
     else {
-      out = await callDocModel(
-`아래는 한 회의를 구간별로 정리한 기록 조각들이다 (${groups.length}개 묶음 중 ${i+1}번째).
+      const mergePrompt = list => `아래는 한 회의를 구간별로 정리한 기록 조각들이다 (${groups.length}개 묶음 중 ${i+1}번째).
 이 조각들을 이어 붙이지 말고 하나의 흐름으로 병합해라.
 
 - 같은 주제는 반드시 하나의 "### 소제목" 아래 모으고, 그 안에서 시간순으로 쓴다.
@@ -3071,7 +3111,16 @@ ${heads.length ? `- 앞 묶음에서 이미 쓴 소제목: ${heads.join(" / ")}
 - "### 소제목" 과 그 아래 항목만 내라. 다른 절이나 머리말을 붙이지 마라.
 
 ---조각---
-${groups[i].join("\n\n")}`, 12000);
+${list.join("\n\n")}`;
+      out = await callDocModel(mergePrompt(groups[i]), 8000);
+      /* 출력 상한에 걸려 잘렸으면 뒤쪽 조각이 조용히 사라진 것이다. 묶음을 반으로
+         갈라 다시 한다. 한 번만 — 그래도 잘리면 그 회의는 조각이 비정상적으로 큰 것이다. */
+      if(docLastCut && groups[i].length > 1){
+        const h = Math.ceil(groups[i].length / 2);
+        const a = await callDocModel(mergePrompt(groups[i].slice(0, h)), 8000);
+        const b = await callDocModel(mergePrompt(groups[i].slice(h)), 8000);
+        out = a + "\n\n" + b;
+      }
       if(cache) await cache.set("m" + i, out);
     }
     merged.push(out);
