@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.07-4";
+const APP_VERSION = "2026.09.07-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2592,6 +2592,10 @@ ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}
 · 화자 A/B/C 는 기계가 붙인 것이라 자주 틀린다. 이름이 실제로 불린 사람만 이름으로 쓰고
   나머지는 주어 없이 쓴다. "A는 ~라고 했다" 대신 "~라는 지적이 있었다".
 · 현장·회사 이름은 들린 대로 적고, 뭉개져 들린 이름은 그대로 두되 뒤에 (?) 를 붙인다.
+· "~에 대한 논의가 있었다", "~을 언급함" 으로 끝내지 마라. 무엇을 얼마라고 했는지,
+  무엇을 하자고 했는지를 적는다. 그 줄만 읽고도 내용을 알 수 있어야 한다.
+    나쁜 꼴: "- [mm:ss] 수익에 대한 논의가 있었다"
+    좋은 꼴: "- [mm:ss] <대상> 계획 <값>, 실적 <값>, <차이> 부족"
 
 ## 이 구간의 결정
 확정된 것만. 각 줄 "- [mm:ss] 내용". 없으면 "없음".
@@ -2985,7 +2989,13 @@ const stripSpan = t => String(t || "").trim().replace(SPAN_RE, "");
    묶음을 나눠 병합하면 앞 묶음과 뒤 묶음이 같은 소제목을 낼 수 있다.
    모델에게 "앞에서 쓴 소제목을 그대로 다시 쓰라" 고 시켰으므로,
    이름이 같으면 같은 주제다. 처음 나온 자리에 뒤의 내용을 이어 붙인다.
-   소제목에 붙은 시각 범위는 이름에서 떼고 견주며, 합칠 때는 범위를 합친다. */
+   소제목에 붙은 시각 범위는 이름에서 떼고 견주며, 합칠 때는 범위를 합친다.
+
+   다만 **시간이 멀면 합치지 않는다.** "프로젝트 진행 상황" 같은 이름은 회의 처음에도
+   중간에도 끝에도 나온다. 그것을 전부 하나로 합쳤더니 (07:51–43:31) 짜리 36분 덩이가
+   생겼고, 그 안에 현장별 숫자가 묻혀 다음 단계가 네 문장으로 뭉갰다. 앞 소제목의 끝과
+   새 소제목의 시작이 10분 안쪽일 때만 같은 주제로 본다. 멀면 같은 이름이라도 따로 둔다 —
+   시각 범위가 붙어 있으니 읽는 사람이 헷갈리지 않는다. */
 function mergeSameHeadings(text){
   const out = [];               // { title, a, b, body[] }
   const at = new Map();         // 다듬은 제목 -> out 색인
@@ -2996,15 +3006,17 @@ function mergeSameHeadings(text){
     if(m){
       const raw = m[1].trim(), sm = SPAN_RE.exec(raw);
       const title = stripSpan(raw), key = normText(title);
-      if(at.has(key)){
-        cur = out[at.get(key)];
+      const prev = at.has(key) ? out[at.get(key)] : null;
+      const near = prev && (!sm || !prev.b || Math.abs(sec(sm[1]) - sec(prev.b)) <= 600);
+      if(prev && near){
+        cur = prev;
         if(sm){
           if(!cur.a || sec(sm[1]) < sec(cur.a)) cur.a = sm[1];
           if(!cur.b || sec(sm[2]) > sec(cur.b)) cur.b = sm[2];
         }
       } else {
         cur = { title, a: sm ? sm[1] : "", b: sm ? sm[2] : "", body: [] };
-        at.set(key, out.length); out.push(cur);
+        at.set(key, out.length); out.push(cur);   // 같은 이름이 또 오면 이 최신 것과 견준다
       }
       continue;
     }
@@ -4444,23 +4456,129 @@ ${(ser && ser.carry) || "(없음)"}
 `;
 }
 
+/* 시각 범위 "mm:ss–mm:ss" → 초 [a, b]. 없으면 null. */
+function spanSec(span){
+  const m = SPAN_RE.exec(" (" + String(span || "").trim() + ")");
+  if(!m) return null;
+  const sec = t => { const p = t.split(":").map(Number); return p[0] * 60 + p[1]; };
+  return [sec(m[1]), sec(m[2])];
+}
+
+/* 상세 기록을 "### 소제목 (범위)" 단위로 가른다. */
+function sectionsOf(detail){
+  const out = [];
+  let cur = null;
+  for(const ln of String(detail || "").split("\n")){
+    const m = /^###\s+(.+)$/.exec(ln);
+    if(m){
+      const raw = m[1].trim(), sm = SPAN_RE.exec(raw);
+      cur = { title: stripSpan(raw), span: sm ? sm[1] + "–" + sm[2] : "", lines: [ln] };
+      out.push(cur); continue;
+    }
+    if(cur) cur.lines.push(ln);
+  }
+  out.forEach(sc => { sc.text = sc.lines.join("\n").trim(); delete sc.lines; });
+  return out.filter(sc => sc.text);
+}
+
+/* 주제 절이 어느 소제목도 안 덮은 대목을 찾는다. 시각 범위가 겹치면 덮은 것으로 본다.
+   범위가 없는 소제목은 판정하지 않는다 — 모르는 것을 빠졌다고 하면 헛돈다. */
+function uncoveredSections(secs, topics){
+  const ranges = (topics || []).map(t => spanSec(t.span)).filter(Boolean);
+  return secs.filter(sc => {
+    const r = spanSec(sc.span);
+    if(!r) return false;
+    return !ranges.some(t => t[0] <= r[1] && t[1] >= r[0]);
+  });
+}
+
+/* 시각 범위 순서로 세운다. 범위 없는 절은 바로 앞 절의 시각을 물려받아 그 뒤에 붙어 간다.
+   "범위 없으면 자리를 지킨다" 로 비교하면 기준이 셋씩 돌 때 어긋나 순서가 뒤섞인다. */
+function sortBySpan(topics){
+  let last = -1;
+  return (topics || []).map((t, i) => {
+    const r = spanSec(t.span);
+    if(r) last = r[0];
+    return { t, i, a: last };
+  }).sort((x, y) => (x.a - y.a) || (x.i - y.i)).map(x => x.t);
+}
+
+/* 따로 뽑은 표를 절에 붙인다.
+
+   표의 시각 범위 가운데가 들어가는 절에 붙인다. 그 절에 이미 표가 있으면 표 이름으로
+   절을 하나 더 만들어 바로 뒤에 둔다. 들어갈 절이 없으면 표 이름으로 절을 새로 만든다.
+   표가 산문 속에 묻혀 사라지는 것보다 절이 하나 늘어나는 편이 낫다. */
+function attachTables(topics, tables){
+  const out = sortBySpan(topics).slice();
+  (tables || []).forEach(tb => {
+    if(!tb || !Array.isArray(tb.rows) || !tb.rows.length || !Array.isArray(tb.head)) return;
+    const table = { head: tb.head, rows: tb.rows };
+    const r = spanSec(tb.span);
+    const mid = r ? (r[0] + r[1]) / 2 : null;
+    let k = -1;
+    if(mid != null) k = out.findIndex(t => { const q = spanSec(t.span); return q && q[0] <= mid && mid <= q[1]; });
+    if(k >= 0 && !out[k].table){ out[k].table = table; return; }
+    const extra = { title: cS(tb.title) || "표", span: cS(tb.span), body: "", table };
+    if(k >= 0) out.splice(k + 1, 0, extra); else out.push(extra);
+  });
+  return sortBySpan(out);
+}
+
+/* ①-2 표 — 같은 값을 여럿에 대해 하나씩 말한 대목만 찾아 표로 */
+function tablesPrompt(note, detail){
+  return `${conclHead(note, "표를 뽑는")}
+[상세 기록]
+${detail}
+
+■ 하는 일
+
+상세 기록을 처음부터 끝까지 읽으며 **같은 종류의 값을 여러 대상에 대해 하나씩 말한 대목**을
+전부 찾는다. 현장을 하나씩 짚으며 계획과 실적을 말한 대목, 프로젝트마다 손익을 말한 대목,
+항목마다 정산·송장 일정을 말한 대목, 은행마다 조건을 말한 대목, 현장마다 잔액을 말한 대목.
+그런 대목 하나가 표 하나다. 세 대상 이상이면 표다. 두 대상뿐이어도 값이 셋 이상이면 표다.
+
+문장으로 풀어 쓰지 마라. 여기서 하는 일은 표뿐이다. 표 말고는 아무것도 쓰지 않는다.
+
+각 표에 넣는 것.
+· title — 무엇을 무엇별로 견준 표인지. "현장별 8월 매출 계획 대비 실적" 처럼.
+· span — 그 대목의 시각 범위 "mm:ss–mm:ss". 상세 기록의 줄에 적힌 시각에서.
+· head — 2~5칸. 첫 칸은 대상의 이름, 마지막 칸은 시각. 가운데는 그 대목에서 말한 값의 이름.
+· rows — 그 대목에서 이름이 불린 대상 **전부**. 열 곳을 짚었으면 열 줄이다.
+    첫 칸은 상세 기록에 적힌 표기 그대로. 이름이 안 적혀 있으면 "(이름 미상)".
+    값은 적힌 단위 그대로(million·billion·tỷ·triệu·억). 환산도 반올림도 하지 마라.
+    값이 없는 칸은 빈 문자열. 지어내지 마라. 마지막 칸에 그 줄의 시각.
+
+표로 낼 대목이 하나도 없으면 tables 를 빈 배열로 낸다.
+
+■ 출력 형태
+
+{ "tables": [ { "title": "", "span": "", "head": ["", "", ""], "rows": [["", "", ""]] } ] }
+
+JSON 객체 하나만 출력한다. 코드펜스 금지, 앞뒤 설명 금지.`;
+}
+
 /* ① 주제 절 — 회의록의 몸통 */
-function topicsPrompt(note, detail){
+function topicsPrompt(note, detail, supplement){
   const heads = (String(detail || "").match(/^###\s+.+$/gm) || []).length;
   return `${conclHead(note, "주제 절(회의록의 몸통)을 쓰는")}
 [상세 기록 — 소제목 ${heads}개]
 ${detail}
 
 ■ 하는 일
-
+${supplement ? `
+위 상세 기록은 이 회의의 일부다 — 앞서 만든 주제 절이 덮지 못한 대목만 모은 것이다.
+이 대목만으로 절을 만든다. 소제목 ${heads}개면 절 1~${Math.max(1, Math.min(6, heads))}개.
+다른 대목은 이미 절이 있으니 신경 쓰지 마라.` : `
 상세 기록을 처음부터 끝까지 읽고, 회의가 실제로 다룬 화제를 **회의 순서대로** 절로 묶는다.
 소제목 ${heads}개를 그대로 옮기는 것이 아니다. 같은 화제로 이어지는 소제목 여럿을 절 하나로
 묶고, 절 안에서는 무슨 이야기가 얼마나 구체적으로 오갔는지를 문단으로 쓴다.
 이 회의를 안 들은 사람이 이 절들만 읽고 회의를 알 수 있어야 한다.
 
-절의 수는 회의 길이를 따른다. 한 시간 넘는 회의면 8~12개, 30분 회의면 4~6개.
-**회의의 앞·가운데·뒤가 모두 있어야 한다.** 상세 기록 첫 소제목이 다룬 화제가 첫 절에,
-마지막 소제목의 화제가 마지막 절에 있어야 한다. 절 서넛로 뭉개면 회의를 잘못 읽은 것이다.
+절의 수는 회의 길이를 따른다. 한 시간 넘는 회의면 10~16개, 30분 회의면 4~6개.
+**소제목 ${heads}개를 하나도 빠뜨리지 마라.** 소제목 하나하나가 어느 절엔가 들어가야 한다.
+프로그램이 절의 시각 범위와 소제목의 시각 범위를 대조해 빠진 소제목을 찾아낸다.
+숫자가 많은 소제목일수록 잘 빠진다 — 현장별 실적, 정산 일정, 손익, 현금. 그것이 이 회의록에서
+가장 많이 찾아 읽는 자리다. 절 서넛로 뭉개면 회의를 잘못 읽은 것이다.`}
 
 각 절에 넣는 것.
 
@@ -4472,9 +4590,13 @@ ${detail}
 
 · body — 문단이다. 불릿이 아니다. 2~6문장으로 이어서 쓴다. 숫자·금액·날짜·기관명·사람
   이름을 문장 안에 그대로 담고, **각 사실 뒤에 (mm:ss) 시각을 붙인다** — 상세 기록에
-  적힌 시각을 그대로 옮긴다. "논의하였다", "공유되었다" 로 끝나는 빈 문장을 쓰지 마라.
-  무엇이 얼마였고 왜 문제인지가 문장 안에 있어야 한다.
+  적힌 시각을 그대로 옮긴다. "논의하였다", "공유되었다", "언급되었다" 로 끝나는 빈 문장을
+  쓰지 마라. 무엇이 얼마였고 왜 문제인지가 문장 안에 있어야 한다.
+    나쁜 꼴: "수익에 대한 논의가 있었다 (mm:ss)."
+    좋은 꼴: "<대상>은 계획 <값>에 실적 <값>으로 <차이>가 부족했고, <대상>은 … (mm:ss)."
   이야기가 결론까지 갔으면 그 결론도 문단 안에 쓴다.
+  표는 여기서 만들지 않는다. 표는 다른 호출이 따로 뽑아 이 절에 붙인다. 너는 문단만 쓴다.
+  다만 표가 될 대목의 숫자를 문단에서 빼지는 마라 — 붙는 표가 없을 수도 있다.
 
 · table — **같은 것을 여럿에 대해 훑었으면 반드시 표로 낸다.** 현장을 하나씩 짚으며
   계획과 실적을 말했다면, 프로젝트마다 손익을 말했다면, 항목마다 정산·송장 일정을 말했다면
@@ -4514,7 +4636,11 @@ ${detail}
 }
 
 /* ② 결정·미결·할 일·역할 */
-function itemsPrompt(note, detail, brief, topics){
+function itemsPrompt(note, detail, brief, topics, mode){
+  const MODE = {
+    decide: "이번 호출은 **decision·open·principle 과 next_meeting 만** 낸다. todo 와 role 은 다른 호출이 맡으니 items 에 넣지 마라.",
+    act:    "이번 호출은 **todo 와 role 만** 낸다. decision·open·principle 은 다른 호출이 맡으니 items 에 넣지 마라. next_meeting 은 쓰지 마라."
+  };
   const outline = (topics || []).map((t, i) =>
     (i + 1) + ". " + cS(t.title) + (cS(t.span) ? " (" + cS(t.span) + ")" : "")).join("\n");
   return `${conclHead(note, "결론부(결정·미결·할 일·역할)를 뽑는")}
@@ -4528,6 +4654,8 @@ ${brief || "(없음)"}
 ${outline || "(없음)"}
 
 ■ 하는 일
+
+${MODE[mode] || "decision·open·todo·role·principle 을 모두 낸다."}
 
 상세 기록 전체를 끝까지 읽은 뒤에 판정한다. 앞에서 정한 것을 뒤에서 뒤집거나 다시
 확정하는 일이 잦으니, 앞부분만 보고 결론을 내리지 마라.
@@ -4586,6 +4714,10 @@ ${outline || "(없음)"}
    · 결론 문장 자체가 없을 때만 open 이다.
    · 뒤에서 뒤집힌 것은 최종 상태만 남긴다. 뒤집혔다는 사실이 중요하면 rationale 에 적는다.
    · 한 사안이 여러 번 나오면 항목을 하나로 합친다.
+   · rationale 은 왜 그렇게 정했는지가 **실제로 말로 나왔을 때만** 쓴다. "재정 안정을 위한
+     조치", "프로젝트 진행을 위해" 같은 일반론을 지어 붙이지 마라. 없으면 키를 생략한다.
+   · "~하기로 했다" 가 결정인지 할 일인지 — 누가 무엇을 언제까지 한다는 말이면 todo 다.
+     방침·기준·배정처럼 앞으로 계속 지킬 것을 정한 말이 decision 이다.
 
 2. 이견
    · 이견이 남은 논점을 결정으로 굳히지 마라. 한쪽 결론만 적힌 회의록은 분쟁 도구가 된다.
@@ -4792,7 +4924,7 @@ const CANARY = [
   "현장별 수금·지출 자료를 전수 재검토",
   "실제 수금 여부 재확인 필요",
   "입금이 아닌 발행 청구서 기준",
-  "○○○", "○○ 현장", "<대상>", "<그 값>", "<무엇>", "<얼마>", "<숫자>",
+  "○○○", "○○ 현장", "<대상>", "<그 값>", "<무엇>", "<얼마>", "<숫자>", "<값>", "<차이>",
   "<첫 번째 대상 이름>", "<덧붙일 말>", "[mm:ss]"
 ];
 
@@ -4904,10 +5036,14 @@ async function callDocJson(prompt, budget, ok){
   return null;
 }
 
-/* 결론부를 세 번에 나눠 만든다. 조각마다 저장해 두어 중간에 멈추면 그다음부터 이어 간다.
+/* 결론부를 여섯 번에 나눠 만든다. 조각마다 저장해 두어 중간에 멈추면 그다음부터 이어 간다.
 
-   ① 주제 절은 없어도 ②로 간다 — 몸통 없는 회의록보다 결정 없는 회의록이 더 나쁘다.
-   ② 항목이 없으면 실패다. 예전 경로(legacyHead)로 넘어간다. */
+   ① 주제 절(산문) → 코드가 안 덮인 소제목을 찾아 ①' 보충 → ②' 표 전용 호출 → 코드가
+   시각 범위로 절에 붙임 → ③ 결정·미결 / ③' 할 일·역할 (둘로 나눔 — 한 번에 시키면 뒤에
+   오는 할 일이 잘린다) → ④ 제목·한 줄·요약.
+
+   ① 이 없어도 ③ 으로 간다 — 몸통 없는 회의록보다 결정 없는 회의록이 더 나쁘다.
+   ③ 과 ③' 이 둘 다 없으면 실패다. 예전 경로(legacyHead)로 넘어간다. */
 async function makeConclusion(note, detail, brief, fullText, cache){
   const step = async (key, prompt, budget, ok) => {
     const kept = cache && await cache.get(key);
@@ -4916,16 +5052,39 @@ async function makeConclusion(note, detail, brief, fullText, cache){
     if(j && cache) await cache.set(key, JSON.stringify(j));
     return j;
   };
+  const secs = sectionsOf(detail);
+
   const tj = await step("c-topics", topicsPrompt(note, detail), 12000,
     j => Array.isArray(j.topics) && j.topics.length > 0);
-  const topics = (tj && tj.topics) || [];
-  const ij = await step("c-items", itemsPrompt(note, detail, brief, topics), 12000,
+  let topics = (tj && tj.topics) || [];
+
+  /* 안 덮인 소제목이 있으면 그 대목만 다시 보낸다. 지시문으로 "빠뜨리지 마라" 를
+     아무리 써도 숫자 많은 소제목이 빠졌다. 코드가 찾아서 채운다. */
+  const miss = uncoveredSections(secs, topics);
+  if(miss.length){
+    const text = miss.map(sc => sc.text).join("\n\n");
+    const sj = await step("c-topics2", topicsPrompt(note, text, true), 8000,
+      j => Array.isArray(j.topics));
+    if(sj && sj.topics) topics = topics.concat(sj.topics);
+    note.docFill = miss.length;   // 몇 개를 보충했는지. 화면에 알린다
+  } else note.docFill = 0;
+
+  /* 표는 따로 뽑는다. 산문과 표를 한 호출에 시키면 산문이 이기고 표가 사라진다. */
+  const tb = await step("c-tables", tablesPrompt(note, detail), 8000, j => Array.isArray(j.tables));
+  topics = attachTables(topics, (tb && tb.tables) || []);
+
+  const dj = await step("c-decide", itemsPrompt(note, detail, brief, topics, "decide"), 12000,
     j => Array.isArray(j.items));
-  if(!ij) return null;
-  const hj = await step("c-head", headPrompt(note, topics, ij.items), 3000,
+  const aj = await step("c-act", itemsPrompt(note, detail, brief, topics, "act"), 12000,
+    j => Array.isArray(j.items));
+  if(!dj && !aj) return null;
+  const items = ((dj && dj.items) || []).concat((aj && aj.items) || []);
+
+  const hj = await step("c-head", headPrompt(note, topics, items), 3000,
     j => typeof j.summary === "string" && j.summary.trim().length > 0);
-  const json = Object.assign({}, hj || {}, { topics: topics, items: ij.items || [] });
-  if(ij.next_meeting) json.next_meeting = ij.next_meeting;
+  const json = Object.assign({}, hj || {}, { topics: topics, items: items });
+  const nm = (dj && dj.next_meeting) || (aj && aj.next_meeting);
+  if(nm) json.next_meeting = nm;
   return finishConclusion(json, fullText, detail);
 }
 
@@ -5069,7 +5228,9 @@ async function makeMinutes(note, fullText, onStep, cache){
   }
   const notes = [];
   if(json._quoteWarn) notes.push("근거 문장이 녹취와 여러 곳에서 어긋납니다. 결정사항을 한 번 더 확인해 주세요.");
-  if(json._tableWarn) notes.push("표에서 " + json._tableWarn + "행은 이름과 값이 원문의 같은 자리에서 확인되지 않아 (?) 를 붙였습니다.");
+  if(json._tableWarn) notes.push("표에서 " + json._tableWarn + "행은 이름이 상세 기록에서 확인되지 않아 (?) 를 붙였습니다.");
+  if(note.docFill) notes.push("주제 절이 처음에 덮지 못한 대목 " + note.docFill + "곳을 다시 읽어 보충했습니다.");
+  delete note.docFill;
   note.docNote = notes.join(" ");
 
   const roster = (note.attendees || []).map(i => CFG.people[i]).filter(Boolean);
