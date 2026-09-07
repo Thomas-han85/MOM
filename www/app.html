@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.07-3";
+const APP_VERSION = "2026.09.07-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2563,9 +2563,9 @@ function splitParts(text, seg){
   return parts;
 }
 
-function digestPrompt(note, seg, i, total){
+function digestPrompt(note, seg, i, total, span){
   const S = docSize(note);
-  return `회의 전사문의 ${total}개 구간 중 ${i+1}번째다. 이 구간만 다룬다.
+  return `회의 전사문의 ${total}개 구간 중 ${i+1}번째다. 이 구간만 다룬다.${span ? " 이 구간의 시각은 " + span + " 이다." : ""}
 ${docRules(note)}
 
 ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}
@@ -2584,14 +2584,23 @@ ${note.ctx ? "회의 맥락: "+note.ctx+"\n" : ""}
 사람 이름, 숫자, 날짜, 치수, 사례, 이유, 주고받은 질문과 대답을 전부 남긴다.
 여러 문장을 한 줄로 뭉뚱그리지 마라.
 
+**시각을 남긴다.** 전사문의 각 줄 앞에 [mm:ss] 가 붙어 있다.
+· 소제목 뒤에 그 대목의 시각 범위를 괄호로 적는다 — "### 소제목 (mm:ss–mm:ss)".
+  범위는 그 대목 첫 줄과 마지막 줄의 시각이다. 지어내지 마라.
+· 오간 말은 한 줄에 하나씩 "- [mm:ss] 내용" 꼴로 쓴다. 시각은 그 말이 나온 전사문 줄의 것을 그대로.
+  나중에 회의록을 의심하는 사람이 그 시각으로 녹취를 바로 찾아 듣는다.
+· 화자 A/B/C 는 기계가 붙인 것이라 자주 틀린다. 이름이 실제로 불린 사람만 이름으로 쓰고
+  나머지는 주어 없이 쓴다. "A는 ~라고 했다" 대신 "~라는 지적이 있었다".
+· 현장·회사 이름은 들린 대로 적고, 뭉개져 들린 이름은 그대로 두되 뒤에 (?) 를 붙인다.
+
 ## 이 구간의 결정
-확정된 것만. 없으면 "없음".
+확정된 것만. 각 줄 "- [mm:ss] 내용". 없으면 "없음".
 
 ## 이 구간의 미결
-결론이 안 난 것. 무엇이 있어야 결론이 나는지 함께.
+결론이 안 난 것. 무엇이 있어야 결론이 나는지 함께. 각 줄 "- [mm:ss] 내용". 없으면 "없음".
 
 ## 이 구간의 할 일
-- 담당자 — 할 일 — 기한. 정해지지 않았으면 "미지정".
+- [mm:ss] 담당자 — 할 일 — 기한. 정해지지 않았으면 "미지정". 담당이 안 들렸으면 "미지정".
 
 전사문에 없는 내용을 지어내지 마라.
 
@@ -2968,26 +2977,42 @@ function dedupeTopSections(doc){
   return out.join("\n");
 }
 
+/* 소제목 뒤의 시각 범위 "(mm:ss–mm:ss)" 를 뗀다. */
+const SPAN_RE = /\s*\((\d{1,3}:\d{2})\s*[–—-]\s*(\d{1,3}:\d{2})\)\s*$/;
+const stripSpan = t => String(t || "").trim().replace(SPAN_RE, "");
+
 /* ### 소제목 단위로 갈라 같은 이름끼리 합친다.
    묶음을 나눠 병합하면 앞 묶음과 뒤 묶음이 같은 소제목을 낼 수 있다.
    모델에게 "앞에서 쓴 소제목을 그대로 다시 쓰라" 고 시켰으므로,
-   이름이 같으면 같은 주제다. 처음 나온 자리에 뒤의 내용을 이어 붙인다. */
+   이름이 같으면 같은 주제다. 처음 나온 자리에 뒤의 내용을 이어 붙인다.
+   소제목에 붙은 시각 범위는 이름에서 떼고 견주며, 합칠 때는 범위를 합친다. */
 function mergeSameHeadings(text){
-  const out = [];               // [제목, 본문덩어리들]
+  const out = [];               // { title, a, b, body[] }
   const at = new Map();         // 다듬은 제목 -> out 색인
+  const sec = t => { const p = String(t).split(":").map(Number); return p[0] * 60 + p[1]; };
   let cur = null;
   for(const ln of String(text||"").split("\n")){
     const m = /^###\s+(.+)$/.exec(ln);
     if(m){
-      const key = normText(m[1]);
-      if(at.has(key)){ cur = out[at.get(key)]; }
-      else { cur = { title: ln.trim(), body: [] }; at.set(key, out.length); out.push(cur); }
+      const raw = m[1].trim(), sm = SPAN_RE.exec(raw);
+      const title = stripSpan(raw), key = normText(title);
+      if(at.has(key)){
+        cur = out[at.get(key)];
+        if(sm){
+          if(!cur.a || sec(sm[1]) < sec(cur.a)) cur.a = sm[1];
+          if(!cur.b || sec(sm[2]) > sec(cur.b)) cur.b = sm[2];
+        }
+      } else {
+        cur = { title, a: sm ? sm[1] : "", b: sm ? sm[2] : "", body: [] };
+        at.set(key, out.length); out.push(cur);
+      }
       continue;
     }
-    if(!cur){ cur = { title: "", body: [] }; out.push(cur); }
+    if(!cur){ cur = { title: "", a: "", b: "", body: [] }; out.push(cur); }
     cur.body.push(ln);
   }
-  return out.map(s => (s.title ? s.title + "\n" : "") + s.body.join("\n").trim())
+  return out.map(s => (s.title ? "### " + s.title + (s.a ? " (" + s.a + "–" + (s.b || s.a) + ")" : "") + "\n" : "")
+                     + s.body.join("\n").trim())
             .filter(s => s.trim()).join("\n\n");
 }
 
@@ -3027,8 +3052,10 @@ async function mergeStory(note, storyParts, onStep, cache){
 ${heads.length ? `- 앞 묶음에서 이미 쓴 소제목: ${heads.join(" / ")}
   이 주제가 다시 나오면 새 소제목을 만들지 말고 위 이름을 글자 그대로 다시 써라.` : ""}
 - 내용을 줄이지 마라. 같은 말이 두 번 적힌 것만 접고, 사실·이름·숫자·날짜·질문과 대답은 전부 남긴다.
-- 전사문의 각 줄 앞에는 대괄호로 묶은 시각 표시가 붙어 있다. 그 줄을 옮길 때
-  그 표시를 지우지 말고 전사문에 적힌 숫자 그대로 옮긴다. 시각을 새로 지어내지 마라.
+- 각 줄 앞에는 대괄호로 묶은 시각 표시가 붙어 있다. 그 줄을 옮길 때
+  그 표시를 지우지 말고 적힌 숫자 그대로 옮긴다. 시각을 새로 지어내지 마라.
+- 소제목 뒤의 (mm:ss–mm:ss) 시각 범위도 지우지 마라. 같은 소제목 아래로 여러 대목을
+  모을 때는 가장 이른 시각–가장 늦은 시각으로 적는다.
 - "### 소제목" 과 그 아래 항목만 내라. 다른 절이나 머리말을 붙이지 마라.
 
 ---조각---
@@ -3036,8 +3063,10 @@ ${groups[i].join("\n\n")}`, 12000);
       if(cache) await cache.set("m" + i, out);
     }
     merged.push(out);
-    for(const m of out.matchAll(/^###\s+(.+)$/gm))
-      if(!heads.some(h => normText(h) === normText(m[1]))) heads.push(m[1].trim());
+    for(const m of out.matchAll(/^###\s+(.+)$/gm)){
+      const h0 = stripSpan(m[1]);
+      if(!heads.some(h => normText(h) === normText(h0))) heads.push(h0);
+    }
     heads = heads.slice(0, 24);   // 지시문이 한없이 길어지지 않게
   }
   return mergeSameHeadings(merged.join("\n\n"));
@@ -3807,6 +3836,7 @@ function normalizeDoc(doc){
     summary: cS(cArr(doc.summary || doc.one_pager || doc.overview).map(cS).filter(Boolean).join(" ")),
     topics: cArr(doc.topics).map(t => ({
       title: cFirst(t && t.title, t && t.name),
+      span: cFirst(t && t.span, t && t.time, t && t.range),
       body: cFirst(t && t.body, t && t.text, t && t.summary),
       points: cArr(t && (t.points || t.items)).map(cS).filter(Boolean),
       /* 같은 것을 여러 대상에 대해 훑은 대목은 표가 맞다. 현장별 금액, 은행별 조건.
@@ -3940,7 +3970,7 @@ function renderConclusion(doc, opts){
         const bits = [];
         n.topics.forEach(t => {
           if(!t.title) return;
-          bits.push(h + t.title);
+          bits.push(h + t.title + (t.span ? " (" + t.span + ")" : ""));
           if(t.body) bits.push(t.body);
           if(t.table){
             const w = t.table.head.length;
@@ -4331,69 +4361,181 @@ function hardSplit(block, limit){
 }
 
 /* =====================================================================
-   결론부 — 전사문 전체를 한 번에 읽고 구조를 뽑는다
+   결론부 — 상세 기록 위에 세운다
 
-   왜 따로 두는가. 지금까지 결정·미결·할 일은 조각 요약을 다시 요약해서
-   만들었다. 그런데 결정은 조각 안에 존재하지 않는다. 앞에서 꺼낸 이야기가
-   한 시간 뒤에 뒤집히고, 합의 신호는 통역 턴에 실려 다른 조각에 떨어진다.
-   조각만 보는 눈에는 그 연결이 안 보인다. 같은 87분 회의를 통본으로 읽혔을
-   때 결정 8건이 나왔고, 셋으로 잘라 읽혔을 때 2건이 나왔다.
+   9월 3일에는 결론부만 전사문 전체를 한 번에 읽게 했다. 조각으로 읽으면 결정이
+   조각 안에 없어 8건이 2건으로 무너졌기 때문이다. 짧은 회의에서는 맞았다.
 
-   그래서 결론부만 전사문 전체를 한 번에 본다. 상세 기록은 지금처럼 조각으로
-   만든다 — 그쪽은 출력이 길어서 천장에 닿기 때문이다. 자르는 이유가 입력이
-   아니라 출력이었다는 것을 여기서 확실히 갈라 둔다.
+   94분 회의에서 뒤집혔다. 부서진 전사문 69,000자를 한 번에 읽은 모델은 뒷부분에
+   쏠렸고, 요약·주제·결정·미결·할 일이 전부 48분 이후 것이었다. 지시문으로 "앞도
+   읽어라" 를 아무리 보태도 소용없었다. 입력이 너무 크고 너무 더러웠다.
+
+   그런데 같은 회의의 상세 기록은 멀쩡했다. 소제목 65개, 첫 5분부터 끝까지,
+   현장별 계획·실적 숫자까지 다 있었다. 4,500자씩 나눠 읽었기 때문이다.
+
+   사람이 이 회의록을 쓸 때도 그렇게 한다 — 원문을 덩이로 읽으며 시각 달린 메모를
+   만들고, 메모를 회의 순서대로 절로 묶고(여럿을 훑은 대목은 표로), 그 절에서
+   결정·미결·할 일을 뽑고, 맨 마지막에 한 장 요약을 쓴다. 원문을 통째로 다시
+   읽는 단계는 없다.
+
+   그래서 결론부를 세 번에 나눠 부르되, 셋 다 전사문이 아니라 **상세 기록**을 읽는다.
+     ① 주제 절   — 상세 기록 → 회의 순서대로 6~12개 절, 문단 + 표, 시각 범위
+     ② 결정·미결·할 일 — 상세 기록 + 구간별 후보 + 주제 절 → items, next_meeting
+     ③ 제목·한 줄·한 장 요약 — 주제 절 + items → title, headline, summary
+   입력이 10,000자 안팎이라 모델이 처음부터 끝까지 본다. 값도 예전보다 싸다.
+
+   9월 3일의 우려(조각에서는 결정이 안 보인다)는 여기 해당하지 않는다. ②는 조각이
+   아니라 회의 전체의 상세 기록을 한 번에 본다. 압축돼 있을 뿐 전부 있다. 게다가
+   구간 요약이 이미 "이 구간의 결정·미결·할 일" 을 따로 적어 두므로 그것도 함께 준다.
+
+   시각. 사람이 쓴 회의록이 믿음직했던 이유 하나가 모든 문장에 (mm:ss) 가 붙어
+   있었다는 것이다. 그래서 구간 요약이 소제목마다 시각 범위를, 줄마다 시각을
+   남기게 하고, 주제 절과 항목이 그것을 그대로 물려받게 한다.
    ===================================================================== */
 
-const CONCLUSION_MODE = {
-  all:    "결정·미결·할 일·역할을 모두 낸다.",
-  decide: "이번에는 decision 과 open 만 낸다. todo·role 은 다른 호출이 맡으니 items 에 넣지 마라.",
-  act:    "이번에는 todo 와 role 만 낸다. summary 와 next_meeting 은 쓰지 마라. items 에 decision·open 을 넣지 마라."
-};
+/* 글 안의 [mm:ss] 중 가장 이른 것과 가장 늦은 것. 없으면 "". */
+function spanOf(text){
+  const ts = [];
+  for(const m of String(text || "").matchAll(/\[(\d{1,3}:\d{2})(?::\d{2})?\]/g)) ts.push(m[1]);
+  if(!ts.length) return "";
+  const sec = t => { const p = t.split(":").map(Number); return p[0] * 60 + p[1]; };
+  ts.sort((a, b) => sec(a) - sec(b));
+  return ts[0] + "–" + ts[ts.length - 1];
+}
 
-const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 읽고 결론부만 뽑아내는 회의록 편집자다.
+/* 세 호출이 함께 읽는 머리. 명부·용어집·공통 규칙. */
+function conclHead(note, role){
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  return `너는 베트남 건설현장 회의의 상세 기록을 읽고 ${role} 회의록 편집자다.
 결과는 본사 임원·현장 소장·베트남 협력사가 읽고, 그대로 계약·공정 판단의 근거가 된다.
 지어낸 한 줄이 분쟁을 만든다. 재료에 없는 것은 쓰지 않는다.
-
-[회의 종류] {{DOC_TYPE}}
-[분량 설정] {{LENGTH}}
-[회의 날짜] {{MEETING_DATE}}
+${docRules(note)}
+[회의 종류] ${(DOC_FORMS[note.docForm || "minutes"] || {}).label || "회의록"}
+[분량 설정] ${docSize(note).label || "보통"}
 
 [참석자 명부]
-{{ROSTER}}
+${attendeeBlock(note) || "(등록된 참석자 없음)"}
 
 [용어집]
-{{GLOSSARY}}
+${String(CFG.gloss || "").trim() || "(없음)"}
 
 [지난 회의에서 넘어온 것 — 미결과 용어]
-{{CARRY}}
+${(ser && ser.carry) || "(없음)"}
 
-[화제 목록 — 이 전사문을 구간별로 나눠 읽어 정리한 상세 기록의 소제목. 번호 순서가 회의 순서다. 1번이 회의 첫머리다]
-{{OUTLINE}}
+■ 상세 기록이 무엇인가
 
-[전사문 — 전체]
-{{TRANSCRIPT}}
+아래 상세 기록은 이 회의의 전사문을 4,500자씩 나눠 구간마다 정리해 이어 붙인 것이다.
+회의의 처음부터 끝까지를 빠짐없이 덮는다. 소제목마다 (mm:ss–mm:ss) 시각 범위가, 줄마다
+[mm:ss] 시각이 붙어 있다. 너는 전사문을 읽지 않는다. 이 상세 기록이 네 재료의 전부다.
 
-■ 하는 일
-
-{{MODE}}
-
-전사문 전체를 끝까지 읽은 뒤에 판정한다. 앞에서 정한 것을 뒤에서 뒤집거나 다시
-확정하는 일이 잦으니, 앞부분만 보고 결론을 내리지 마라.
-{{COVERAGE}}
-
-전사문은 한국어·베트남어·영어가 섞여 있고, 자동 번역 구간은 문장이 끊겨 있을 수 있다.
-끊긴 문장 하나만으로 결정을 판정하지 마라. 앞뒤 발화로 뜻이 복원될 때만 쓴다.
-
-출력 언어는 한국어다. 다만 인명·기관명·표준번호·금액·면적·날짜는 원문 표기 그대로 옮긴다.
+상세 기록의 흠을 알아 두어라.
+· 화자 A/B/C 는 기계가 붙인 것이라 자주 틀린다. 회의록에 "A는", "B가" 를 쓰지 마라.
+  이름이 실제로 불린 사람만 이름으로 쓰고, 나머지는 주어 없이 쓴다 —
+  "~라는 지적이 있었다", "~하기로 했다".
+· 현장·회사 이름은 전사가 들린 대로 적은 것이라 뭉개져 있을 수 있다. 상세 기록에
+  적힌 표기를 그대로 쓰고, 뭉개진 이름에는 뒤에 (?) 를 붙인다. 짐작으로 다른 이름으로
+  바꾸지 마라. 프로그램이 상세 기록과 대조해 없는 이름에 표시를 붙인다.
+· 숫자의 단위(million·billion·tỷ·triệu)는 적힌 그대로 둔다. 환산도 반올림도 하지 마라.
 
 ■ 무엇보다 먼저
 
-아래에 형식을 보이려고 든 예시와 빈칸 꼴이 여럿 나온다. 그것은 모양을 보이려고
-지어낸 것이지 이 회의의 재료가 아니다. 전사문이 부서져 쓸 것이 마땅치 않을 때
-그 예시를 가져다 쓰는 일이 실제로 있었다 — 예시에 적힌 금액과 현장 이름이 그대로
-회의록이 되어 결재에 올라갈 뻔했다.
+아래에 형식을 보이려고 든 빈칸 꼴이 나온다. 그것은 모양을 보이려고 적은 것이지 이 회의의
+재료가 아니다. 재료가 얇으면 얇은 대로 낸다. 절반이 비어도 좋다. 채우려고 지어내지 마라.
+`;
+}
 
-재료가 얇으면 얇은 대로 낸다. 절반이 비어도 좋다. 채우려고 가져다 쓰지 마라.
+/* ① 주제 절 — 회의록의 몸통 */
+function topicsPrompt(note, detail){
+  const heads = (String(detail || "").match(/^###\s+.+$/gm) || []).length;
+  return `${conclHead(note, "주제 절(회의록의 몸통)을 쓰는")}
+[상세 기록 — 소제목 ${heads}개]
+${detail}
+
+■ 하는 일
+
+상세 기록을 처음부터 끝까지 읽고, 회의가 실제로 다룬 화제를 **회의 순서대로** 절로 묶는다.
+소제목 ${heads}개를 그대로 옮기는 것이 아니다. 같은 화제로 이어지는 소제목 여럿을 절 하나로
+묶고, 절 안에서는 무슨 이야기가 얼마나 구체적으로 오갔는지를 문단으로 쓴다.
+이 회의를 안 들은 사람이 이 절들만 읽고 회의를 알 수 있어야 한다.
+
+절의 수는 회의 길이를 따른다. 한 시간 넘는 회의면 8~12개, 30분 회의면 4~6개.
+**회의의 앞·가운데·뒤가 모두 있어야 한다.** 상세 기록 첫 소제목이 다룬 화제가 첫 절에,
+마지막 소제목의 화제가 마지막 절에 있어야 한다. 절 서넛로 뭉개면 회의를 잘못 읽은 것이다.
+
+각 절에 넣는 것.
+
+· title — 그 회의에서 나온 말로 짓는다. 서류 칸 이름("결정사항", "논의 내용", "기타",
+  "다음 단계")은 금지다. 그런 것은 뒤에 따로 있다.
+
+· span — 그 절이 덮는 시각 범위. 상세 기록의 소제목·줄에 적힌 시각 중 가장 이른 것과
+  가장 늦은 것을 "mm:ss–mm:ss" 꼴로. 지어내지 마라. 없으면 키를 생략한다.
+
+· body — 문단이다. 불릿이 아니다. 2~6문장으로 이어서 쓴다. 숫자·금액·날짜·기관명·사람
+  이름을 문장 안에 그대로 담고, **각 사실 뒤에 (mm:ss) 시각을 붙인다** — 상세 기록에
+  적힌 시각을 그대로 옮긴다. "논의하였다", "공유되었다" 로 끝나는 빈 문장을 쓰지 마라.
+  무엇이 얼마였고 왜 문제인지가 문장 안에 있어야 한다.
+  이야기가 결론까지 갔으면 그 결론도 문단 안에 쓴다.
+
+· table — **같은 것을 여럿에 대해 훑었으면 반드시 표로 낸다.** 현장을 하나씩 짚으며
+  계획과 실적을 말했다면, 프로젝트마다 손익을 말했다면, 항목마다 정산·송장 일정을 말했다면
+  그것은 표다. 문장으로 풀면 세로로 견줄 수 없어 쓸모가 없어진다. 이 회의록에서 가장 자주
+  빠지는 대목이 이것이다.
+    head 는 2~5칸. 첫 칸은 대상의 이름, 마지막 칸은 시각(mm:ss).
+    rows 는 상세 기록에 나온 대상 **전부**. 열 곳을 짚었으면 열 줄이다.
+    첫 칸의 이름은 상세 기록에 적힌 표기 그대로. 이름이 안 적혀 있으면 "(이름 미상)".
+    값이 없는 칸은 빈 문자열. 지어내지 마라. 표로 낼 것이 없으면 table 키를 쓰지 마라.
+
+· points — 표도 문단도 아닌 것에만. 서로 견줄 것이 아니라 그냥 여럿인 것. 없으면 생략.
+
+■ 출력 형태
+
+아래 형태의 JSON 객체 하나만 출력한다. 코드펜스 금지, 앞뒤 설명 금지, 주석 금지.
+
+{
+  "topics": [
+    { "title": "", "span": "", "body": "",
+      "table": { "head": ["", "", ""], "rows": [["", "", ""]] },
+      "points": [] }
+  ]
+}
+
+값이 비는 키는 아예 쓰지 마라.
+
+■ 내보내기 전 스스로 확인할 것
+
+1. 첫 절이 상세 기록 첫 소제목의 화제인가. 마지막 절이 마지막 소제목의 화제인가.
+2. 여럿을 하나씩 훑은 대목이 전부 표로 됐나. 표의 행이 상세 기록의 대상 수와 같나.
+3. 문장마다 시각이 붙었나. 그 시각이 상세 기록에 실제로 있나.
+4. 숫자·단위를 바꾸거나 반올림하지 않았나.
+5. "A는", "B가" 를 쓰지 않았나. 이름을 짐작으로 바꾸지 않았나.
+6. JSON 이 문법적으로 유효한가.
+
+이제 JSON 객체 하나만 출력한다.`;
+}
+
+/* ② 결정·미결·할 일·역할 */
+function itemsPrompt(note, detail, brief, topics){
+  const outline = (topics || []).map((t, i) =>
+    (i + 1) + ". " + cS(t.title) + (cS(t.span) ? " (" + cS(t.span) + ")" : "")).join("\n");
+  return `${conclHead(note, "결론부(결정·미결·할 일·역할)를 뽑는")}
+[상세 기록]
+${detail}
+
+[구간별로 먼저 골라 둔 결정·미결·할 일 후보 — 구간마다 시각 범위가 있다. 후보일 뿐이다. 뒤에서 뒤집혔거나 같은 것이 되풀이됐으면 상세 기록을 보고 판정한다]
+${brief || "(없음)"}
+
+[주제 절 — 이미 만든 회의록 몸통의 절 제목과 시각. 이 절마다 결론이 났는지 안 났는지 묻는다]
+${outline || "(없음)"}
+
+■ 하는 일
+
+상세 기록 전체를 끝까지 읽은 뒤에 판정한다. 앞에서 정한 것을 뒤에서 뒤집거나 다시
+확정하는 일이 잦으니, 앞부분만 보고 결론을 내리지 마라.
+
+주제 절마다 묻는다 — 이 화제는 결론이 났는가. 났으면 decision, 안 났으면 open,
+누가 무엇을 하기로 했으면 todo. **앞부분이 논의 위주여서 decision 이 없더라도 open 은
+반드시 있다.** 문제가 제기됐는데 결론이 안 났으면 그것이 open 이다. 한 시간짜리 회의라면
+미결은 보통 서넛 이상이고, 요청과 지시는 열 개가 넘는다.
 
 ■ 출력 형태
 
@@ -4401,15 +4543,6 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 아래 설명(//)은 읽으라고 붙인 것이니 출력에는 넣지 않는다.
 
 {
-  "title": "",                     // 이 회의록의 제목. 아래 "문서 제목" 을 읽어라
-  "headline": "",                  // 이 회의를 한 문장으로. 제목 밑에 굵게 실린다
-  "summary": "",                   // 3~5문장 한 문단. 불릿·줄바꿈·마크다운 금지
-  "topics": [                      // 회의록의 몸통. 아래 "주제 절" 을 읽어라
-    { "title":"", "body":"",
-      "table": { "head":["",""], "rows":[["",""]],    // 같은 것을 여럿에 대해 훑었으면
-                 "quotes":[""] },                      // 행마다 근거. rows 와 길이가 같다
-      "points":[] }
-  ],
   "next_meeting": {                // 다시 "모이기로 한" 것이 있을 때만. 아래 규칙 8 을 읽어라
     "when": "",                    // 원문 표기 그대로
     "what": "",                    // 무엇을 정하는 자리인가
@@ -4420,26 +4553,27 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
     {
       "kind": "decision",          // decision | open | todo | role | principle
       "text": "",                  // 한 줄로 완결된 문장. 주어와 대상이 다 있어야 한다
+      "at": "",                    // 근거가 된 상세 기록 줄의 시각 mm:ss. 그대로 복사
+      "quote": "",                 // 근거가 된 상세 기록 원문 15~60자. 그대로 복사
       "status": "합의",            // decision 만: 합의 | 추가논의 | 이견 | 보류
       "rationale": "",             // decision 만: 왜 그렇게 정했나 한 문장
       "positions": [{"side":"","who":"","stance":""}],  // 이견이 남은 경우만. side 는 찬성|반대|결정타
-      "owner": "",                 // 명부의 이름 그대로
+      "owner": "",                 // 명부의 이름 그대로. 들린 이름이면 들린 대로
       "support": [],               // 보조 담당자
       "due": "",                   // 원문 표기 그대로
-      "purpose": "",               // todo 는 필수
+      "purpose": "",               // todo 는 재료에 목적이 있을 때만
       "agreement": "",             // todo 만: 합의됨 | 제안됨 | 이견있음
       "depends_on": [],            // 막고 있는 다른 항목의 text 앞부분
       "dep_basis": "",             // 발화 | 추론
       "needs_confirm": false,      // 신호가 하나뿐이라 다음 회의에서 확인해야 하면 true
-      "carried": false,            // 지난 회의 미결이 이어진 것이면 true
-      "quote": ""                  // 이 항목의 근거가 된 전사문 원문 15~60자
+      "carried": false             // 지난 회의 미결이 이어진 것이면 true
     }
   ]
 }
 
 값이 비는 키는 아예 쓰지 마라. 빈 문자열·빈 배열·false 를 적을 자리면 그 줄을 통째로
-생략한다. kind 와 text 와 quote 만 모든 항목에 반드시 있다. 위 예시는 쓸 수 있는 키의
-목록이지 매번 다 채우라는 뜻이 아니다. 빈 키를 채우느라 지면을 쓰면 정작 항목이 잘린다.
+생략한다. kind 와 text 와 at 과 quote 는 모든 항목에 반드시 있다. 위 예시는 쓸 수 있는
+키의 목록이지 매번 다 채우라는 뜻이 아니다. 빈 키를 채우느라 지면을 쓰면 정작 항목이 잘린다.
 
 ■ 판정 규칙
 
@@ -4450,21 +4584,19 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
      "추가논의", needs_confirm 을 true 로 세운다. 결정이 없었던 것처럼 미결로 내리지 마라.
      통역 회의에서는 합의 신호가 통역 턴에 실려 구조적으로 잘 사라진다.
    · 결론 문장 자체가 없을 때만 open 이다.
-   · 같은 내용이 통역으로 두 번 나온 것은 두 개의 신호가 아니다. 한 번으로 센다.
    · 뒤에서 뒤집힌 것은 최종 상태만 남긴다. 뒤집혔다는 사실이 중요하면 rationale 에 적는다.
    · 한 사안이 여러 번 나오면 항목을 하나로 합친다.
 
 2. 이견
    · 이견이 남은 논점을 결정으로 굳히지 마라. 한쪽 결론만 적힌 회의록은 분쟁 도구가 된다.
    · status 를 "이견" 으로 두고 positions 에 양쪽을 나란히 적는다. 옳고 그름을 판단하지 마라.
-   · positions 의 side 는 "찬성" / "반대" 로 가른다. 프로그램이 표로 세워 세로로 견주게 한다.
-   · 어느 한마디에 논쟁이 기울었으면 그 말을 side "결정타" 로 한 줄 더 넣는다.
-     회의를 안 들은 사람이 왜 그렇게 결론 났는지 알 수 있는 것은 대개 그 한마디다.
+   · positions 의 side 는 "찬성" / "반대" 로 가른다. 어느 한마디에 논쟁이 기울었으면
+     그 말을 side "결정타" 로 한 줄 더 넣는다.
    · 발주처·설계사·시공사·감리·병원 중 누구의 주장인지 who 에 밝힌다.
 
 3. 할 일 · 요청 · 지시
    · 사람이 사람에게 무엇을 하라고 한 말은 전부 todo 다. "~해 주세요", "~합시다",
-     "~하자", "~할 겁니다", "~해야 된다", "~보내세요", "~만나세요" 가 그것이다.
+     "~하자", "~할 겁니다", "~해야 된다", "~보내세요", "~만나세요", "~를 push 해라" 가 그것이다.
      기한이 없어도, 목적이 말로 안 나와도, 담당이 안 정해져도 todo 다.
      회의에서 오간 요청이 회의록에 없으면 그 회의록은 실패한 것이다.
    · purpose 는 재료에 목적이 있을 때만 쓴다. 없으면 그 키를 생략한다.
@@ -4475,256 +4607,110 @@ const CONCLUSION_TMPL = `너는 베트남 건설현장 회의의 전사문을 �
 4. 담당자
    · 담당자는 한 명이다. 여럿이면 대표를 owner 에, 나머지를 support 에 넣는다.
    · 같은 사람을 한 가지 표기로만 쓴다. 명부에 있으면 명부 표기를 끝까지 유지한다.
-     한 사람을 이름·역할·이름(역할) 세 가지로 갈라 쓰지 마라.
    · 담당자나 기한이 비는 것은 결함이 아니다. 빈칸을 채우려고 추측하지 마라.
-     비었다는 사실이 다음 회의의 첫 안건이다.
+     비었다는 사실이 다음 회의의 첫 안건이다. 담당이 안 들렸으면 owner 를 생략한다.
+     "재무 담당", "현장 책임자" 같은 역할 이름을 지어 붙이지 마라.
 
 5. 역할과 조직
    · 회의에서 확인된 소속·역할·책임 범위를 kind "role" 로 남긴다. 담당자는 필수다.
-   · 팀을 합치거나 나누는 이야기, 실을 새로 두거나 두지 않는 이야기, 사람을 바꾸거나
-     자리를 옮기는 이야기는 결론이 났으면 decision, 안 났으면 open 으로 반드시 남긴다.
-     한 팀이라도 빠뜨리지 마라 — 회의에서 이름이 불린 팀은 모두 어딘가에 있어야 한다.
-     조직과 사람에 관한 대목은 이 회의록에서 가장 많이 찾아 읽는 자리다.
+   · 팀을 합치거나 나누는 이야기, 사람을 바꾸거나 자리를 옮기는 이야기는 결론이 났으면
+     decision, 안 났으면 open 으로 반드시 남긴다. 회의에서 이름이 불린 팀은 모두 어딘가에
+     있어야 한다. 조직과 사람에 관한 대목은 이 회의록에서 가장 많이 찾아 읽는 자리다.
 
 6. 선후관계
-   · "A 가 끝나지 않으면 B 를 시작할 수 없다" 에만 depends_on 을 쓴다. 관련이 있다거나
-     순서대로 말했다는 이유로 넣지 마라. 없으면 키를 생략한다.
+   · "A 가 끝나지 않으면 B 를 시작할 수 없다" 에만 depends_on 을 쓴다. 없으면 키를 생략한다.
    · 발화로 확인되면 dep_basis 를 "발화", 정황상 추론이면 "추론".
 
 7. 사람 이름 — 가장 위험한 자리
    · 명부에 없는 이름을 만들어 쓰지 마라.
-   · 낯선 이름은 들린 대로 쓰고 뒤에 (?) 를 붙인다.
+   · 낯선 이름은 상세 기록에 적힌 대로 쓰고 뒤에 (?) 를 붙인다.
    · 발음이 비슷하다는 이유로 유명 인사·정치인·전현직 고위직 이름으로 바꾸는 것은
-     어떤 경우에도 금지한다. 직함이 그럴듯해도 금지다.
-     실제로 지방 부위원장이 전 국가주석 이름으로 굳은 사고가 있었다.
+     어떤 경우에도 금지한다. 실제로 지방 부위원장이 전 국가주석 이름으로 굳은 사고가 있었다.
    · 직함만 들리고 이름이 없으면 직함만 쓴다. 이름을 보충하지 마라.
 
 8. 날짜·시각
-   · 원문 표기 그대로 옮긴다. "8월 22일 오전 9시", "9월 3일", "ngày 3/9" 를 다른
+   · 원문 표기 그대로 옮긴다. "8월 22일 오전 9시", "10월 중순", "ngày 3/9" 를 다른
      형식으로 바꾸거나 요일을 계산하지 마라. 변환은 프로그램이 한다.
    · 다음 회의 일시, 제출 기한, 착수 예정일은 회의 전 구간에 흩어져 나온다.
-     끝부분만 보지 말고 전체에서 찾는다. 후보가 여럿이면 가장 구체적이고 가장 나중에
-     확정된 것을 next_meeting 의 when 에 두고 나머지는 alt 에 남긴다.
+     끝부분만 보지 말고 전체에서 찾는다.
    · 다음 회의 일시가 정말 없으면 when 을 쓰지 마라. 회의 날짜로 대신 채우지 마라.
-   · **후속이 회의가 아닌 경우가 많다.** 개별 면담, 자료 회람, 의견 청취, 별도 미팅으로
-     이어지는 회의가 그렇다. 그런 회의에는 next_meeting 이 아예 없다. 비워 두고 그
-     후속들을 todo 로 내라. 회의로 안 이어진다고 해서 다음 일정을 만들어 붙이지 마라.
-   · 이 회의가 결론을 내는 자리였는지, 초안을 보여 주고 의견을 듣는 자리였는지,
-     정보를 나누는 자리였는지를 먼저 판정하라. 초안 리뷰 자리라면 결론이 적은 것이
-     정상이고, 후속은 회의가 아니라 개별 청취인 경우가 많다.
+   · **후속이 회의가 아닌 경우가 많다.** 개별 면담, 자료 회람, 별도 조정 회의로 이어지는
+     회의가 그렇다. 그럴 때는 next_meeting 을 비우고 그 후속들을 todo 로 낸다.
 
 9. 숫자·단위
-   · tỷ 는 십억 동, triệu 는 백만 동이다. 원화로 환산하지 마라. 원문 단위 그대로 쓴다.
-   · 영어로 million·billion 이라 들렸으면 그 말 그대로 million·billion 으로 적는다.
-     억·조로 바꾸지 마라. 통화가 안 들렸으면 통화도 붙이지 마라 — "<숫자> million" 을
-     "<숫자>억 동" 으로 적으면 단위와 통화를 둘 다 지어낸 것이다.
-   · 반올림하지 마라. 들린 숫자를 그대로 적는다.
-   · 면적·수량·층수·병상수도 반올림하거나 단위를 바꾸지 마라.
+   · 상세 기록에 적힌 단위 그대로. million·billion·tỷ·triệu 를 서로 바꾸지 마라.
+     통화가 안 적혀 있으면 통화도 붙이지 마라. 반올림하지 마라.
 
 10. 용어
    · 용어집의 한 줄에 등호로 이어진 표기들은 같은 것을 가리키며 맨 앞이 대표 표기다.
-     본문에서는 대표 표기로 통일한다.
    · 지난 회의에서 넘어온 미결이 이번에 다시 다뤄졌으면 그 항목의 carried 를 true 로 한다.
 
 11. 근거
-   · 모든 항목에 quote 가 있어야 한다. 전사문에서 그대로 복사한 15~60자다.
-     다듬거나 번역하거나 이어 붙이지 마라. 프로그램이 원문과 대조한다.
-   · quote 에 [12:34] 같은 시각 표시를 넣지 마라. 그 항목이 녹취의 몇 분인지는
-     프로그램이 quote 를 찾아 스스로 적는다. 네가 쓴 시각은 대조할 길이 없다.
-   · 번역 구간이라 문장이 끊겨 있으면 끊긴 그대로 옮긴다.
-   · 근거로 삼을 원문을 찾을 수 없으면 그 항목을 만들지 마라.
+   · 모든 항목에 at 과 quote 가 있어야 한다. quote 는 상세 기록에서 그대로 복사한 15~60자,
+     at 은 그 줄에 적힌 [mm:ss] 시각이다. 다듬거나 이어 붙이지 마라. 프로그램이 대조한다.
+   · 근거로 삼을 줄을 상세 기록에서 찾을 수 없으면 그 항목을 만들지 마라.
 
 12. 관통하는 원리
-   · 이 회의의 결정 여럿을 한꺼번에 설명하는 한 문장이 재료에 있으면 kind "principle"
-     로 낸다. 조직을 바꾸는 회의에는 대개 하나 있다 — 무엇을 어디에 두느냐가 아니라
-     누가 그것을 소유하느냐를 바꾸는 문장 같은 것이다.
-   · 그 문장을 누군가 실제로 말했을 때만 쓴다. 결정들을 보고 네가 지어내지 마라.
-     quote 가 곧 그 문장이어야 한다. 없으면 principle 을 만들지 마라. 많아야 둘이다.
-   · rationale 에 이 원리가 어느 결정들을 설명하는지 한 문장으로 적는다.
+   · 이 회의의 결정 여럿을 한꺼번에 설명하는 한 문장을 누군가 실제로 말했을 때만
+     kind "principle" 로 낸다. quote 가 곧 그 문장이어야 한다. 없으면 만들지 마라. 많아야 둘이다.
 
 13. 빠뜨린 사안 — 내보내기 직전에 반드시 한다
-   · topics 를 다 쓴 뒤, 각 절에서 오간 사안을 하나씩 짚으며 그것이 items 의
-     decision·open·todo 중 어디에 들어갔는지 확인한다.
-   · 어디에도 없는 사안이 있으면 그것은 결론이 안 난 것이다. open 으로 넣어라.
-     "본문에서는 길게 논의했는데 결정에도 미결에도 할 일에도 없는" 사안이 남으면 안 된다.
+   · 주제 절 목록을 위에서 아래로 짚으며, 절마다 그 절의 사안이 items 의 decision·open·todo
+     중 어디에 들어갔는지 확인한다. 어디에도 없는 절이 있으면 그 절을 다시 읽어 open 으로 넣어라.
    · open 의 개수를 아끼지 마라. 회의에서 결론이 안 나는 것은 원래 많다.
      결정 한 줄에 미결 한 줄인 회의록은 회의를 잘못 읽은 것이다.
-     한 시간짜리 회의라면 미결은 보통 서넛 이상이다.
-
-■ 요약과 주제
-
-summary 는 3~5문장 한 문단이다. 불릿·표·머리말을 넣지 마라. 카톡·잘로에 그대로
-붙여넣어 읽히는 문단이어야 한다.
-
-**첫 문장은 이 회의가 무엇이었는지를 말한다** — 언제, 누가 모였고, 무엇을 정하는
-자리였는지. 예: "9월 3일, 현장 책임자와 재무 담당이 모여 9월 자금 계획과
-부족분 대응을 점검했다."
-
-이어지는 문장에 네 가지가 들어간다.
-(1) 핵심 쟁점이 무엇이었나 (2) 합의되지 못하고 남은 것 (3) 다음 조치와 담당자
-(4) 그 조치의 일시 (원문 표기 그대로)
-
-■ 문서 제목과 한 줄
-
-title 은 이 회의록의 제목이다. 회의에서 실제로 다룬 것으로 짓는다.
-예: "○○○ 협의 회의록", "○○ 현장 마감재 협의 회의록" — ○ 자리에 이 회의가 실제로
-다룬 것을 넣는다. "회의록", "정기 회의" 처럼 아무 회의에나 붙는 이름을 쓰지 마라.
-
-headline 은 그 밑에 굵게 실리는 한 문장이다. 문서를 받은 사람이 이 한 줄만 읽고
-무슨 일이 있었는지 알 수 있어야 한다. 재료에 숫자가 있으면 넣어라.
-꼴: "<무엇이 얼마로 집계되어>, <무엇을 하기로 한> 회의."
-    숫자와 이름은 반드시 이 회의의 전사문에서 가져온다.
-
-■ 주제 절 (topics) — 이것이 회의록의 몸통이다
-
-이 회의를 안 들은 사람이 이 절들만 읽고 회의를 알 수 있어야 한다.
-결정과 할 일은 뒤에 따로 나오니 여기서는 **무슨 이야기가 오갔는지**를 쓴다.
-
-· **제목은 이 회의에서 나온 말로 짓는다.** "9월 자금 현황과 부족 규모",
-  "현장별 수금 실적", "은행 여신 문제", "데이터 신뢰성" 처럼 그 회의가 실제로
-  다룬 것의 이름이다. "결정사항"·"미결"·"할 일"·"논의 내용"·"기타" 같은
-  서류 칸 이름을 제목으로 쓰지 마라. 그런 것은 뒤에 이미 있다.
-
-· **body 는 문단이다. 불릿이 아니다.** 2~5문장으로 이어서 쓴다.
-  숫자·금액·날짜·기관명·사람 이름을 문장 안에 그대로 담는다.
-  "논의하였다", "공유되었다" 로 끝나는 빈 문장을 쓰지 마라 —
-  무엇이 얼마였고 왜 문제인지가 문장 안에 있어야 한다.
-
-  나쁜 예: "자금 현황에 대해 논의하였다."
-  좋은 꼴: "<언제> 기준 <무엇>은 <얼마>이며 <언제>에는 <얼마>가 된다.
-           여기에 <무엇> <얼마>가 빠져 있어 <무엇>은 <얼마>에 이를 수 있다는
-           지적이 나왔다."
-  빈칸에 들어갈 값은 모두 이 회의의 전사문에서 가져온다. 위 꼴을 채우려고
-  숫자를 지어내지 마라. 재료에 숫자가 없으면 숫자 없이 쓴다.
-
-· **같은 것을 여럿에 대해 훑었으면 반드시 table 로 낸다.** 이것이 이 회의록에서
-  가장 자주 빠지는 대목이다. 회의에서 현장을 하나씩 짚으며 금액을 말했다면,
-  은행을 하나씩 짚으며 조건을 말했다면, 항목을 하나씩 짚으며 수치를 말했다면
-  그것은 표다. 문장으로 풀어 쓰면 숫자를 세로로 비교할 수 없어 쓸모가 없어진다.
-
-    "table": { "head": ["<대상>", "<이 회의에서 말한 값>", "<또 다른 값>", "비고"],
-               "rows": [ ["<첫 번째 대상 이름>", "<그 값>", "<그 값>", "<덧붙일 말>"],
-                         ["<두 번째 대상 이름>", "<그 값>", "<그 값>", ""] ] }
-
-  꺾쇠 안의 말은 자리를 보이려고 적은 것이다. 그대로 출력하지 말고, 이 회의의
-  전사문에서 가져온 실제 이름과 값으로 채운다. 채울 것이 없으면 표를 만들지 마라.
-
-  · 회의에서 언급된 대상은 **하나도 빼지 마라.** 열 곳을 짚었으면 열 줄이다.
-    숫자가 없는 곳도 이름과 함께 "언급만 됨" 이라고 적어 남긴다.
-  · 칸은 2~4개다. 첫 칸은 대상의 이름이고 나머지는 그 회의에서 실제로 말한 값이다.
-  · 값이 없는 칸은 빈 문자열로 둔다. 지어내지 마라.
-  · 표로 낼 것이 없으면 table 키를 아예 쓰지 마라.
-  · **행마다 근거를 단다.** quotes 는 rows 와 길이가 같고, i 번째가 i 번째 행의 근거다 —
-    그 대상의 이름과 값이 함께 들린 전사문 원문 15~60자를 그대로 복사한다.
-    같은 대목에 그 대상의 이름이 없으면 그 값은 그 대상의 것이 아니다. 다른 대상의
-    값을 이름만 바꿔 앉히지 마라. 프로그램이 행마다 이름과 값을 원문과 대조해
-    확인되지 않은 행에 표시를 붙인다.
-
-· **points 는 표도 문단도 아닌 것에만 쓴다.** 서로 견줄 것이 아니라 그냥 여럿인 것이다.
-  셀 것이 없으면 빈 배열로 두고 body 만 쓴다.
-  문단으로 쓸 것을 불릿으로 쪼개면 무엇이 중요한지 알 수 없는 목록이 된다.
-
-· 주제는 **4~7개**다. 다만 위 화제 목록이 스무 개를 넘으면 열 개까지 늘려도 된다.
-  어느 경우든 회의의 앞·가운데·뒤가 모두 topics 에 있어야 한다.
-  세 개 이하면 회의를 뭉갠 것이다. 회의가 한 시간 가까이 갔다면
-  다룬 것이 셋일 리가 없다. 전사문을 처음부터 끝까지 훑으며 화제가 바뀐 자리를 세어라.
-  분량이 "간결" 이어도 4개 아래로 내려가지 마라. 줄일 것은 각 절의 길이이지 절의 수가 아니다.
-
-· 제목에 "다음 조치", "일정", "결론", "후속" 을 쓰지 마라. 그것은 뒤에 따로 나오는
-  서류 칸이다. 여기 또 쓰면 같은 내용이 두 번 실린다.
-
-· 이야기가 결론까지 갔으면 그 결론도 문단 안에 쓴다. 뒤의 결정사항 절과 겹쳐도 된다.
-  읽는 사람은 이 절을 먼저 읽고, 뒤는 확인용으로 본다.
-
-■ 분량
-
-간결이면 주제 절의 body 를 2~3문장으로 줄인다. 보통이면 3~4문장. 상세면 4~5문장에
-부수적 확인 사항과 역할까지 남긴다.
-어떤 설정에서도 줄이지 않는 것 셋 — 주제의 개수(3개 아래로 안 내려간다),
-결정, 그리고 이견이 남은 항목. 숫자와 금액도 줄이지 마라.
 
 ■ 내보내기 전 스스로 확인할 것
 
-1. 명부에 없는 이름에 (?) 를 붙였나. 유명 인사 이름으로 바뀐 곳은 없나.
-2. 날짜를 원문 표기 그대로 뒀나.
-3. 다음 회의 일시를 전사문에서 그대로 찾았나. 못 찾았으면 when 을 비웠나.
-   프로그램이 전사문과 대조해 근거 없는 날짜는 버린다.
-4. 결론 문장이 뚜렷한데 미결로 내려 버린 항목은 없나.
-5. 이견이 있는데 한쪽만 적은 항목은 없나.
-6. 목적이 없다는 이유로 버린 요청·지시는 없나. 목적을 지어낸 할 일은 없나.
-7. 담당자·기한의 빈칸을 추측으로 채우지 않았나.
-8. 모든 항목에 원문 그대로의 quote 가 있나.
-9. 통화·수량 단위를 환산하지 않았나.
-10. 빈 값을 가진 키를 지웠나.
-11. topics 에서 길게 오간 사안 중 items 어디에도 없는 것은 없나.
-12. 이름이 불린 팀과 사람이 모두 어딘가에 남아 있나.
-13. 후속이 회의가 아닌데 다음 회의 일시를 지어 붙이지 않았나.
-14. JSON 이 문법적으로 유효한가. 주석·코드펜스·설명이 섞이지 않았나.
-15. 화제 목록의 앞·가운데·뒤가 topics 에 다 있나. 목록 앞쪽 화제에서 open 을 찾았나.
-16. 표의 행마다 quotes 가 있고, 그 근거 대목에 그 행의 대상 이름이 정말 있나.
+1. 주제 절마다 items 에 무엇인가 있나. 앞쪽 절에서 open 을 찾았나.
+2. 모든 항목에 at 과 quote 가 있고, 그것이 상세 기록에 실제로 있나.
+3. 명부에 없는 이름에 (?) 를 붙였나. 역할 이름을 지어 붙이지 않았나.
+4. 결론 문장이 뚜렷한데 미결로 내려 버린 항목은 없나. 이견이 있는데 한쪽만 적은 항목은 없나.
+5. 목적이 없다는 이유로 버린 요청·지시는 없나.
+6. 후속이 회의가 아닌데 다음 회의 일시를 지어 붙이지 않았나.
+7. 빈 값을 가진 키를 지웠나. JSON 이 문법적으로 유효한가.
 
 이제 JSON 객체 하나만 출력한다.`;
-
-/* 상세 기록의 소제목만 뽑는다. 결론부에 넘길 지도다. */
-function outlineOf(detail){
-  const heads = [];
-  for(const m of String(detail || "").matchAll(/^###\s+(.+)$/gm)){
-    const h = m[1].trim();
-    if(h) heads.push(h);
-  }
-  return heads;
 }
 
-/* 결론부가 회의 전체를 덮게 하는 지시. 화제가 몇 개 안 되는 짧은 회의에는 넣지 않는다.
+/* ③ 제목·한 줄·한 장 요약 — 다 만든 뒤 마지막에 */
+function headPrompt(note, topics, items){
+  const secs = (topics || []).map((t, i) => {
+    const tb = t.table && Array.isArray(t.table.rows) ? " [표 " + t.table.rows.length + "행]" : "";
+    return "## " + (i + 1) + ". " + cS(t.title) + (cS(t.span) ? " (" + cS(t.span) + ")" : "") + tb
+      + "\n" + cS(t.body);
+  }).join("\n\n");
+  const its = (items || []).map(it => "- [" + cS(it.kind) + "] " + cS(it.text)
+    + (cS(it.at) ? " (" + cS(it.at) + ")" : "")).join("\n");
+  return `${conclHead(note, "제목과 한 장 요약을 쓰는")}
+[주제 절 — 이미 만든 회의록의 몸통]
+${secs || "(없음)"}
 
-   94분 회의에서 앞 48분이 통째로 빠진 회의록이 나왔다. 상세 기록은 구간별로 읽어
-   만들기 때문에 소제목 65개로 첫 5분부터 다 있었는데, 결론부는 전사문 69,000자를
-   한 번에 읽으면서 뒷부분에 쏠렸다. 요약·주제·결정·미결·할 일이 전부 48분 이후 것이었다.
+[결정·미결·할 일 — 이미 뽑은 것]
+${its || "(없음)"}
 
-   결론부를 조각으로 읽게 되돌리지는 않는다 — 그 길은 9월 3일에 결정 8건이 2건으로
-   무너져 되돌린 길이다. 대신 이미 만들어 둔 상세 기록의 소제목을 지도로 준다.
-   지도에 있는 화제가 결론부에 없으면 모델이 스스로 알아챈다. */
-function coverageBlock(n){
-  if(n < 6) return "";
-  return `
-■ 회의 전체를 덮는다
+■ 하는 일
 
-위 화제 목록 ${n}개는 전사문을 구간별로 나눠 읽어 만든 것이라 회의의 처음부터 끝까지를
-빠짐없이 덮는다. 전사문을 한 번에 읽으면 뒷부분에 쏠린다 — 실제로 그렇게 앞 절반이
-통째로 빠진 회의록이 나온 적이 있다. 앞 절반은 논의였고 뒤 절반은 숫자였는데,
-요약도 주제도 미결도 전부 뒤 절반 것이었다.
+위 재료만으로 셋을 쓴다. 새 사실을 더하지 마라.
 
-그래서 내보내기 전에 화제 목록과 대조한다.
-  · topics 는 목록의 앞·가운데·뒤에서 고루 나와야 한다. 목록 앞 3분의 1 (1~${Math.ceil(n / 3)}번)
-    에서 topics 가 하나도 안 나왔으면 전사문 앞부분을 다시 읽어라.
-  · 목록의 화제마다 결론이 났는지 안 났는지 묻는다. 문제가 제기됐는데 결론이 안 났으면
-    그것이 open 이다. 앞부분이 논의 위주여서 decision 이 없더라도 open 은 있다.
-  · 화제 목록은 지도일 뿐이다. quote 는 여전히 전사문에서만 그대로 복사한다.
-    목록의 문장을 quote 로 쓰지 마라 — 프로그램이 전사문과 대조해 걸러 낸다.
-`;
-}
+· title — 이 회의록의 제목. 회의에서 실제로 다룬 것으로 짓는다. "○○ 협의 회의록" 꼴로,
+  ○ 자리에 이 회의가 실제로 다룬 것을 넣는다. "회의록", "정기 회의" 처럼 아무 회의에나
+  붙는 이름을 쓰지 마라. 시리즈 이름이 있으면 그것을 앞에 둔다.
 
-function conclusionPrompt(note, fullText, mode, outline){
-  const ser = note.seriesId ? findSeries(note.seriesId) : null;
-  const S = docSize(note);
-  const heads = outline || [];
-  /* 사전 자료 전문은 넣지 않는다. 12,000자를 통째로 넣으면 모델이 그것을 되뱉고,
-     회의에서 나오지 않은 것을 결정으로 올린다. 짧은 맥락 한 줄이면 족하다. */
-  const vals = {
-    DOC_TYPE:     (DOC_FORMS[note.docForm || "minutes"] || {}).label || "회의록",
-    LENGTH:       S.label || "보통",
-    MEETING_DATE: dayLabel(note.created),
-    ROSTER:       attendeeBlock(note) || "(등록된 참석자 없음)",
-    GLOSSARY:     String(CFG.gloss || "").trim() || "(없음)",
-    CARRY:        (ser && ser.carry) || "(없음)",
-    MODE:         CONCLUSION_MODE[mode || "all"],
-    OUTLINE:      heads.length ? heads.map((h, i) => (i + 1) + ". " + h).join("\n") : "(없음)",
-    COVERAGE:     coverageBlock(heads.length),
-    TRANSCRIPT:   (note.ctx ? "[회의 맥락] " + note.ctx + "\n\n" : "") + fullText
-  };
-  /* 문자열로 바꿔 넣으면 그 글 안의 "$&" 같은 것을 replace 가 특별하게 읽는다.
-     전사문에 그런 글자가 있으면 자리 이름이 끼어든다. 함수로 넣으면 글자 그대로다. */
-  return Object.keys(vals).reduce((t, k) => t.replace("{{" + k + "}}", () => vals[k]), CONCLUSION_TMPL);
+· headline — 제목 밑에 굵게 실리는 한 문장. 문서를 받은 사람이 이 한 줄만 읽고 무슨 일이
+  있었는지 알 수 있어야 한다. 재료에 숫자가 있으면 넣어라. 회의가 여러 덩이였으면
+  덩이들을 한 문장에 이어 쓴다 — 앞 덩이를 버리고 뒤 덩이만 쓰지 마라.
+
+· summary — 3~6문장 한 문단. 불릿·줄바꿈·마크다운 금지. 카톡·잘로에 붙여넣어 읽히는
+  문단이어야 한다. 첫 문장은 이 회의가 무엇이었는지(언제, 누가, 무엇을 정하는 자리였는지).
+  이어서 회의 순서대로 — 앞 절부터 뒤 절까지 — 핵심 쟁점, 남은 것, 다음 조치와 담당·일시.
+  주제 절이 열 개면 요약도 열 개를 다 스친다. 뒤 절만 쓰면 회의를 절반만 읽은 것이다.
+
+■ 출력 형태
+
+{ "title": "", "headline": "", "summary": "" }
+
+JSON 객체 하나만 출력한다. 코드펜스 금지, 앞뒤 설명 금지.`;
 }
 
 /* 모델이 내놓은 글에서 JSON 을 건져 낸다.
@@ -4866,12 +4852,15 @@ function verifyNext(json, fullText){
 /* 전사문을 한 덩어리로 납작하게 펴면서, 어느 자리가 몇 분이었는지를 함께 적어 둔다.
    납작하게 펴는 까닭은 띄어쓰기와 문장부호가 조금씩 달라도 근거를 찾기 위해서다. */
 function flatIndex(fullText){
-  const flat = v => String(v || "").replace(/[\s.,·、"'`~!?\-—…]/g, "").toLowerCase();
+  /* 시각 표시 [mm:ss] 는 본문에서 뺀다. 그래야 모델이 quote 에 시각을 넣었든 뺐든
+     같은 글로 견줘진다. 상세 기록은 "- [mm:ss] …" 꼴이라 불릿 뒤의 시각도 읽는다. */
+  const TS = /\[(\d{1,3}:\d{2})(?::\d{2})?\]/g;
+  const flat = v => String(v || "").replace(TS, "").replace(/[\s.,·、"'`~!?\-—…]/g, "").toLowerCase();
   const marks = [];
   let hay = "";
   String(fullText || "").split("\n").forEach(line => {
-    const m = /^\s*\[(\d{1,3}:\d{2}(?::\d{2})?)\]\s*/.exec(line);
-    const body = flat(m ? line.slice(m[0].length) : line);
+    const m = /^\s*(?:[-*•]\s*)?\[(\d{1,3}:\d{2})(?::\d{2})?\]/.exec(line) || /\[(\d{1,3}:\d{2})(?::\d{2})?\]/.exec(line);
+    const body = flat(line);
     if(!body) return;
     marks.push({ pos: hay.length, t: m ? m[1] : "" });
     hay += body;
@@ -4900,7 +4889,8 @@ function verifyQuotes(json, fullText){
 }
 
 /* 결론부 호출. JSON 이 깨져도 회의록은 나와야 한다. */
-async function callDocJson(prompt, budget){
+async function callDocJson(prompt, budget, ok){
+  ok = ok || (j => Array.isArray(j.items));   // 예전 호출은 items 를 요구했다
   for(let tries = 0; tries < 3; tries++){
     const nudge = tries
       ? "\n\n앞선 응답이 잘렸거나 형식이 어긋났다. 항목 수를 줄이지 말고, 비는 키를 생략해 더 짧게 써라. JSON 객체 하나만 출력한다."
@@ -4909,59 +4899,73 @@ async function callDocJson(prompt, budget){
     try{ raw = await callDocModel(prompt + nudge, budget, true); }
     catch(e){ if(tries === 2) return null; continue; }
     const j = parseLooseJson(raw);
-    if(j && Array.isArray(j.items)) return j;
+    if(j && ok(j)) return j;
   }
   return null;
 }
 
-/* 전사문이 길면 종류를 나눠 두 번 부른다.
+/* 결론부를 세 번에 나눠 만든다. 조각마다 저장해 두어 중간에 멈추면 그다음부터 이어 간다.
 
-   시간으로 자르지 않는다는 원칙은 그대로다 — 두 호출 모두 전사문 전체를 본다.
-   한 번에 한 종류만 찾으면 긴 글 가운데가 묻히는 문제도 함께 누그러진다. */
-async function callConclusion(note, fullText, detail){
-  const outline = outlineOf(detail);
-  if(fullText.length <= 24000)
-    return finishConclusion(await callDocJson(conclusionPrompt(note, fullText, "all", outline), 12000), fullText);
-
-  const a = await callDocJson(conclusionPrompt(note, fullText, "decide", outline), 8000);
-  const b = await callDocJson(conclusionPrompt(note, fullText, "act", outline), 8000);
-  if(!a && !b) return null;
-  if(!a) return finishConclusion(b, fullText);
-  if(!b) return finishConclusion(a, fullText);
-  return finishConclusion(Object.assign({}, a, { items: (a.items || []).concat(b.items || []) }), fullText);
+   ① 주제 절은 없어도 ②로 간다 — 몸통 없는 회의록보다 결정 없는 회의록이 더 나쁘다.
+   ② 항목이 없으면 실패다. 예전 경로(legacyHead)로 넘어간다. */
+async function makeConclusion(note, detail, brief, fullText, cache){
+  const step = async (key, prompt, budget, ok) => {
+    const kept = cache && await cache.get(key);
+    if(kept){ try{ return JSON.parse(kept); }catch(e){} }
+    const j = await callDocJson(prompt, budget, ok);
+    if(j && cache) await cache.set(key, JSON.stringify(j));
+    return j;
+  };
+  const tj = await step("c-topics", topicsPrompt(note, detail), 12000,
+    j => Array.isArray(j.topics) && j.topics.length > 0);
+  const topics = (tj && tj.topics) || [];
+  const ij = await step("c-items", itemsPrompt(note, detail, brief, topics), 12000,
+    j => Array.isArray(j.items));
+  if(!ij) return null;
+  const hj = await step("c-head", headPrompt(note, topics, ij.items), 3000,
+    j => typeof j.summary === "string" && j.summary.trim().length > 0);
+  const json = Object.assign({}, hj || {}, { topics: topics, items: ij.items || [] });
+  if(ij.next_meeting) json.next_meeting = ij.next_meeting;
+  return finishConclusion(json, fullText, detail);
 }
 
-function finishConclusion(json, fullText){
+function finishConclusion(json, fullText, detail){
   if(!json) return null;
   /* 항목이 하나도 없이 돌아오는 실패가 있다. 그대로 실으면 "결정: 해당 없음" 이라는
      자신만만하게 틀린 회의록이 나온다. 그건 지금의 붕괴보다 나쁘다. 실패로 친다. */
   if(!(json.items || []).length && fullText.length > 3000) return null;
-  if(verifyQuotes(json, fullText) > 0.4) json._quoteWarn = true;
+  /* 결론부는 상세 기록을 읽고 쓴다. 그래서 근거(quote)도 상세 기록과 대조한다.
+     시각은 quote 를 찾은 줄의 것을 쓰고, 못 찾았으면 모델이 적은 at 이 상세 기록에
+     실제로 있을 때만 받는다. 없는 시각을 회의록에 박으면 확인하러 간 사람이 헛돈다. */
+  const src = detail || fullText;
+  if(verifyQuotes(json, src) > 0.4) json._quoteWarn = true;
+  (json.items || []).forEach(it => {
+    const a = cS(it.at);
+    if(!it._at && a && String(src).indexOf("[" + a + "]") >= 0) it._at = a;
+  });
   if(verifyNext(json, fullText)) json._quoteWarn = true;
   if(verifyCanary(json).length) json._quoteWarn = true;
-  json._tableWarn = verifyTables(json, fullText);
+  json._tableWarn = verifyTables(json, src);
   return json;
 }
 
-/* 표의 행마다 근거를 대조한다.
+/* 표의 행마다 대상 이름이 상세 기록에 정말 있는지 본다.
 
-   근거 검사는 여태 항목(items)만 봤다. 주제 절의 표는 아무도 안 봤다. 그래서 현장별
-   계획·실제 표에서 다른 현장의 숫자가 이름만 바뀌어 앉고, 그 대목에 이름이 없는
-   현장이 행 하나를 차지해도 아무 표시 없이 나갔다. 숫자는 다 실제로 오간 것이라
-   눈으로는 못 알아본다.
+   처음에는 행마다 근거 문장을 요구하고 그 근처에 이름이 있는지까지 봤다. 그랬더니
+   모델이 이름을 "프로젝트 A", "프로젝트 B" 로 지워 버렸다. 이름이 없는 표는 틀린
+   이름이 붙은 표보다 더 쓸모없다. 어느 현장 이야기인지조차 모르기 때문이다.
 
-   행마다 quotes 를 요구하고 두 가지를 본다 — 그 근거가 원문에 정말 있나, 그리고
-   그 근거 대목 근처에 그 행의 대상 이름이 정말 있나. 이름은 앞 네 글자만 견준다.
-   전사가 이름을 뭉개기 때문이다(Bến Tre → Bentray). 용어집에 같은 줄로 묶인 표기는
-   전부 같은 이름으로 친다.
+   그래서 요구를 낮춘다. 이름은 상세 기록에 적힌 표기 그대로 쓰라고 하고, 그 이름이
+   상세 기록 어디에든 있는지만 본다. 앞 네 글자로 견준다 — 전사가 이름을 뭉개기
+   때문이다(Bến Tre → Bentray). 용어집에 같은 줄로 묶인 표기는 같은 이름으로 친다.
+   모델이 스스로 "(이름 미상)" 이나 (?) 를 붙인 행은 그대로 둔다. 이미 모른다고 적었다.
 
-   못 믿을 행은 지우지 않고 이름 뒤에 (?) 를 붙인다. 이 앱이 낯선 이름에 쓰는 표시다.
-   숫자 자체는 실제로 오간 것일 때가 많아, 지우면 회의에서 나온 말을 버리는 것이 된다. */
-function verifyTables(json, fullText){
-  const idx = flatIndex(fullText), hay = idx.hay;
+   못 믿을 행은 지우지 않고 이름 뒤에 (?) 를 붙인다. 이 앱이 낯선 이름에 쓰는 표시다. */
+function verifyTables(json, detail){
   /* 성조·đ 를 벗긴다. anDeAccent 는 NFD 로 풀어 놓기만 하는데, 한글은 그러면 자모로
      흩어져 가-힣 범위를 벗어난다. NFC 로 다시 모아야 한글 이름이 살아남는다. */
   const plain = s => anDeAccent(s).normalize("NFC").toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+  const hay = plain(detail);
   const aliases = name => {
     const out = [name];
     String(CFG.gloss || "").split("\n").forEach(ln => {
@@ -4975,22 +4979,16 @@ function verifyTables(json, fullText){
   (json.topics || []).forEach(t => {
     const tb = t && t.table;
     if(!tb || !Array.isArray(tb.rows)) return;
-    const qs = Array.isArray(tb.quotes) ? tb.quotes : [];
-    tb.rows.forEach((row, i) => {
+    tb.rows.forEach(row => {
       if(!Array.isArray(row) || !row.length) return;
-      const q = idx.flat(qs[i]);
-      let ok = false;
-      if(q.length >= 8){
-        const at = hay.indexOf(q);
-        if(at >= 0){
-          const name = plain(row[0]);
-          const win = plain(hay.slice(Math.max(0, at - 300), at + q.length + 300));
-          ok = !name || aliases(name).some(a => key(a) && win.indexOf(key(a)) >= 0);
-        }
-      }
-      if(!ok){ row[0] = String(row[0] || "") + " (?)"; bad++; }
+      const raw = String(row[0] == null ? "" : row[0]);
+      if(/이름 미상|\(\?\)/.test(raw)) return;
+      const name = plain(raw);
+      if(!name) return;
+      const ok = aliases(name).some(a => key(a) && hay.indexOf(key(a)) >= 0);
+      if(!ok){ row[0] = raw + " (?)"; bad++; }
     });
-    delete tb.quotes;   // 검사가 끝났다. 본문에 실릴 것이 아니다
+    delete tb.quotes;   // 예전 형식의 잔재. 본문에 실릴 것이 아니다
   });
   return bad;
 }
@@ -5022,16 +5020,15 @@ async function makeMinutes(note, fullText, onStep, cache){
   const parts = splitParts(fullText, S.seg);
   const total = parts.length + 3;   // 조각들 + 병합 + 결론부
 
-  /* 조각 요약. 여기서 거두는 것은 "오간 이야기" 다.
-     결정·미결·할 일은 아래 결론부가 전사문 전체를 보고 따로 뽑는다.
-     조각을 나누는 이유는 입력이 길어서가 아니라 출력이 길어서다. 상세 기록은
-     길어서 한 번에 못 쓰지만 결론부는 짧다. 그래서 둘의 길을 갈랐다. */
-  const digests = [];
+  /* 조각 요약. 여기서 거두는 것은 "오간 이야기" 와 구간별 결정·미결·할 일 후보다.
+     둘 다 시각을 단다. 결론부는 전사문이 아니라 이것들을 읽는다. */
+  const digests = [], spans = [];
   for(let i = 0; i < parts.length; i++){
     if(onStep) onStep(i+1, total);
+    spans[i] = spanOf(parts[i]);
     const kept = cache && await cache.get("p" + i);
     if(kept){ digests.push(kept); continue; }
-    const out = await callDocModel(digestPrompt(note, parts[i], i, parts.length), S.cap);
+    const out = await callDocModel(digestPrompt(note, parts[i], i, parts.length, spans[i]), S.cap);
     digests.push(out);
     if(cache) await cache.set("p" + i, out);
     await new Promise(s => setTimeout(s, 600));   // 몰아치지 않는다
@@ -5044,6 +5041,15 @@ async function makeMinutes(note, fullText, onStep, cache){
     return (e > st ? d.slice(st+9, e) : d.slice(st+9)).trim();
   }).filter(Boolean);
 
+  /* 구간별 결정·미결·할 일 후보. 결론부 ②가 상세 기록과 함께 읽는다.
+     구간마다 시각 범위를 머리에 단다 — 후보가 회의의 어디쯤 것인지 알아야
+     뒤에서 뒤집힌 것을 가려낼 수 있다. */
+  const brief = digests.map((d, i) => {
+    const k = d.indexOf("## 이 구간의 결정");
+    const body = (k >= 0 ? d.slice(k) : "").trim();
+    return body ? "[구간 " + (i + 1) + "/" + parts.length + (spans[i] ? " · " + spans[i] : "") + "]\n" + body : "";
+  }).filter(Boolean).join("\n\n");
+
   // 상세 기록 — 조각을 잇지 않고 병합한다
   if(onStep) onStep(parts.length+1, total);
   /* 병합에도 진행을 넘긴다. 예전에는 여기에 null 을 넘겨 놓고 통로를 스스로 막았다.
@@ -5051,23 +5057,13 @@ async function makeMinutes(note, fullText, onStep, cache){
   const detail = await mergeStory(note, storyParts,
     i => onStep && onStep(parts.length + 1, total), cache);
 
-  // 결론부 — 전사문 전체를 한 번에 본다
+  // 결론부 — 상세 기록 위에 세운다. 세 번 부르고 조각마다 저장한다.
   if(onStep) onStep(parts.length+2, total);
-  let json = null;
-  const keptJson = cache && await cache.get("concl");
-  if(keptJson){ try{ json = JSON.parse(keptJson); }catch(e){} }
-  if(!json){
-    json = await callConclusion(note, fullText, detail);   // 상세 기록을 지도로 넘긴다
-    if(json && cache) await cache.set("concl", JSON.stringify(json));
-  }
+  const json = await makeConclusion(note, detail, brief, fullText, cache);
 
   if(!json){
     /* 구조를 못 뽑았다. 예전 경로로 만든다. 현장에서는 회의 직후 한 번 만들고
        끝이라 두 번째 기회가 없다. 다만 조용히 넘어가지는 않는다. */
-    const brief = digests.map(d => {
-      const k = d.indexOf("## 이 구간의 결정");
-      return k >= 0 ? d.slice(k) : d;
-    }).join("\n\n");
     note.docNote = "결론부를 구조화하지 못해 예전 방식으로 만들었습니다. 결정과 기한을 한 번 더 확인해 주세요.";
     return await legacyHead(note, brief, detail, cache);
   }
