@@ -125,7 +125,7 @@ public class TtsPlugin extends Plugin {
     }
 
     /** 네이티브를 고칠 때마다 올린다. 웹이 이것으로 APK 가 오래됐는지 안다. */
-    static final String NATIVE_BUILD = "2026-09-08.2";
+    static final String NATIVE_BUILD = "2026-09-08.3";
 
     @PluginMethod
     public void available(PluginCall call) {
@@ -237,9 +237,9 @@ public class TtsPlugin extends Plugin {
                 src = up; n = m; outRate = OUT;
             }
 
-            byte[] pcm = stereoOneSide(src, n, job.left);
+            byte[] pcm = stereoOneSide(src, n, job.left, 0);
             playStereo(pcm, outRate, (job.left ? "왼쪽" : "오른쪽") + " 말 · 원본 " + rate + "Hz " + ch + "채널 "
-                    + frames + "프레임 → " + outRate + "Hz");
+                    + frames + "프레임 → " + outRate + "Hz", "music", "media");
         } catch (Exception e) {
             lastPan = "재생 실패 · " + e;
         } finally {
@@ -248,39 +248,51 @@ public class TtsPlugin extends Plugin {
         }
     }
 
-    /** 모노 표본을 한쪽 채널만 채운 스테레오 16bit 로 엮는다. 반대쪽은 완전한 0 이다. */
-    private static byte[] stereoOneSide(short[] mono, int n, boolean left) {
+    /**
+     * 모노 표본을 한쪽 채널만 채운 스테레오 16bit 로 엮는다. 반대쪽은 완전한 0 이다.
+     * dither 가 0 보다 크면 반대쪽에 그만큼의 아주 작은 잡음을 넣는다 — 블루투스 SBC 코덱이
+     * 완전한 0 채널에서 새는지 가리려는 것이다. 유튜브의 조용한 채널은 디코딩 잡음이 있어 0 이 아니다.
+     */
+    private static byte[] stereoOneSide(short[] mono, int n, boolean left, int dither) {
         byte[] pcm = new byte[n * 4];
+        java.util.Random rnd = new java.util.Random(7);
         for (int f = 0, o = 0; f < n; f++, o += 4) {
             byte lo = (byte) (mono[f] & 0xff), hi = (byte) ((mono[f] >> 8) & 0xff);
-            if (left) { pcm[o] = lo; pcm[o + 1] = hi; } else { pcm[o + 2] = lo; pcm[o + 3] = hi; }
+            short z = dither > 0 ? (short) (rnd.nextInt(dither * 2 + 1) - dither) : 0;
+            byte zlo = (byte) (z & 0xff), zhi = (byte) ((z >> 8) & 0xff);
+            if (left) { pcm[o] = lo; pcm[o + 1] = hi; pcm[o + 2] = zlo; pcm[o + 3] = zhi; }
+            else      { pcm[o] = zlo; pcm[o + 1] = zhi; pcm[o + 2] = lo; pcm[o + 3] = hi; }
         }
         return pcm;
+    }
+
+    private static AudioAttributes attrsOf(String content, String usage) {
+        AudioAttributes.Builder b = new AudioAttributes.Builder();
+        b.setUsage("game".equals(usage) ? AudioAttributes.USAGE_GAME
+                 : "alarm".equals(usage) ? AudioAttributes.USAGE_ALARM
+                 : AudioAttributes.USAGE_MEDIA);
+        b.setContentType("movie".equals(content) ? AudioAttributes.CONTENT_TYPE_MOVIE
+                       : "speech".equals(content) ? AudioAttributes.CONTENT_TYPE_SPEECH
+                       : "sonification".equals(content) ? AudioAttributes.CONTENT_TYPE_SONIFICATION
+                       : AudioAttributes.CONTENT_TYPE_MUSIC);
+        return b.build();
     }
 
     /**
      * 스테레오 PCM 을 우리 트랙으로 재생한다. 말이든 삐 소리든 여기를 지난다.
      * 진단 문자열(lastPan)에 어디로 몇 채널로 나갔는지 남긴다.
      */
-    private void playStereo(byte[] pcm, int rate, String label) {
+    private void playStereo(byte[] pcm, int rate, String label, String content, String usage) {
         AudioTrack track = null;
         lastPan = label;
         try {
             int min = AudioTrack.getMinBufferSize(rate,
                     AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
             if (min <= 0) min = 8192;
-            track = new AudioTrack(
-                    new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            /* 말(SPEECH)이 아니라 음악(MUSIC)이라고 알린다.
-
-                               말이라고 하면 폰이 알아듣기 좋게 만들어 준다며 손을 댄다.
-                               삼성의 음성 보정과 적응형 사운드가 그 자리에서 걸리고,
-                               그중 하나가 좌우를 섞는다. 한쪽을 0 으로 채워 보내도
-                               양쪽에서 들리는 까닭이 이것이다. 유튜브는 음악으로 보내서
-                               한쪽씩만 들린다. 우리도 그렇게 보낸다. */
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build(),
+            /* 소리 유형은 기본이 음악(MUSIC)·용도 미디어다. 9월 3일에 "말(SPEECH)이라고 하면
+               삼성 음성 보정이 좌우를 섞는다" 고 보고 음악으로 바꿨는데, 바꿔도 같았다.
+               그래서 유형·용도를 인자로 열어 시험에서 바꿔 가며 낼 수 있게 한다. */
+            track = new AudioTrack(attrsOf(content, usage),
                     new AudioFormat.Builder()
                             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                             .setSampleRate(rate)
@@ -319,24 +331,39 @@ public class TtsPlugin extends Plugin {
     /**
      * 삐 소리를 한쪽으로만 낸다. 음성 엔진을 전혀 거치지 않는다.
      *
-     * 좌우가 샐 때 원인을 가르려고 둔다. 삐 소리도 새면 소리 길(폰·이어폰·효과)의
-     * 문제고, 삐는 깨끗한데 말만 새면 음성 엔진이 파일로 주면서 몰래 한 번 더
-     * 재생하는 것이다. 둘은 고치는 법이 완전히 다르다. 1kHz, 1.2초, 48kHz.
+     * 좌우가 샐 때 원인을 가르려고 둔다. 삐 소리도 새면 소리 길(폰·이어폰·코덱)의 문제다.
+     * 그 안에서 또 가르려고 변형을 받는다 —
+     *   rate    표본율 (48000 / 44100)
+     *   level   음량 0~1
+     *   dither  조용한 쪽에 넣을 잡음 크기 (0 이면 완전한 0)
+     *   content music / movie / speech / sonification
+     *   usage   media / game / alarm
+     * 어느 변형이 깨끗한지로 어디서 새는지 안다.
      */
     @PluginMethod
     public void tone(PluginCall call) {
         final boolean left = !"right".equals(call.getString("side", "left"));
-        final int rate = 48000, ms = 1200, freq = 1000;
+        Integer rateIn = call.getInt("rate", 48000);
+        final int rate = (rateIn == null || rateIn < 8000) ? 48000 : rateIn;
+        Float levelIn = call.getFloat("level", 0.37f);
+        final double level = levelIn == null ? 0.37 : Math.max(0.01, Math.min(1.0, levelIn));
+        Integer ditherIn = call.getInt("dither", 0);
+        final int dither = ditherIn == null ? 0 : Math.max(0, Math.min(64, ditherIn));
+        final String content = call.getString("content", "music");
+        final String usage = call.getString("usage", "media");
+        final int ms = 1000, freq = 1000;
         final int frames = rate * ms / 1000;
         short[] mono = new short[frames];
         for (int f = 0; f < frames; f++) {
             double env = Math.min(1.0, Math.min(f, frames - 1 - f) / (rate * 0.02));   // 20ms 페이드
-            mono[f] = (short) (Math.sin(2 * Math.PI * freq * f / rate) * 12000 * env);
+            mono[f] = (short) (Math.sin(2 * Math.PI * freq * f / rate) * 32000 * level * env);
         }
-        final byte[] pcm = stereoOneSide(mono, frames, left);
+        final byte[] pcm = stereoOneSide(mono, frames, left, dither);
+        final String label = (left ? "왼쪽" : "오른쪽") + " 삐 " + rate + "Hz · 음량 " + level
+                + " · 잡음 " + dither + " · " + content + "/" + usage;
         panCancel = false;
         panPlayer.submit(() -> {
-            playStereo(pcm, rate, (left ? "왼쪽" : "오른쪽") + " 삐 " + rate + "Hz " + frames + "프레임");
+            playStereo(pcm, rate, label, content, usage);
             emit("pan", false);
         });
         JSObject res = new JSObject();

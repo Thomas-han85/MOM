@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.08-4";
+const APP_VERSION = "2026.09.08-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2003,7 +2003,7 @@ let ttsCanPan = null;
 /* 음성 부품이 언제 것인지. 없으면 2026-09-03 이전 APK 다 — 좌우 나눔이 새는 판.
    웹은 자동으로 갈리는데 APK 는 안 갈려서, 고친 뒤에도 같은 증상을 보고 헤맸다. */
 let ttsBuild = null;
-const NATIVE_WANT = "2026-09-08.2";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
+const NATIVE_WANT = "2026-09-08.3";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
 const nativeStale = () => NATIVE && ttsBuild !== null && (!ttsBuild || ttsBuild < NATIVE_WANT);
 const staleApkMsg = () => "APK 가 오래됐습니다 (음성 부품 " + (ttsBuild || "9월 3일 이전") + ", 지금 " + NATIVE_WANT + "). "
   + "좌우 나눠 듣기가 샙니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 새 APK 를 받아 깔아 주세요.";
@@ -2085,11 +2085,23 @@ async function ttsPanTest(){
     /* 먼저 삐 소리로 소리 길만 시험한다. 음성 엔진을 전혀 안 거친다.
        삐가 새면 폰·이어폰·효과의 문제, 삐는 깨끗한데 말만 새면 엔진의 문제다. */
     if(NativeTts.tone){
-      toast("① 삐 소리 — 왼쪽, 그다음 오른쪽. 반대쪽 귀에서도 들리는지 보세요.", 4000);
-      await NativeTts.tone({ side:"left" });  await wait(1700);
-      await NativeTts.tone({ side:"right" }); await wait(1700);
+      /* 삐 소리를 다섯 가지로 바꿔 가며 낸다. 전부 왼쪽으로만 보낸다.
+         어느 번호가 오른쪽에서 안 들리는지로 어디서 새는지 가른다. */
+      const V = [
+        { n:"1번 · 지금 그대로",                 o:{} },
+        { n:"2번 · 조용한 쪽에 아주 작은 잡음",   o:{ dither:3 } },
+        { n:"3번 · 소리 유형을 영상으로",         o:{ content:"movie" } },
+        { n:"4번 · 음량을 4분의 1로",             o:{ level:0.09 } },
+        { n:"5번 · 44.1kHz 로",                   o:{ rate:44100 } },
+      ];
+      for(const v of V){
+        toast(v.n + " — 왼쪽으로만 보냅니다. 오른쪽 이어폰에서 들리는지 보세요.", 2500);
+        await wait(900);
+        await NativeTts.tone(Object.assign({ side:"left" }, v.o));
+        await wait(2200);
+      }
     }
-    toast("② 말 — 왼쪽, 그다음 오른쪽.", 4000);
+    toast("⑥ 말 — 왼쪽, 그다음 오른쪽.", 4000);
     await NativeTts.speak({ text:"왼쪽에서만 들리면 정상입니다.", lang:"ko-KR", rate, pan:-1 });
     await wait(2800);
     await NativeTts.speak({ text:"오른쪽에서만 들리면 정상입니다.", lang:"ko-KR", rate, pan:1 });
