@@ -124,6 +124,9 @@ public class TtsPlugin extends Plugin {
             || r == TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE;
     }
 
+    /** 네이티브를 고칠 때마다 올린다. 웹이 이것으로 APK 가 오래됐는지 안다. */
+    static final String NATIVE_BUILD = "2026-09-08";
+
     @PluginMethod
     public void available(PluginCall call) {
         JSObject langs = new JSObject();
@@ -135,6 +138,11 @@ public class TtsPlugin extends Plugin {
         res.put("langs", langs);
         // 좌우 나눠 보내기를 이 APK 가 아는지. 웹 쪽이 이걸 보고 안내를 띄운다.
         res.put("pan", true);
+        /* 이 플러그인이 언제 것인지. 웹은 깃허브에서 자동으로 갈리지만 이 파일은 APK 를
+           다시 깔아야 바뀐다. 9월 3일에 좌우 새는 것을 고쳤는데 폰에는 그 전 APK 가 남아
+           있어, 고친 뒤에도 같은 증상을 보고 한참 헤맸다. 웹이 이 값을 읽어 오래된 APK 면
+           말해 준다. 네이티브를 고칠 때마다 이 날짜를 올릴 것. */
+        res.put("build", NATIVE_BUILD);
         call.resolve(res);
     }
 

@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.08-2";
+const APP_VERSION = "2026.09.08-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2000,8 +2000,16 @@ function ttsStop(){
 /* 좌우 나눔은 APK 안의 네이티브가 해 준다. 예전 APK 에는 그 기능이 없어서
    골라도 조용히 가운데로 나온다. 미리 물어 두었다가 고를 때 알려 준다. */
 let ttsCanPan = null;
+/* 음성 부품이 언제 것인지. 없으면 2026-09-03 이전 APK 다 — 좌우 나눔이 새는 판.
+   웹은 자동으로 갈리는데 APK 는 안 갈려서, 고친 뒤에도 같은 증상을 보고 헤맸다. */
+let ttsBuild = null;
+const NATIVE_WANT = "2026-09-08";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
+const nativeStale = () => NATIVE && ttsBuild !== null && (!ttsBuild || ttsBuild < NATIVE_WANT);
+const staleApkMsg = () => "APK 가 오래됐습니다 (음성 부품 " + (ttsBuild || "9월 3일 이전") + ", 지금 " + NATIVE_WANT + "). "
+  + "좌우 나눠 듣기가 샙니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 새 APK 를 받아 깔아 주세요.";
 if(NativeTts && NativeTts.available){
-  NativeTts.available().then(r => { ttsCanPan = !!(r && r.pan); }, () => { ttsCanPan = false; });
+  NativeTts.available().then(r => { ttsCanPan = !!(r && r.pan); ttsBuild = (r && r.build) || ""; },
+                             () => { ttsCanPan = false; ttsBuild = ""; });
 }
 
 let ttsUnlocked = false;
@@ -2062,6 +2070,7 @@ async function ttsPanTest(){
     toast("이 APK 는 좌우 나눠 듣기를 모릅니다. 릴리스에서 새 APK 를 받아 주세요.", 7000);
     return;
   }
+  if(nativeStale()){ toast(staleApkMsg(), 12000); return; }
   ttsUnlocked = true; ttsStop();
   const rate = parseFloat($("s-ttsrate") ? $("s-ttsrate").value : CFG.ttsRate) || 1;
   toast("왼쪽 먼저, 그다음 오른쪽입니다. 이어폰을 한 짝씩 대 보세요.", 6000);
@@ -9593,9 +9602,11 @@ $("s-ttspan").onclick = ttsPanTest;
 /* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
    고르는 그 자리에서 알려 준다. 골라 둔 값은 그대로 둔다 — APK 를 새로 깔면 살아난다. */
 if($("r-talkout")) $("r-talkout").onchange = function(){
-  if(this.value.indexOf("split") === 0 && NATIVE && ttsCanPan === false)
+  if(this.value.indexOf("split") !== 0 || !NATIVE) return;
+  if(ttsCanPan === false)
     toast("좌우 나눠 듣기는 새 APK 가 있어야 합니다. 지금 APK 로는 양쪽에서 다 들립니다. "
         + "릴리스에서 새 APK 를 받아 주세요.", 7000);
+  else if(nativeStale()) toast(staleApkMsg(), 12000);
 };
 $("g-link").onclick = async ()=>{
   CFG.gcid = $("s-gcid").value.trim(); CFG.gcsec = $("s-gcsec").value.trim();
@@ -9719,7 +9730,9 @@ addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.ret
     + "\n녹음 부품 " + (P.Recorder ? "있음" : "없음")
     + " · 음성 부품 " + (NativeTts ? "있음" : "없음")
     + " · 웹 음성 " + (HAS_WEB_TTS ? "있음" : "없음")
-    + "\n붙어 있는 부품: " + names;
+    + "\n붙어 있는 부품: " + names
+    + (NATIVE ? "\n음성 부품 판: " + (ttsBuild === null ? "확인 중" : ttsBuild || "9월 3일 이전")
+              + " (지금 소스 " + NATIVE_WANT + ")" + (nativeStale() ? " ← APK 를 새로 깔아야 합니다" : "") : "");
   el.style.whiteSpace = "pre-line";
   /* APK 안에 함께 깔린 app.html 의 버전을 읽는다. 화면은 깃허브에서 갈아끼워도
      이 값은 APK 를 새로 깔아야만 바뀐다. 어느 APK 가 설치돼 있는지 가리는 잣대다. */
