@@ -659,7 +659,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 
     <div class="savedock"><button class="bigbtn" id="s-save" style="margin:0">설정 저장</button></div>
 
-    <p class="hint" style="margin-top:22px"><span id="envnote"></span></p>
+    <p class="hint" style="margin-top:22px"><span id="envnote"></span><span id="nvbuild"></span></p>
   </div>
 </div>
 
@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.08-3";
+const APP_VERSION = "2026.09.08-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2003,13 +2003,20 @@ let ttsCanPan = null;
 /* 음성 부품이 언제 것인지. 없으면 2026-09-03 이전 APK 다 — 좌우 나눔이 새는 판.
    웹은 자동으로 갈리는데 APK 는 안 갈려서, 고친 뒤에도 같은 증상을 보고 헤맸다. */
 let ttsBuild = null;
-const NATIVE_WANT = "2026-09-08";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
+const NATIVE_WANT = "2026-09-08.2";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
 const nativeStale = () => NATIVE && ttsBuild !== null && (!ttsBuild || ttsBuild < NATIVE_WANT);
 const staleApkMsg = () => "APK 가 오래됐습니다 (음성 부품 " + (ttsBuild || "9월 3일 이전") + ", 지금 " + NATIVE_WANT + "). "
   + "좌우 나눠 듣기가 샙니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 새 APK 를 받아 깔아 주세요.";
+/* 설정 화면 맨 아래 "음성 부품 판" 줄. 부품 응답이 화면보다 늦게 오므로 응답이 오면 다시 그린다. */
+function paintNvBuild(){
+  const e = $("nvbuild"); if(!e) return;
+  e.textContent = !NATIVE ? "" : "\n음성 부품 판: " + (ttsBuild === null ? "확인 중" : ttsBuild || "9월 3일 이전")
+    + " (지금 소스 " + NATIVE_WANT + ")" + (nativeStale() ? " ← APK 를 새로 깔아야 합니다" : "");
+  e.style.whiteSpace = "pre-line";
+}
 if(NativeTts && NativeTts.available){
-  NativeTts.available().then(r => { ttsCanPan = !!(r && r.pan); ttsBuild = (r && r.build) || ""; },
-                             () => { ttsCanPan = false; ttsBuild = ""; });
+  NativeTts.available().then(r => { ttsCanPan = !!(r && r.pan); ttsBuild = (r && r.build) || ""; paintNvBuild(); },
+                             () => { ttsCanPan = false; ttsBuild = ""; paintNvBuild(); });
 }
 
 let ttsUnlocked = false;
@@ -2073,12 +2080,20 @@ async function ttsPanTest(){
   if(nativeStale()){ toast(staleApkMsg(), 12000); return; }
   ttsUnlocked = true; ttsStop();
   const rate = parseFloat($("s-ttsrate") ? $("s-ttsrate").value : CFG.ttsRate) || 1;
-  toast("왼쪽 먼저, 그다음 오른쪽입니다. 이어폰을 한 짝씩 대 보세요.", 6000);
+  const wait = ms => new Promise(r=>setTimeout(r, ms));
   try{
+    /* 먼저 삐 소리로 소리 길만 시험한다. 음성 엔진을 전혀 안 거친다.
+       삐가 새면 폰·이어폰·효과의 문제, 삐는 깨끗한데 말만 새면 엔진의 문제다. */
+    if(NativeTts.tone){
+      toast("① 삐 소리 — 왼쪽, 그다음 오른쪽. 반대쪽 귀에서도 들리는지 보세요.", 4000);
+      await NativeTts.tone({ side:"left" });  await wait(1700);
+      await NativeTts.tone({ side:"right" }); await wait(1700);
+    }
+    toast("② 말 — 왼쪽, 그다음 오른쪽.", 4000);
     await NativeTts.speak({ text:"왼쪽에서만 들리면 정상입니다.", lang:"ko-KR", rate, pan:-1 });
-    await new Promise(r=>setTimeout(r, 2600));
+    await wait(2800);
     await NativeTts.speak({ text:"오른쪽에서만 들리면 정상입니다.", lang:"ko-KR", rate, pan:1 });
-    await new Promise(r=>setTimeout(r, 2600));
+    await wait(2800);
     await showAudioInfo();
   }catch(e){ toast("재생 실패: "+(e.message||e)); }
 }
@@ -9730,10 +9745,9 @@ addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.ret
     + "\n녹음 부품 " + (P.Recorder ? "있음" : "없음")
     + " · 음성 부품 " + (NativeTts ? "있음" : "없음")
     + " · 웹 음성 " + (HAS_WEB_TTS ? "있음" : "없음")
-    + "\n붙어 있는 부품: " + names
-    + (NATIVE ? "\n음성 부품 판: " + (ttsBuild === null ? "확인 중" : ttsBuild || "9월 3일 이전")
-              + " (지금 소스 " + NATIVE_WANT + ")" + (nativeStale() ? " ← APK 를 새로 깔아야 합니다" : "") : "");
+    + "\n붙어 있는 부품: " + names;
   el.style.whiteSpace = "pre-line";
+  paintNvBuild();
   /* APK 안에 함께 깔린 app.html 의 버전을 읽는다. 화면은 깃허브에서 갈아끼워도
      이 값은 APK 를 새로 깔아야만 바뀐다. 어느 APK 가 설치돼 있는지 가리는 잣대다. */
   fetch("app.html", { cache:"no-store" })

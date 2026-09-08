@@ -125,7 +125,7 @@ public class TtsPlugin extends Plugin {
     }
 
     /** 네이티브를 고칠 때마다 올린다. 웹이 이것으로 APK 가 오래됐는지 안다. */
-    static final String NATIVE_BUILD = "2026-09-08";
+    static final String NATIVE_BUILD = "2026-09-08.2";
 
     @PluginMethod
     public void available(PluginCall call) {
@@ -197,9 +197,12 @@ public class TtsPlugin extends Plugin {
     /**
      * 합성된 WAV 를 한쪽 채널로만 재생한다.
      * 한 번에 하나씩만 돈다(단일 스레드). 순서가 뒤섞이면 대화가 엉킨다.
+     *
+     * 엔진이 주는 24kHz 를 48kHz 로 올려 보낸다. 유튜브는 48kHz 로 나가고 한쪽씩만
+     * 들리는데 우리는 24kHz 로 나가고 양쪽에서 들렸다. 표본율이 다르면 폰이 다른
+     * 길(다른 믹서·다른 효과)로 태울 수 있다. 같은 길로 보내 그 변수를 지운다.
      */
     private void playPanned(PanJob job) {
-        AudioTrack track = null;
         try {
             byte[] wav = readAll(job.file);
             if (wav == null) return;
@@ -210,21 +213,59 @@ public class TtsPlugin extends Plugin {
             int off = fmt[0], rate = fmt[1], ch = fmt[2];
             if (rate <= 0) rate = 22050;
 
-            // 한쪽 채널만 소리를 담은 스테레오로 엮는다. 반대쪽은 완전한 0 이다.
+            // 모노 표본으로 편다. 스테레오로 나오는 엔진이면 앞 채널만 쓴다 — 섞으면 위상이 상한다.
             int frames = ch == 2 ? len / 4 : len / 2;
-            byte[] pcm = new byte[frames * 4];
-            for (int f = 0, o = 0; f < frames; f++, o += 4) {
+            short[] mono = new short[frames];
+            for (int f = 0; f < frames; f++) {
                 int i = off + (ch == 2 ? f * 4 : f * 2);
-                if (i + 1 >= wav.length) break;
-                // 스테레오로 나오는 엔진이면 앞 채널만 쓴다. 두 채널을 섞으면 위상이 상한다.
-                byte lo = wav[i], hi = wav[i + 1];
-                if (job.left) { pcm[o] = lo; pcm[o + 1] = hi; pcm[o + 2] = 0; pcm[o + 3] = 0; }
-                else          { pcm[o] = 0;  pcm[o + 1] = 0;  pcm[o + 2] = lo; pcm[o + 3] = hi; }
+                if (i + 1 >= wav.length) { frames = f; break; }
+                mono[f] = (short) ((wav[i] & 0xff) | (wav[i + 1] << 8));
             }
 
-            lastPan = (job.left ? "왼쪽" : "오른쪽") + " · " + rate + "Hz · 원본 "
-                    + ch + "채널 · " + frames + "프레임";
+            // 48kHz 로 올린다. 직선 보간이면 말소리에는 충분하다.
+            final int OUT = 48000;
+            short[] src = mono; int n = frames; int outRate = rate;
+            if (rate != OUT && rate > 0 && frames > 1) {
+                int m = (int) ((long) frames * OUT / rate);
+                short[] up = new short[m];
+                for (int k = 0; k < m; k++) {
+                    double pos = (double) k * rate / OUT;
+                    int a = Math.min((int) pos, frames - 1); int b = Math.min(a + 1, frames - 1);
+                    double t = pos - (int) pos;
+                    up[k] = (short) Math.round(mono[a] * (1 - t) + mono[b] * t);
+                }
+                src = up; n = m; outRate = OUT;
+            }
 
+            byte[] pcm = stereoOneSide(src, n, job.left);
+            playStereo(pcm, outRate, (job.left ? "왼쪽" : "오른쪽") + " 말 · 원본 " + rate + "Hz " + ch + "채널 "
+                    + frames + "프레임 → " + outRate + "Hz");
+        } catch (Exception e) {
+            lastPan = "재생 실패 · " + e;
+        } finally {
+            if (job.file != null) job.file.delete();
+            emit("pan", false);
+        }
+    }
+
+    /** 모노 표본을 한쪽 채널만 채운 스테레오 16bit 로 엮는다. 반대쪽은 완전한 0 이다. */
+    private static byte[] stereoOneSide(short[] mono, int n, boolean left) {
+        byte[] pcm = new byte[n * 4];
+        for (int f = 0, o = 0; f < n; f++, o += 4) {
+            byte lo = (byte) (mono[f] & 0xff), hi = (byte) ((mono[f] >> 8) & 0xff);
+            if (left) { pcm[o] = lo; pcm[o + 1] = hi; } else { pcm[o + 2] = lo; pcm[o + 3] = hi; }
+        }
+        return pcm;
+    }
+
+    /**
+     * 스테레오 PCM 을 우리 트랙으로 재생한다. 말이든 삐 소리든 여기를 지난다.
+     * 진단 문자열(lastPan)에 어디로 몇 채널로 나갔는지 남긴다.
+     */
+    private void playStereo(byte[] pcm, int rate, String label) {
+        AudioTrack track = null;
+        lastPan = label;
+        try {
             int min = AudioTrack.getMinBufferSize(rate,
                     AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
             if (min <= 0) min = 8192;
@@ -252,9 +293,9 @@ public class TtsPlugin extends Plugin {
 
             int written = 0;
             while (written < pcm.length && !panCancel) {
-                int w = track.write(pcm, written, Math.min(4096, pcm.length - written));
-                if (w <= 0) break;
-                written += w;
+                int wr = track.write(pcm, written, Math.min(4096, pcm.length - written));
+                if (wr <= 0) break;
+                written += wr;
             }
             // 버퍼에 남은 것까지 다 나갈 때까지 기다린다. 안 기다리면 끝말이 잘린다.
             int total = pcm.length / 4;
@@ -262,19 +303,45 @@ public class TtsPlugin extends Plugin {
                 Thread.sleep(20);
             }
             AudioDeviceInfo out = track.getRoutedDevice();
-            lastPan += " · 나간 곳 " + (out == null ? "모름" : typeName(out.getType()))
+            lastPan = label + " · 나간 곳 " + (out == null ? "모름" : typeName(out.getType()))
                      + " · 쓴 채널 " + track.getChannelCount();
         } catch (Exception e) {
-            // 재생에 실패해도 회의는 계속되어야 한다. 조용히 넘어간다.
+            lastPan = label + " · 재생 실패 " + e;
         } finally {
             if (track != null) {
                 try { track.stop(); } catch (Exception ignored) { }
                 try { track.release(); } catch (Exception ignored) { }
             }
             panTrack = null;
-            if (job.file != null) job.file.delete();
-            emit("pan", false);
         }
+    }
+
+    /**
+     * 삐 소리를 한쪽으로만 낸다. 음성 엔진을 전혀 거치지 않는다.
+     *
+     * 좌우가 샐 때 원인을 가르려고 둔다. 삐 소리도 새면 소리 길(폰·이어폰·효과)의
+     * 문제고, 삐는 깨끗한데 말만 새면 음성 엔진이 파일로 주면서 몰래 한 번 더
+     * 재생하는 것이다. 둘은 고치는 법이 완전히 다르다. 1kHz, 1.2초, 48kHz.
+     */
+    @PluginMethod
+    public void tone(PluginCall call) {
+        final boolean left = !"right".equals(call.getString("side", "left"));
+        final int rate = 48000, ms = 1200, freq = 1000;
+        final int frames = rate * ms / 1000;
+        short[] mono = new short[frames];
+        for (int f = 0; f < frames; f++) {
+            double env = Math.min(1.0, Math.min(f, frames - 1 - f) / (rate * 0.02));   // 20ms 페이드
+            mono[f] = (short) (Math.sin(2 * Math.PI * freq * f / rate) * 12000 * env);
+        }
+        final byte[] pcm = stereoOneSide(mono, frames, left);
+        panCancel = false;
+        panPlayer.submit(() -> {
+            playStereo(pcm, rate, (left ? "왼쪽" : "오른쪽") + " 삐 " + rate + "Hz " + frames + "프레임");
+            emit("pan", false);
+        });
+        JSObject res = new JSObject();
+        res.put("spoken", true);
+        call.resolve(res);
     }
 
     private byte[] readAll(File f) {
