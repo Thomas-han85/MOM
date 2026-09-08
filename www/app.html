@@ -830,7 +830,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.07-6";
+const APP_VERSION = "2026.09.08-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -9694,9 +9694,13 @@ addEventListener("beforeunload", e => { if(recording){ e.preventDefault(); e.ret
 
 /* 실행 환경 안내 */
 (function(){
-  // 온라인 회의는 브라우저에서만 된다. 폰에서는 탭을 고를 수 없으므로 감춘다.
+  /* 온라인 회의는 브라우저에서만 된다. 폰에서는 탭을 고를 수 없으므로 감춘다.
+     HTML 에서 display:none 으로 시작하는데, 여기서 폰일 때만 감추고 컴퓨터일 때
+     보이게 하는 줄이 없었다. 그래서 어디서도 이 단추가 안 보였다 — 기능은 있는데
+     누를 길이 없었다. 실장님이 이어폰으로 화상회의를 들으며 마이크 모드로 녹음해
+     침묵만 담긴 뒤에야 알았다. */
   const on = document.getElementById("mode-online");
-  if(on && NATIVE) on.style.display = "none";
+  if(on) on.style.display = NATIVE ? "none" : "";
 
   const el = document.getElementById("envnote");
   if(!el) return;
