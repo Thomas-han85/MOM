@@ -496,15 +496,14 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
           <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
           <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
-          <option value="gpt-4o-transcribe-diarize">gpt-4o-transcribe-diarize · $0.006/분 · 누가 말했는지까지 · 회의 중 비권장</option>
           <option value="whisper-1">whisper-1 · $0.006/분</option>
         </select>
         <p class="hint" style="margin-top:6px">
           <b>gpt-transcribe</b> 는 고유명사를 <b>따로 된 칸(keywords)</b> 으로 받습니다.
           지금처럼 길잡이 글에 섞어 넣으면 소리가 흐릿할 때 그 글을 그대로 되뱉는 일이 있는데,
           이쪽은 그 위험이 없습니다. 현장 용어가 자꾸 깨지면 이걸 먼저 써 보세요.<br>
-          <b>diarize</b> 는 전사하면서 화자까지 가릅니다. 다만 길잡이 글과 용어 주입을 받지 않으므로
-          용어 정확도는 떨어집니다. 회의가 끝난 뒤 누가 말했는지 알고 싶을 때만 쓰세요.</p></div>
+          누가 말했는지는 여기서 고르지 않습니다. 녹음 시작 화면의 <b>화자 분리</b> 를 켜면
+          회의가 끝난 뒤 전체 녹음을 목소리로 갈라 참석자 이름을 붙입니다.</p></div>
       <div class="field"><label for="s-trans">통역</label>
         <select id="s-trans">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -811,7 +810,6 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <select id="r-mic"></select>
       <p class="hint" style="margin-top:6px">무선 이어폰의 마이크(통화용)는 전화 음질이라 전사가 깨집니다.
         노트북 내장 마이크나 유선 마이크를 고르십시오.</p></div>
-    <p class="hint" id="stt-warn" style="display:none;color:var(--warn)"></p>
     <p class="hint" id="mode-hint"></p>
     <div class="timer" id="timer" style="display:none">00:00</div>
     <button class="recbtn mark" id="btn-mark" style="display:none">지금 중요</button>
@@ -835,7 +833,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.09-1";
+const APP_VERSION = "2026.09.09-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -955,6 +953,10 @@ let CFG = Object.assign({}, DEFAULTS);
 try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
 if(!Array.isArray(CFG.people)) CFG.people = [];
 if(!CFG.trans)  CFG.trans  = "gpt-4o-mini";
+/* 화자 분리 모델은 전사 옵션에서 뺐다. 용어집·맥락 힌트를 못 받아 회의 중 전사를 맡기면
+   현장 용어가 깨지고 영어로 샌다(9/9 PMU 회의 115구간 중 93구간). 누가 말했는지는
+   회의 뒤 2차 패스가 한다. 저장돼 있던 값은 정확도 우선 모델로 되돌린다. */
+if(CFG.stt === "gpt-4o-transcribe-diarize"){ CFG.stt = "gpt-4o-transcribe"; try{ saveCfg(); }catch(e){} }
 if(!CFG.vision) CFG.vision = "gpt-4o-mini";
 if(!Array.isArray(CFG.series)) CFG.series = [];
 /* 시리즈와 참석자에 "언제 고쳤는지" 를 찍는다.
@@ -1149,6 +1151,7 @@ async function sttChunk(blob, prompt, terms){
   if(t2 && langs.indexOf(t2) < 0) langs.push(t2);
   if(langs.indexOf("en") < 0) langs.push("en");
 
+  /* 설정에서는 더 못 고른다. 회의 뒤 2차 패스에서 이 모델을 다시 쓸 수 있어 경로는 남긴다. */
   if(model === "gpt-4o-transcribe-diarize"){
     fd.append("response_format", "diarized_json");
     fd.append("chunking_strategy", "auto");     // 30초가 넘으면 필수다
@@ -9209,24 +9212,8 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-lang-b").value = CFG.talkB || "Vietnamese";
   $("r-talkout").value = CFG.talkOut || "other";
   renderSeriesPicker(""); renderPeople(); renderSeriesList();
-  paintSttWarn(); paintMicPicker();
+  paintMicPicker();
   setMode("full"); openSheet(); };
-
-/* 회의 중 전사 모델이 화자 분리 모델이면 시작할 때 알린다.
-   이 모델은 용어집·맥락 힌트를 못 받아 현장 용어가 깨지고, 느리며, 소리가 나쁘면
-   영어로 샌다. 실제로 41분 회의의 115구간 중 93구간이 영어로 적혔다.
-   회의 중에는 gpt-4o-transcribe 가 맞다. 누가 말했는지는 회의 뒤 2차 패스로 가른다. */
-function paintSttWarn(){
-  const el = $("stt-warn"); if(!el) return;
-  const bad = CFG.stt === "gpt-4o-transcribe-diarize";
-  el.style.display = bad ? "" : "none";
-  if(!bad) return;
-  el.innerHTML = "지금 전사 모델이 <b>화자 분리(diarize)</b> 입니다. 용어집·맥락을 못 받아 현장 용어가 깨지고, "
-    + "소리가 나쁘면 영어로 새며, 느립니다. 회의 중에는 권하지 않습니다. "
-    + '<button type="button" id="stt-fix" class="linkbtn">gpt-4o-transcribe 로 바꾸기</button>';
-  $("stt-fix").onclick = () => { CFG.stt = "gpt-4o-transcribe"; saveCfg(); paintSttWarn();
-    toast("전사 모델을 gpt-4o-transcribe 로 바꿨습니다. 용어집과 맥락이 다시 들어갑니다.", 5000); };
-}
 
 /* 컴퓨터에서 어느 마이크로 녹음할지 고르게 한다.
    무선 이어폰을 꽂으면 윈도우가 그 이어폰의 통화용 마이크를 기본으로 잡는 일이 있다.
@@ -9723,11 +9710,6 @@ $("s-theme").onchange = ()=>{ CFG.theme = $("s-theme").value; saveCfg(); applyTh
 $("s-ttstest").onclick = ttsTest;
 /* 화자 분리 모델은 고유명사 힌트를 아예 받지 않는다. 이걸 모르고 고르면
    용어집과 사전자료가 통째로 버려진 채 전사된다. 고르는 자리에서 알려 준다. */
-if($("s-stt")) $("s-stt").onchange = function(){
-  if(this.value === "gpt-4o-transcribe-diarize")
-    toast("이 모델은 용어집·사전자료·맥락 힌트를 하나도 받지 않습니다. 현장 용어가 깨지고, 소리가 나쁘면 "
-        + "영어로 새며(9월 9일 41분 회의의 115구간 중 93구간), 느립니다. 회의 중에는 gpt-4o-transcribe 를 쓰세요.", 12000);
-};
 $("s-ttspan").onclick = ttsPanTest;
 /* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
    고르는 그 자리에서 알려 준다. 골라 둔 값은 그대로 둔다 — APK 를 새로 깔면 살아난다. */
