@@ -496,7 +496,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
           <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
           <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
-          <option value="gpt-4o-transcribe-diarize">gpt-4o-transcribe-diarize · $0.006/분 · 누가 말했는지까지</option>
+          <option value="gpt-4o-transcribe-diarize">gpt-4o-transcribe-diarize · $0.006/분 · 누가 말했는지까지 · 회의 중 비권장</option>
           <option value="whisper-1">whisper-1 · $0.006/분</option>
         </select>
         <p class="hint" style="margin-top:6px">
@@ -807,6 +807,11 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       </select>
       <p class="hint" style="margin-top:6px">남겨 두면 나중에 <b>보내기 → 녹음 파일 저장</b>으로
         WAV 를 빼낼 수 있습니다. 다른 앱에 같은 소리를 넣어 견주어 볼 때 씁니다.</p></div>
+    <div class="field" id="mic-field" style="display:none"><label for="r-mic">마이크 · 컴퓨터에서만</label>
+      <select id="r-mic"></select>
+      <p class="hint" style="margin-top:6px">무선 이어폰의 마이크(통화용)는 전화 음질이라 전사가 깨집니다.
+        노트북 내장 마이크나 유선 마이크를 고르십시오.</p></div>
+    <p class="hint" id="stt-warn" style="display:none;color:var(--warn)"></p>
     <p class="hint" id="mode-hint"></p>
     <div class="timer" id="timer" style="display:none">00:00</div>
     <button class="recbtn mark" id="btn-mark" style="display:none">지금 중요</button>
@@ -830,7 +835,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.08-6";
+const APP_VERSION = "2026.09.09-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1878,6 +1883,16 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
     if(again.out.length > t.out.length) t = again;
     if(lat.trans2 !== undefined) lat.trans2++;
   }
+  /* 옮기지 않고 원문을 그대로 돌려주는 일이 있다. 한 번 더 강하게 시키고, 그래도
+     그대로면 비워서 돌려준다. 원문을 통역인 척 보여 주는 것보다 없는 편이 낫다.
+     고쳐 부르는 것은 흘려받지 않는다 — 이미 읽어 준 문장을 다시 읽으면 회의가 엉킨다. */
+  if(looksUntranslated(t.out, target) || normText(t.out) === normText(text)){
+    const again2 = await call(3000,
+      "IMPORTANT: The user message is NOT already in " + target + ". Translate ALL of it into " + target + ". Never copy the source text through.", false);
+    if(lat.trans2 !== undefined) lat.trans2++;
+    t = again2;
+    if(looksUntranslated(t.out, target) || normText(t.out) === normText(text)) return "";
+  }
   return t.out;
 }
 
@@ -1887,6 +1902,28 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
    비용 0. 품질이 아쉬우면 나중에 OpenAI TTS 로 승격한다.
    ===================================================================== */
 const TTS_LANG = { Korean:"ko-KR", Vietnamese:"vi-VN", Khmer:"km-KH", English:"en-US" };
+
+/* "A: " "B: " 같은 화자 표시를 뗀다. 줄 머리와 문장 가운데 것 모두.
+   화자 분리 모델이 붙이는 것인데, 소리로 읽으면 "에이, 비" 가 문장마다 끼어든다.
+   화면과 회의록에는 그대로 둔다 — 누가 말했는지는 거기서 쓸모가 있다. */
+function stripSpeakerTags(s){
+  return String(s || "").replace(/(^|[\s"“(\[])[A-H@]:\s+/g, "$1").replace(/\s{2,}/g, " ").trim();
+}
+
+/* 옮긴 결과가 사실은 원문 그대로인지.
+   목표가 한국어인데 한글이 거의 없으면 옮기지 않은 것이다. 통역기 지시문에 "이미 목표
+   언어인 부분은 그대로 두라" 가 있는데, 그것을 과하게 적용해 베트남어를 통째로 돌려준
+   일이 있었다. 그 글이 통역인 척 화면에 뜨고 이어폰에서 베트남어로 읽혔다.
+   영어·베트남어 목표인데 한글이 절반 넘게 남아 있어도 같은 일이다. */
+const VIET_RE = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/gi;
+function looksUntranslated(out, target){
+  const s = String(out || "");
+  const letters = (s.match(/[A-Za-z가-힣]/g) || []).length + (s.match(VIET_RE) || []).length;
+  if(letters < 12) return false;                       // 너무 짧으면 판정하지 않는다
+  const han = (s.match(/[가-힣]/g) || []).length;
+  if(target === "Korean") return han < letters * 0.15;
+  return han > letters * 0.5;
+}
 
 /* 앱 안에 들어가는 WebView 에는 웹 음성 기능(speechSynthesis)이 없다. 크롬에는 있지만
    WebView 에는 빠져 있어서 웹 방식으로는 소리가 나지 않는다. APK 에서는 네이티브
@@ -1934,6 +1971,8 @@ if(NativeTts && NativeTts.addListener){
    좌우를 나눠 들을 때만 쓴다. */
 function speakTrans(text, target, pan, gid){
   if(CFG.tts!=="1" || !text || !TTS_OK || ttsSuspended) return;
+  text = stripSpeakerTags(text);
+  if(!text || looksUntranslated(text, target)) return;
   // 방금 읽은 것과 같은 말이면 읽지 않는다. 같은 말을 두 번 듣는 일이 없게 한다.
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
@@ -5486,6 +5525,12 @@ function xhrPost(url, headers, body, timeoutMs, onTime){
         if(ra > 0) e.after = Math.min(120000, ra * 1000);
         else if(x.status === 429) e.after = 30000;
       }
+      /* 잔액이 떨어진 429 는 기다려도 안 풀린다. 그런데 앱은 "잠깐 기다리면 되는 오류" 로
+         보고 30초마다 조용히 재시도했다. 화면에는 "전사 중…" 만 몇 분씩 떠 있었다.
+         따로 표시해서 사람에게 말하고, 5분에 한 번만 다시 두드린다. 충전하면 저절로 이어진다. */
+      if(x.status === 429 && /insufficient_quota|exceeded your current quota|billing/i.test(String(x.responseText||""))){
+        e.quota = true; e.after = 300000;
+      }
       rej(e);
     };
     x.ontimeout = () => { const e = new Error("시간 안에 올리지 못했습니다"); e.slow = true; rej(e); };
@@ -6124,7 +6169,7 @@ let unsticking = false;
    그래서 마지막으로 나아간 시각을 남기고, 너무 오래 멈춰 있으면 얼어붙은 것으로 보고
    푼다. 한 조각이 정말 오래 걸릴 수도 있으니(느린 회선에서 큰 조각은 2분 넘게 간다)
    넉넉히 잡는다. */
-const STUCK_MS = 240000;
+const STUCK_MS = 100000;   // 4분이었다. 회의 중 4분은 구간 여덟 개다. 100초면 충분히 너그럽다
 
 function drainStuck(){
   return working && workingAt > 0 && (Date.now() - workingAt > STUCK_MS);
@@ -6331,6 +6376,11 @@ async function drain(){
         c.blob = (c.keepAudio || CFG.diar==="1") ? c.blob : null;
       }catch(err){
         c.error = err.message;
+        if(err.quota){
+          c.error = "OpenAI 잔액 없음 — 충전하면 이어집니다";
+          toast("OpenAI 잔액이 없습니다. 녹음은 계속됩니다. 충전하면 전사가 저절로 이어집니다. "
+              + "(platform.openai.com → Billing)", 12000);
+        }
         /* 시한을 넘긴 것은 실패가 아니라 느림이다. 현장 회선을 실패로 세면
            세 번 느린 것만으로 그 구간의 발언이 사라진다. 따로, 훨씬 너그럽게 센다. */
         if(err.slow || err.soft){
@@ -6683,10 +6733,21 @@ async function startRecording(){
     catch(e){ toast(e.message || "회의 소리를 가져오지 못했다."); return; }
   }
   else if(!NATIVE){
+    const base = { echoCancellation:true, noiseSuppression:true, autoGainControl:true };
+    stream = null;
     try{
-      stream = await navigator.mediaDevices.getUserMedia({ audio:{
-        echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+      // 고른 마이크가 있으면 그것으로. 없어졌으면(이어폰을 뺐다든지) 기본으로 돌아간다.
+      if(CFG.micId){
+        try{ stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({ deviceId:{ exact: CFG.micId } }, base) }); }
+        catch(e){ stream = null; }
+      }
+      if(!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: base });
     }catch(e){ toast("마이크를 쓸 수 없습니다. 브라우저 권한을 확인해 주세요."); return; }
+    const trk = stream.getAudioTracks()[0], label = trk ? trk.label : "";
+    if(isHeadsetMic(label))
+      toast("지금 마이크: " + label + " — 이어폰 통화용 마이크입니다. 전화 음질이라 전사가 깨집니다. "
+          + "시작 화면의 「마이크」에서 노트북 마이크를 고르세요.", 12000);
+    else if(label) toast("마이크: " + label, 3000);
   }
 
   const title = $("r-title").value.trim();
@@ -9148,7 +9209,44 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-lang-b").value = CFG.talkB || "Vietnamese";
   $("r-talkout").value = CFG.talkOut || "other";
   renderSeriesPicker(""); renderPeople(); renderSeriesList();
+  paintSttWarn(); paintMicPicker();
   setMode("full"); openSheet(); };
+
+/* 회의 중 전사 모델이 화자 분리 모델이면 시작할 때 알린다.
+   이 모델은 용어집·맥락 힌트를 못 받아 현장 용어가 깨지고, 느리며, 소리가 나쁘면
+   영어로 샌다. 실제로 41분 회의의 115구간 중 93구간이 영어로 적혔다.
+   회의 중에는 gpt-4o-transcribe 가 맞다. 누가 말했는지는 회의 뒤 2차 패스로 가른다. */
+function paintSttWarn(){
+  const el = $("stt-warn"); if(!el) return;
+  const bad = CFG.stt === "gpt-4o-transcribe-diarize";
+  el.style.display = bad ? "" : "none";
+  if(!bad) return;
+  el.innerHTML = "지금 전사 모델이 <b>화자 분리(diarize)</b> 입니다. 용어집·맥락을 못 받아 현장 용어가 깨지고, "
+    + "소리가 나쁘면 영어로 새며, 느립니다. 회의 중에는 권하지 않습니다. "
+    + '<button type="button" id="stt-fix" class="linkbtn">gpt-4o-transcribe 로 바꾸기</button>';
+  $("stt-fix").onclick = () => { CFG.stt = "gpt-4o-transcribe"; saveCfg(); paintSttWarn();
+    toast("전사 모델을 gpt-4o-transcribe 로 바꿨습니다. 용어집과 맥락이 다시 들어갑니다.", 5000); };
+}
+
+/* 컴퓨터에서 어느 마이크로 녹음할지 고르게 한다.
+   무선 이어폰을 꽂으면 윈도우가 그 이어폰의 통화용 마이크를 기본으로 잡는 일이 있다.
+   그 소리는 전화 음질(8~16kHz 협대역)이라 전사가 깨진다. 오늘 그렇게 딴소리가 됐다.
+   이름은 한 번이라도 마이크 권한을 준 뒤에야 보인다. */
+const isHeadsetMic = label => /hands-?free|headset|hfp|bluetooth|블루투스|헤드셋|핸즈프리/i.test(String(label || ""));
+async function paintMicPicker(){
+  const f = $("mic-field"), sel = $("r-mic"); if(!f || !sel) return;
+  if(NATIVE || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices){ f.style.display = "none"; return; }
+  let devs = [];
+  try{ devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput" && d.deviceId); }catch(e){}
+  if(!devs.length){ f.style.display = "none"; return; }
+  sel.innerHTML = '<option value="">기본 마이크 (브라우저가 고름)</option>' + devs.map((d, i) =>
+    '<option value="' + esc(d.deviceId) + '">' + esc(d.label || ("마이크 " + (i + 1)))
+      + (isHeadsetMic(d.label) ? " · 이어폰 통화용 (비권장)" : "") + '</option>').join("");
+  sel.value = CFG.micId || "";
+  if(sel.value !== (CFG.micId || "")) sel.value = "";
+  sel.onchange = () => { CFG.micId = sel.value; saveCfg(); };
+  f.style.display = "";
+}
 $("scrim").onclick = ()=>{ if(recording){ toast("녹음 중입니다. 종료 후 닫아 주세요."); return; } closeSheet(); };
 /* .segctl 안의 단추에만 걸려 있었다. "화상회의 소리 담기" 는 그 바깥의 링크라
    보이게 해 놓고도 눌러도 아무 일이 없었다. data-mode 가 달린 것은 전부 건다. */
@@ -9627,8 +9725,8 @@ $("s-ttstest").onclick = ttsTest;
    용어집과 사전자료가 통째로 버려진 채 전사된다. 고르는 자리에서 알려 준다. */
 if($("s-stt")) $("s-stt").onchange = function(){
   if(this.value === "gpt-4o-transcribe-diarize")
-    toast("이 모델은 고유명사 힌트를 받지 않습니다. 용어집과 사전자료가 전사에 반영되지 않아 "
-        + "현장 용어가 더 자주 깨집니다. 용어가 중요하면 gpt-transcribe 를 쓰세요.", 10000);
+    toast("이 모델은 용어집·사전자료·맥락 힌트를 하나도 받지 않습니다. 현장 용어가 깨지고, 소리가 나쁘면 "
+        + "영어로 새며(9월 9일 41분 회의의 115구간 중 93구간), 느립니다. 회의 중에는 gpt-4o-transcribe 를 쓰세요.", 12000);
 };
 $("s-ttspan").onclick = ttsPanTest;
 /* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
