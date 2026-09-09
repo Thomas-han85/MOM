@@ -833,7 +833,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.09-3";
+const APP_VERSION = "2026.09.09-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1927,11 +1927,11 @@ function looksUntranslated(out, target){
   const letters = han + viet + lat;
   /* 짧은 문장은 판정하지 않는다. 흘려받는 문장은 짧고, "KLTT 18차 REV.03" 처럼 이름·번호만 있는
      문장이 많다. 처음에 12자로 잡았더니 그런 문장을 안 읽어서 통역이 중간중간 끊겼다. */
-  if(letters < 30) return false;
-  /* 목표가 한국어: 한글이 거의 없고, 베트남어 글자가 실제로 있거나 한글이 아예 없어야 한다.
+  /* 목표가 한국어: 30자 넘고, 한글이 거의 없고, 베트남어 글자가 실제로 있거나 한글이 아예 없어야 한다.
      영어 고유명사가 많은 한국어 문장은 한글이 조금이라도 있으니 걸리지 않는다. */
-  if(target === "Korean") return han < letters * 0.15 && (viet >= 3 || han === 0);
-  return han > letters * 0.5;
+  if(target === "Korean") return letters >= 30 && han < letters * 0.15 && (viet >= 3 || han === 0);
+  /* 목표가 베트남어·영어: 한글이 절반 넘게 남았으면 옮기지 않은 것. 한국어 문장은 짧아서 12자면 충분하다. */
+  return letters >= 12 && han > letters * 0.5;
 }
 
 /* 앱 안에 들어가는 WebView 에는 웹 음성 기능(speechSynthesis)이 없다. 크롬에는 있지만
