@@ -285,6 +285,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .recbtn.hold.on{background:var(--warn);color:#fff}
 .timer.paused{color:var(--warn)}
 .recbtn.mark{background:var(--accent-soft);color:var(--accent);margin-bottom:10px}
+.recbtn.tts{background:var(--chip);color:var(--ink);margin-bottom:10px}
+.recbtn.tts.off{opacity:.55}
 .recbtn.mark:active{background:var(--accent);color:#fff}
 .sechead{font-size:15px;font-weight:600;margin:26px 0 8px;letter-spacing:-.01em}
 .chiprow{display:flex;flex-wrap:wrap;gap:7px}
@@ -813,6 +815,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
     <p class="hint" id="mode-hint"></p>
     <div class="timer" id="timer" style="display:none">00:00</div>
     <button class="recbtn mark" id="btn-mark" style="display:none">지금 중요</button>
+    <button class="recbtn tts" id="btn-tts" style="display:none">🔊 읽어주기 켬</button>
     <div class="recrow">
       <button class="recbtn hold" id="btn-pause" style="display:none">일시정지</button>
       <button class="recbtn" id="btn-rec"><span class="dot"></span> 녹음 시작</button>
@@ -833,7 +836,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.09-4";
+const APP_VERSION = "2026.09.09-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1554,18 +1557,42 @@ function spokenLately(text){
    고리를 끊지 않으면 회의록이 앱이 뱉은 말로 뒤덮인다. 실제로 한 회의에서
    같은 문장이 열 번 넘게 박혔다. 통역 자막은 그대로 보이니 회의는 이어갈 수 있다.
    설정을 바꾸지는 않는다. 이 녹음 동안만 멈춘다. */
+/* 회의 중에 읽어주기를 켜고 끄는 단추. 시작할 때 한 번 고르는 것으로는 모자랐다 —
+   회의 중간에 끄고 싶을 때가 있고, 앱이 스스로 껐을 때 다시 켤 길이 없었다. */
+function paintTtsBtn(){
+  const b = $("btn-tts"); if(!b) return;
+  const on = CFG.tts === "1" && !ttsSuspended;
+  b.textContent = ttsSuspended ? "🔇 읽어주기 멈춤 · 누르면 다시" : (on ? "🔊 읽어주기 켬 · 누르면 끔" : "🔇 읽어주기 끔 · 누르면 켬");
+  b.classList.toggle("off", !on);
+}
+function toggleTtsLive(){
+  if(ttsSuspended || CFG.tts !== "1"){
+    ttsSuspended = false; ttsEchoes = 0; ttsWarned = false; CFG.tts = "1"; ttsUnlocked = true;
+    toast("읽어주기를 켰습니다.", 2500);
+  }else{
+    CFG.tts = "0"; ttsStop();
+    toast("읽어주기를 껐습니다. 자막은 계속 뜹니다.", 2500);
+  }
+  saveCfg();
+  if($("r-tts")) $("r-tts").value = CFG.tts;
+  paintTtsBtn(); paintStrips();
+}
+
+/* 되울림이 거듭되면 알린다. 스스로 끄지는 않는다.
+
+   예전에는 다섯 번 잡히면 이 녹음 동안 읽어주기를 멈췄다. 고리를 끊으려는 것이었는데,
+   이어폰으로 듣는 회의에서도 꺼졌다 — 한국어 화자가 방금 통역된 말을 되풀이하면 마이크가
+   앱 소리를 되주운 것처럼 보인다. 회의 중에 소리가 갑자기 사라지고 켤 길이 없었다.
+   되울린 문장은 어차피 기록에서 걸러 내므로(sift "tts") 기록은 안전하다. 알리고, 끄는 것은
+   사람이 단추로 한다. */
+let ttsWarned = false;
 function ttsEchoSeen(){
   ttsEchoes++;
-  /* 대화 모드는 스피커로 트는 것이 정상이다. 되울린 문장을 걸러내는 것으로
-     충분하고, 읽어주기를 멈춰 버리면 통역 자체가 서 버린다. */
   if(activeNote && activeNote.mode === "talk") return;
-  /* 문장 단위로 읽게 되면서 한 구간이 여러 번 세어질 수 있다. 문턱을 올린다.
-     여기서 너무 일찍 멈추면 멀쩡한 회의에서 읽어주기가 꺼진다. */
-  if(ttsSuspended || ttsEchoes < 5) return;
-  ttsSuspended = true;
-  ttsStop();
-  toast("통역해 드린 말이 전사에 자꾸 섞여 들어옵니다. 기록을 지키기 위해 이 녹음 동안 읽어주기를 멈춥니다.", 9000);
-  paintStrips();
+  if(ttsWarned || ttsEchoes < 5) return;
+  ttsWarned = true;
+  toast("통역 소리가 마이크로 되들어오는 것 같습니다. 그 문장은 기록에서 걸러 냅니다. "
+      + "스피커로 틀고 계시면 「읽어주기」 단추로 끄거나 이어폰을 쓰세요.", 9000);
 }
 
 /* =====================================================================
@@ -6789,6 +6816,7 @@ async function startRecording(){
   $("btn-pause").style.display=""; $("btn-pause").classList.remove("on");
   $("btn-pause").textContent="일시정지";
   $("btn-mark").style.display="";
+  $("btn-tts").style.display = modeDoes().translate ? "" : "none"; paintTtsBtn();
   $("btn-rec").innerHTML = '<span class="dot live"></span> 녹음 종료';
   $("btn-rec").classList.add("stop");
   $("timer").style.display="block";
@@ -6812,7 +6840,7 @@ async function startRecording(){
     try{ if(Native.clearCache) await Native.clearCache(); }catch(e){}
     recStartAt = Date.now();
     // 지난 회의의 되울림 기록은 이번 회의와 상관없다
-    spokenLog = []; ttsEchoes = 0; ttsSuspended = false;
+    spokenLog = []; ttsEchoes = 0; ttsSuspended = false; ttsWarned = false;
 
     nativeSub = await Native.addListener("chunk", async ev => {
       await takeChunk(noteId, status, ev);
@@ -7077,7 +7105,7 @@ async function finishRecording(){
   $("btn-rec").innerHTML = '<span class="dot"></span> 녹음 시작';
   $("btn-rec").classList.remove("stop");
   $("btn-pause").style.display="none"; $("btn-pause").classList.remove("on");
-  $("btn-mark").style.display="none";
+  $("btn-mark").style.display="none"; $("btn-tts").style.display="none";
   $("timer").style.display="none"; $("timer").textContent="00:00";
   exitLiveView();
   closeSheet();
@@ -9199,6 +9227,7 @@ function setMode(m){
   if(talk && $("r-tts")) $("r-tts").value = "1";
   $("btn-pause").style.display = "none";
   $("btn-mark").style.display = "none";
+  if($("btn-tts")) $("btn-tts").style.display = "none";
   $("text-field").style.display = m==="text" ? "" : "none";
   $("timer").style.display = "none";
 }
@@ -9258,6 +9287,7 @@ $("btn-rec").onclick = ()=>{
 $("text-file").onclick = ()=>{ briefTarget = "r-text"; $("briefin").click(); };
 $("btn-pause").onclick = togglePause;
 $("btn-mark").onclick = markMoment;
+$("btn-tts").onclick = toggleTtsLive;
 $("r-series").onchange = applySeries;
 let briefTarget = "r-brief";
 $("brief-file").onclick = ()=>{ briefTarget = "r-brief"; $("briefin").click(); };
