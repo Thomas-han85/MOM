@@ -836,7 +836,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.10-1";
+const APP_VERSION = "2026.09.10-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1153,6 +1153,10 @@ async function sttChunk(blob, prompt, terms){
   const t2 = two[CFG.lastTarget] || "";
   if(t2 && langs.indexOf(t2) < 0) langs.push(t2);
   if(langs.indexOf("en") < 0) langs.push("en");
+  /* 언어 목록을 따로 못 받는 모델에는 길잡이 글 머리에 말로 적어 준다. 안 적으면
+     소리가 흐릿한 구간을 태국어·한자로 지어낸다. 목록을 받는 gpt-transcribe 가 더 확실하다. */
+  const LNAME = { ko:"Korean", vi:"Vietnamese", en:"English", km:"Khmer", ja:"Japanese", zh:"Chinese", th:"Thai", id:"Indonesian" };
+  const langHint = "Languages spoken: " + langs.map(l => LNAME[l] || l).join(", ") + ".";
 
   /* 설정에서는 더 못 고른다. 회의 뒤 2차 패스에서 이 모델을 다시 쓸 수 있어 경로는 남긴다. */
   if(model === "gpt-4o-transcribe-diarize"){
@@ -1170,8 +1174,8 @@ async function sttChunk(blob, prompt, terms){
                               .filter(Boolean).slice(-100);
       if(kw.length) kw.forEach(k => fd.append("keywords[]", k));
       if(prompt) fd.append("prompt", prompt);
-    }else if(prompt){
-      fd.append("prompt", prompt);
+    }else{
+      fd.append("prompt", (langHint + " " + (prompt || "")).trim().slice(0, 600));
     }
   }
 
@@ -1467,7 +1471,8 @@ function keepGood(text, bad){
 const JUNK = [
   /subscribe/i, /구독/, /좋아요\s*(와|and)?\s*구독/, /시청해\s*주셔서/,
   /감사합니다\s*$/, /다음\s*(영상|시간)에/, /kênh\s+\S+/i, /video\s+hấp dẫn/i,
-  /thanks for watching/i, /please like and/i, /字幕/, /请关注/, /訂閱/
+  /thanks for watching/i, /please like and/i, /字幕/, /请关注/, /訂閱/,
+  /languages spoken/i     // 우리가 넣은 언어 힌트를 되뱉은 것
 ];
 function junkLine(text){
   const t = String(text||"").trim();
@@ -1506,13 +1511,37 @@ function detectLang(text, a, b){
    이 앱이 다루는 말은 한국어·베트남어·크메르어·영어다. 한글 없이 한자나 가나가
    글자의 절반을 넘으면 회의에서 나온 말이 아니라고 본다.
    (중국어나 일본어를 다루게 되면 이 검사를 풀어야 한다.) */
+/* 이 회의에 있을 수 있는 글자 체계. 한글과 라틴(베트남어 성조 포함)은 늘 되고,
+   회의에서 고른 언어의 것을 더한다. 그 밖의 것 — 태국어·한자·키릴·아랍 — 은 소리가
+   흐릿할 때 모델이 지어낸 것이다. 줌 소리를 TV 스피커로 받은 93분 회의에서 320구간 중
+   15구간이 그랬다. 한 문장 안에 한 낱말만 섞이기도 한다("โอเค This week let's check that"). */
+function allowedScriptRe(){
+  const tg = CFG.lastTarget || "";
+  let extra = "";
+  if(tg === "Khmer")    extra += "\u1780-\u17FF";
+  if(tg === "Thai")     extra += "\u0E00-\u0E7F";
+  if(tg === "Japanese") extra += "\u3040-\u30FF\u4E00-\u9FFF";
+  if(tg === "Chinese")  extra += "\u4E00-\u9FFF";
+  return new RegExp("[\\p{Script=Hangul}\\p{Script=Latin}" + extra + "]", "u");
+}
+/* 허용 안 되는 체계의 낱말만 떼어 낸다. 숫자·기호는 둔다. 문장은 살린다. */
+function stripForeign(text){
+  const s = String(text || "");
+  if(!s) return s;
+  const ok = allowedScriptRe();
+  /* 태국어 모음·성조는 글자(L)가 아니라 결합 부호(M)다. 함께 묶지 않으면 부호만 남는다. */
+  return s.replace(/[\p{L}\p{M}]+/gu, wd => ok.test(wd) ? wd : "")
+          .replace(/\s{2,}/g, " ").replace(/^\s*[.,;:!?。、]+\s*/, "").trim();
+}
+/* 문장의 글자 절반 넘게가 허용 안 되는 체계면 통째로 지어낸 것이다. */
 function foreignScript(text){
   const s = String(text || "");
-  const letters = (s.match(/\p{L}/gu) || []).length;
-  if(letters < 6) return false;
+  const letters = s.match(/\p{L}/gu) || [];
+  if(letters.length < 6) return false;
   if(/[가-힯]/.test(s)) return false;                 // 한글이 있으면 우리 말이다
-  const cjk = (s.match(/[一-鿿぀-ヿ]/g) || []).length;
-  return cjk / letters > 0.5;
+  const ok = allowedScriptRe();
+  const bad = letters.filter(ch => !ok.test(ch)).length;
+  return bad / letters.length > 0.5;
 }
 
 /* 우리가 방금 읽어 준 말을 적어 둔다.
@@ -2078,7 +2107,7 @@ let ttsCanPan = null;
 /* 음성 부품이 언제 것인지. 없으면 2026-09-03 이전 APK 다 — 좌우 나눔이 새는 판.
    웹은 자동으로 갈리는데 APK 는 안 갈려서, 고친 뒤에도 같은 증상을 보고 헤맸다. */
 let ttsBuild = null;
-const NATIVE_WANT = "2026-09-08.3";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
+const NATIVE_WANT = "2026-09-10";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
 const nativeStale = () => NATIVE && ttsBuild !== null && (!ttsBuild || ttsBuild < NATIVE_WANT);
 const staleApkMsg = () => "APK 가 오래됐습니다 (음성 부품 " + (ttsBuild || "9월 3일 이전") + ", 지금 " + NATIVE_WANT + "). "
   + "좌우 나눠 듣기가 샙니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 새 APK 를 받아 깔아 주세요.";
@@ -6341,7 +6370,8 @@ async function drain(){
           };
           sift(s => spokenLately(s), "tts");            // 우리가 읽어 준 소리가 되들어왔다
           if(prompt) sift(s => echoOfPrompt(s, prompt), "prompt");
-          sift(foreignScript, "foreign");               // 이 회의에 있을 수 없는 글자
+          sift(foreignScript, "foreign");               // 이 회의에 있을 수 없는 글자 (문장째)
+          if(txt){ const st = stripForeign(txt); if(st !== txt){ txt = st; c.skip = st ? "trim" : "foreign"; } }  // 낱말째
           sift(junkLine, "junk");                       // 자막 뭉치에서 튀어나온 말
 
           if(txt && recent.some(s=>nearSame(txt, s.text))){
@@ -8573,6 +8603,17 @@ function exportPieces(n, cs, cur){
            fname: (n.title+suffix).replace(/[\/\\:*?"<>|]/g,"_") + ".md" };
 }
 
+/* 파일을 공유창에 넘긴다. 글은 같이 넘기지 않는다 — 카톡은 글과 파일이 함께 오면 글만 보낸다.
+   9월 10일 이전 APK 는 글이 비면 거절하므로 그때만 제목 한 줄을 붙인다. 창은 뜨지만 이름만 간다.
+   그 사실을 미리 알린다. */
+async function shareFile(title, uri, mime, what){
+  const old = !ttsBuild || ttsBuild < "2026-09-10";
+  if(old) toast("APK 가 오래돼 파일 대신 이름만 갈 수 있습니다. 릴리스에서 새 APK 를 받아 주세요.", 7000);
+  const args = { title, uri, mime };
+  if(old) args.text = title + " " + what;
+  await NativeShare.share(args);
+}
+
 /* 실제로 보낸다. 되는 길을 차례로 시도한다. */
 async function sendText(title, text){
   if(NativeShare){                                  // 폰: 안드로이드 공유창
@@ -8764,7 +8805,7 @@ async function saveAudio(n, cs){
   if(uri && NativeShare){
     sheet("녹음을 저장했습니다", [
       { label:"바로 보내기", sub:"카톡·잘로에 파일로 붙습니다. " + Math.round(mb) + "MB 입니다.",
-        go: async ()=>{ try{ await NativeShare.share({ title: n.title, text: n.title + " 녹음", uri, mime:"audio/wav" }); }
+        go: async ()=>{ try{ await shareFile(n.title, uri, "audio/wav", "녹음"); }
                         catch(e){ toast("보내지 못했습니다: " + (e.message||e), 6000); } } },
       { label:"두기", sub: (where||"다운로드") + " · " + name, go: ()=>{} }
     ]);
@@ -8818,9 +8859,7 @@ async function exportNote(){
         const r = await saveOut(p.fname, "text/markdown", t, true);
         if(r && r.uri && NativeShare){
           try{
-            /* 글을 같이 넘긴다. 네이티브가 글이 비면 "보낼 내용이 없습니다" 로 거절해서
-               공유창이 안 떴고, 아래 catch 가 삼켜 "저장했습니다" 만 보였다. */
-            await NativeShare.share({ title: n.title, text: n.title + " 회의록", uri: r.uri, mime: "text/markdown" });
+            await shareFile(n.title, r.uri, "text/markdown", "회의록");
             return;
           }catch(e){ /* 공유창이 안 뜨면 아래로 내려가 저장만 알린다 */ }
         }

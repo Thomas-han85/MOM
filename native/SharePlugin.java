@@ -64,7 +64,9 @@ public class SharePlugin extends Plugin {
 
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
-            if (hasText) send.putExtra(Intent.EXTRA_TEXT, text);
+            /* 파일이 있으면 글은 넣지 않는다. 카톡은 글과 파일이 함께 오면 글만 보내고
+               파일을 버린다 — 공유창은 떴는데 이름 한 줄만 갔던 까닭이다. 제목은 SUBJECT 로 간다. */
+            if (hasText && !hasUri) send.putExtra(Intent.EXTRA_TEXT, text);
             if (title != null && !title.isEmpty()) {
                 send.putExtra(Intent.EXTRA_SUBJECT, title);
                 send.putExtra(Intent.EXTRA_TITLE, title);

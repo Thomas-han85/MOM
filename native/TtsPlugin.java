@@ -125,7 +125,7 @@ public class TtsPlugin extends Plugin {
     }
 
     /** 네이티브를 고칠 때마다 올린다. 웹이 이것으로 APK 가 오래됐는지 안다. */
-    static final String NATIVE_BUILD = "2026-09-08.3";
+    static final String NATIVE_BUILD = "2026-09-10";
 
     @PluginMethod
     public void available(PluginCall call) {
