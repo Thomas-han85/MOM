@@ -44,10 +44,16 @@ public class SharePlugin extends Plugin {
         String title = call.getString("title", "");
         String text  = call.getString("text", "");
 
-        if (text == null || text.trim().isEmpty()) {
+        String uriStr0 = call.getString("uri", "");
+        boolean hasText = text != null && !text.trim().isEmpty();
+        boolean hasUri  = uriStr0 != null && !uriStr0.isEmpty();
+        /* 파일만 보내는 호출은 글이 비어 있다. 그것을 "보낼 내용이 없다" 로 거절해서
+           회의록 파일 보내기와 녹음 보내기의 공유창이 한 번도 안 떴다. 둘 다 없을 때만 거절한다. */
+        if (!hasText && !hasUri) {
             call.reject("보낼 내용이 없습니다.");
             return;
         }
+        if (text == null) text = "";
         if (text.length() > MAX_CHARS) {
             text = text.substring(0, MAX_CHARS) + "\n\n…(너무 길어 여기까지만 보냈습니다)";
         }
@@ -58,7 +64,7 @@ public class SharePlugin extends Plugin {
 
             Intent send = new Intent(Intent.ACTION_SEND);
             send.setType("text/plain");
-            send.putExtra(Intent.EXTRA_TEXT, text);
+            if (hasText) send.putExtra(Intent.EXTRA_TEXT, text);
             if (title != null && !title.isEmpty()) {
                 send.putExtra(Intent.EXTRA_SUBJECT, title);
                 send.putExtra(Intent.EXTRA_TITLE, title);

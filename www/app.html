@@ -836,7 +836,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.09-5";
+const APP_VERSION = "2026.09.10-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -8764,7 +8764,7 @@ async function saveAudio(n, cs){
   if(uri && NativeShare){
     sheet("녹음을 저장했습니다", [
       { label:"바로 보내기", sub:"카톡·잘로에 파일로 붙습니다. " + Math.round(mb) + "MB 입니다.",
-        go: async ()=>{ try{ await NativeShare.share({ title: n.title, uri, mime:"audio/wav" }); }
+        go: async ()=>{ try{ await NativeShare.share({ title: n.title, text: n.title + " 녹음", uri, mime:"audio/wav" }); }
                         catch(e){ toast("보내지 못했습니다: " + (e.message||e), 6000); } } },
       { label:"두기", sub: (where||"다운로드") + " · " + name, go: ()=>{} }
     ]);
@@ -8818,7 +8818,9 @@ async function exportNote(){
         const r = await saveOut(p.fname, "text/markdown", t, true);
         if(r && r.uri && NativeShare){
           try{
-            await NativeShare.share({ title: n.title, uri: r.uri, mime: "text/markdown" });
+            /* 글을 같이 넘긴다. 네이티브가 글이 비면 "보낼 내용이 없습니다" 로 거절해서
+               공유창이 안 떴고, 아래 catch 가 삼켜 "저장했습니다" 만 보였다. */
+            await NativeShare.share({ title: n.title, text: n.title + " 회의록", uri: r.uri, mime: "text/markdown" });
             return;
           }catch(e){ /* 공유창이 안 뜨면 아래로 내려가 저장만 알린다 */ }
         }
