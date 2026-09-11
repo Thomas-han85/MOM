@@ -836,7 +836,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.10-2";
+const APP_VERSION = "2026.09.11-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1942,15 +1942,21 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
     if(again.out.length > t.out.length) t = again;
     if(lat.trans2 !== undefined) lat.trans2++;
   }
-  /* 옮기지 않고 원문을 그대로 돌려주는 일이 있다. 한 번 더 강하게 시키고, 그래도
-     그대로면 비워서 돌려준다. 원문을 통역인 척 보여 주는 것보다 없는 편이 낫다.
-     고쳐 부르는 것은 흘려받지 않는다 — 이미 읽어 준 문장을 다시 읽으면 회의가 엉킨다. */
-  if(looksUntranslated(t.out, target) || normText(t.out) === normText(text)){
+  /* 옮기지 않고 원문을 그대로 돌려주는 일이 있다(베트남어를 통째로 한국어 자리에).
+     한 번 더 강하게 시킨다.
+
+     9월 9일에 넣을 때 "결과가 원문과 같으면" 도 실패로 셌다. 그런데 회의에서 고른 언어로
+     말한 구간은 원문과 같은 것이 맞다 — 지시문이 "이미 그 언어인 부분은 그대로 두라" 고
+     시킨다. 한국어 회의에서 한국어로 말한 구간마다 헛되이 한 번 더 부르고(느림), 그래도
+     같으니 비워서 돌려줬다(자막이 안 뜸). 그래서 원문 자체가 목표 언어가 아닐 때만 판정한다.
+
+     두 번째도 안 옮겨졌으면 비우지 않고 그대로 보여 준다. 읽어주기는 따로 걸러 내므로
+     귀로는 안 간다. 화면에 원문이라도 있는 편이 빈칸보다 낫다. */
+  if(looksUntranslated(t.out, target) && looksUntranslated(text, target)){
     const again2 = await call(3000,
       "IMPORTANT: The user message is NOT already in " + target + ". Translate ALL of it into " + target + ". Never copy the source text through.", false);
     if(lat.trans2 !== undefined) lat.trans2++;
-    t = again2;
-    if(looksUntranslated(t.out, target) || normText(t.out) === normText(text)) return "";
+    if(!looksUntranslated(again2.out, target)) t = again2;
   }
   return t.out;
 }
