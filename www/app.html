@@ -236,6 +236,11 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   border:1px solid var(--rule);color:var(--ink-soft);white-space:nowrap}
 .livebar button.stop{background:var(--danger);color:#fff;border-color:var(--danger)}
 .livebar button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+/* 녹음 중에 켜고 끄는 읽기 둘. 막대 맨 위 한 줄을 차지하고 나머지는 아랫줄로 내려간다. */
+.livebar{flex-wrap:wrap;row-gap:8px}
+.livebar .ltog{flex-basis:100%;display:flex;gap:8px}
+.livebar .ltog button{flex:1}
+.seg .trans.vi{color:var(--accent)}
 .view.reclive{padding-bottom:190px}
 
 /* ---------- sheet ---------- */
@@ -606,6 +611,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
         </select></div>
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
       <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
+      <button class="bigbtn ghost" id="s-spktest" style="width:100%;margin:0 0 10px">폰 스피커로 베트남어 시험</button>
       <p class="hint"><b>좌우 시험</b>은 왼쪽에서 한 번, 오른쪽에서 한 번 읽습니다.
         이어폰 두 짝을 모두 케이스에서 꺼낸 뒤 한 짝씩 귀에 대고 들어 보세요.
         한쪽에서만 들리면 대화 모드의 좌우 나눠 듣기가 됩니다.</p>
@@ -678,6 +684,10 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   <span class="n" id="ls-n"></span><span class="txt" id="ls-t"></span><span class="when" id="ls-w"></span>
 </button>
 <div class="livebar" id="livebar">
+  <div class="ltog" id="l-tog">
+    <button id="l-ear">🎧 내 귀 읽기</button>
+    <button id="l-spk">📢 내 말→베트남어</button>
+  </div>
   <span class="ldot" id="l-dot"></span>
   <span class="lt" id="l-timer">00:00</span>
   <span class="spacer"></span>
@@ -836,7 +846,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.11-1";
+const APP_VERSION = "2026.09.14-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -944,6 +954,7 @@ const DEFAULTS = { oai:"", ant:"",
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
                    chunk:"30000", gloss:"", people:[], series:[], stream:"1",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
+                   spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1",                                // 녹음 중 화면 켜 두기
@@ -1604,7 +1615,81 @@ function toggleTtsLive(){
   }
   saveCfg();
   if($("r-tts")) $("r-tts").value = CFG.tts;
-  paintTtsBtn(); paintStrips();
+  paintTtsBtn(); paintLiveToggles(); paintStrips();
+}
+
+/* ── 현장용: 내 말 → 베트남어 → 폰 스피커 ──
+
+   현장을 돌며 직원과 말할 때, 직원 말은 내 이어폰으로 들으면 되는데 내 말을 직원에게
+   들려줄 길이 없었다. 영어를 잘 못하는 직원이 많아 통역+회의록 모드가 반쪽이었다.
+   구간에서 내 말(한국어, 또는 베트남어 성조가 없는 영어 문장)만 떼어 베트남어로 옮기고
+   폰 스피커로 읽는다. 내 이어폰 읽기와 따로 켜고 끈다. 폰 앱에서만 된다 — 이어폰이
+   꽂힌 채 스피커로 내보내는 것은 네이티브가 한다. */
+const SPK_BUILD = "2026-09-14";
+function spkAvail(){ return !!(NativeTts && NATIVE); }
+function spkOn(note){ return CFG.spkVi === "1" && spkAvail() && !!note && note.mode !== "talk"; }
+
+/* 한 구간을 내 말과 상대 말로 가른다. 문장마다 본다.
+   한글이 베트남어 글자보다 많으면 내 말. 베트남어 글자가 없고 영어 낱말이 둘 넘으면 내 말.
+   베트남어 성조가 있으면 직원 말. "Ok" 같은 짧은 것은 어느 쪽으로도 안 센다. */
+function splitMine(text){
+  const mine = [], ko = [];
+  for(const s of sentences(text)){
+    const han = (s.match(/[가-힣]/g) || []).length;
+    const vi  = (s.match(VIET_RE) || []).length;
+    const lat = (s.match(/[A-Za-z]/g) || []).length;
+    if(han && han >= vi){ mine.push(s); ko.push(s); }
+    else if(!vi && lat >= 8 && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s)) mine.push(s);
+  }
+  return { mine: mine.join(" ").trim(), ko };
+}
+
+/* 녹음 중 아래 막대의 두 단추. 시작할 때 고르는 칸은 녹음이 시작되면 시트와 함께 닫혀
+   회의 내내 안 보였다 — "읽기 켜고 끄는 단추를 못 찾겠다" 가 그것이다. */
+function paintLiveToggles(){
+  const tog = $("l-tog"); if(!tog) return;
+  const tr = modeDoes().translate, talk = mode === "talk";
+  const ear = $("l-ear"), spk = $("l-spk");
+  const showEar = tr, showSpk = tr && !talk && spkAvail();
+  ear.style.display = showEar ? "" : "none";
+  spk.style.display = showSpk ? "" : "none";
+  tog.style.display = (showEar || showSpk) ? "" : "none";
+  const earOn = CFG.tts === "1" && !ttsSuspended;
+  ear.textContent = "🎧 내 귀 읽기 " + (earOn ? "켬" : "끔");
+  ear.classList.toggle("on", earOn);
+  const spkNow = CFG.spkVi === "1";
+  spk.textContent = "📢 내 말→베트남어 " + (spkNow ? "켬" : "끔");
+  spk.classList.toggle("on", spkNow);
+  if($("livebar").classList.contains("on"))
+    document.documentElement.style.setProperty("--botfurn", (showEar || showSpk) ? "170px" : "118px");
+}
+function toggleSpkLive(){
+  if(!spkAvail()){ toast("폰 앱(APK)에서만 됩니다.", 4000); return; }
+  if(CFG.spkVi !== "1" && ttsBuild !== null && (!ttsBuild || ttsBuild < SPK_BUILD)){
+    toast("내 말을 폰 스피커로 내보내려면 새 APK 가 필요합니다. 폰 크롬에서 "
+        + "github.com/Thomas-han85/MOM/releases/latest 의 APK 를 받아 깔아 주세요.", 10000);
+    return;
+  }
+  CFG.spkVi = CFG.spkVi === "1" ? "0" : "1";
+  ttsUnlocked = true;
+  saveCfg(); paintLiveToggles();
+  toast(CFG.spkVi === "1" ? "내가 한 한국어·영어를 베트남어로 옮겨 폰 스피커로 읽습니다."
+                          : "스피커 읽기를 껐습니다.", 3500);
+}
+
+/* 내 말을 옮긴 베트남어를 폰 스피커로 읽는다. 이어폰 쪽 큐와 한 줄로 서서 번갈아 나온다. */
+function speakOut(text, lang, gid){
+  if(!text || !NativeTts) return;
+  text = stripSpeakerTags(text);
+  if(!text) return;
+  noteSpoken(text);   // 스피커 소리는 마이크로 반드시 되들어온다. 회의 내용으로 세지 않게 적어 둔다
+  ttsQueue.push({ text, lang, pan: 0, gid: "spk:" + (gid || ""), out: "speaker" });
+  // 밀린 스피커 몫은 최근 두 구간만 남긴다. 지난 말을 늦게 들려주면 대화가 엉킨다.
+  const gids = [];
+  for(const j of ttsQueue) if(j.out === "speaker" && !gids.includes(j.gid)) gids.push(j.gid);
+  const live = new Set(gids.slice(-2));
+  ttsQueue = ttsQueue.filter(j => j.out !== "speaker" || live.has(j.gid));
+  ttsPump();
 }
 
 /* 되울림이 거듭되면 알린다. 스스로 끄지는 않는다.
@@ -1618,6 +1703,7 @@ let ttsWarned = false;
 function ttsEchoSeen(){
   ttsEchoes++;
   if(activeNote && activeNote.mode === "talk") return;
+  if(CFG.spkVi === "1") return;   // 스피커로 읽는 중이면 되들어오는 것이 당연하다. 걸러 내기만 한다
   if(ttsWarned || ttsEchoes < 5) return;
   ttsWarned = true;
   toast("통역 소리가 마이크로 되들어오는 것 같습니다. 그 문장은 기록에서 걸러 냅니다. "
@@ -2058,7 +2144,7 @@ function speakTrans(text, target, pan, gid){
      귀마다 따로 센다 — 좌우로 나눠 들을 때 한쪽만 남기면 반대쪽 사람이
      제 차례를 통째로 놓친다. */
   const byPan = new Map();
-  for(const j of ttsQueue){ if(!byPan.has(j.pan)) byPan.set(j.pan, []); byPan.get(j.pan).push(j); }
+  for(const j of ttsQueue){ const k = j.pan + "|" + (j.out || ""); if(!byPan.has(k)) byPan.set(k, []); byPan.get(k).push(j); }
   const keep = new Set();
   for(const list of byPan.values()){
     const gids = [];
@@ -2084,7 +2170,7 @@ function ttsPump(){
     ttsPending = done;
     ttsWatch = setTimeout(done, Math.max(4000, j.text.length * 110));
     NativeTts.speak({ text:j.text, lang:j.lang, rate: parseFloat(CFG.ttsRate)||1,
-                      pan: j.pan || 0 })
+                      pan: j.pan || 0, out: j.out || "" })
       .then(r => { if(r && r.spoken === false) done(); }, done);
     return;
   }
@@ -2113,7 +2199,7 @@ let ttsCanPan = null;
 /* 음성 부품이 언제 것인지. 없으면 2026-09-03 이전 APK 다 — 좌우 나눔이 새는 판.
    웹은 자동으로 갈리는데 APK 는 안 갈려서, 고친 뒤에도 같은 증상을 보고 헤맸다. */
 let ttsBuild = null;
-const NATIVE_WANT = "2026-09-10";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
+const NATIVE_WANT = "2026-09-14";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
 const nativeStale = () => NATIVE && ttsBuild !== null && (!ttsBuild || ttsBuild < NATIVE_WANT);
 const staleApkMsg = () => "APK 가 오래됐습니다 (음성 부품 " + (ttsBuild || "9월 3일 이전") + ", 지금 " + NATIVE_WANT + "). "
   + "좌우 나눠 듣기가 샙니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 새 APK 를 받아 깔아 주세요.";
@@ -6425,6 +6511,8 @@ async function drain(){
 
           /* 문장 하나가 끝날 때마다 그 자리에서 읽고 자막에 올린다.
              통역기에 보낸 것은 구간 전체 한 덩이 그대로다. 기다리지 않을 뿐이다. */
+          /* 스피커로 내 말을 옮겨 줄 때는 내가 한 한국어가 내 귀로 되돌아오지 않게 한다. */
+          const ownKo = spkOn(note) ? splitMine(c.text).ko : [];
           const tStart = Date.now();
           let partial = "", firstAt = 0;
           const onSent = t0 => {
@@ -6432,7 +6520,7 @@ async function drain(){
             partial += (partial ? " " : "") + t0;
             c.trans = partial;
             renderIfOpen(c.noteId);
-            if(say && live) speakTrans(t0, tgt, pan, c.id);
+            if(say && live && !(ownKo.length && ownKo.some(m => nearSame(t0, m)))) speakTrans(t0, tgt, pan, c.id);
           };
 
           workingAt = Date.now();
@@ -6442,6 +6530,21 @@ async function drain(){
           noteRatio(tgt, c.text.length, (c.trans||"").length);
           // 흘려받기가 꺼졌거나 안 되는 기기면 예전처럼 한 번에 읽는다
           if(!partial && say && live) speakTrans(c.trans, tgt, pan, c.id);
+        }
+        /* 내 말 → 베트남어 → 폰 스피커. 지금 벌어지는 회의일 때만. 실패해도 기록은 이어간다. */
+        if(c.text && spkOn(note) && recording && activeNote && activeNote.id === c.noteId
+           && (Date.now() - (c.created || 0)) < 90000){
+          const mine = splitMine(c.text).mine;
+          if(mine){
+            try{
+              workingAt = Date.now();
+              let said = false;
+              c.transVi = await translateChunk(mine, "Vietnamese", "", note.ctx,
+                s => { said = true; speakOut(s, "vi-VN", c.id); });
+              if(!said && c.transVi) speakOut(c.transVi, "vi-VN", c.id);
+              renderIfOpen(c.noteId);
+            }catch(e){ /* 스피커 쪽 실패는 조용히 넘긴다 */ }
+          }
         }
         c.status = "done"; c.error = ""; c.nextAt = 0; c.slow = 0;
         // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
@@ -6921,6 +7024,7 @@ function enterLiveView(){
   document.documentElement.style.setProperty("--botfurn", "118px");   // 알림 쪽지가 선반을 안 가리게
   paintShelf();
   $("livebar").classList.add("on");
+  paintLiveToggles();
   $("l-pause").textContent = "일시정지"; $("l-pause").classList.remove("on");
   $("l-timer").classList.remove("paused");
   $("v-detail").classList.add("reclive");
@@ -7887,6 +7991,7 @@ async function renderDetail(){
       raw += '<div class="orig'+(c.text?"":" pending")+'">'+
         esc(c.text || SKIP_WHY[c.skip] || (c.quiet ? "(조용함)" : c.echo ? "(같은 말이라 건너뜀)" : "(무음)"))+'</div>';
       if(c.trans) raw += '<div class="trans">'+esc(c.trans)+'</div>';
+      if(c.transVi) raw += '<div class="trans vi">📢 '+esc(c.transVi)+'</div>';
     } else if(c.status==="failed"){
       raw += '<div class="errline">'+esc(c.error||"실패")+
         ' <button data-retry="'+c.id+'">다시 시도</button></div>';
@@ -8599,6 +8704,7 @@ function exportPieces(n, cs, cur){
       if(c.status!=="done" || !c.text) continue;
       script += mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk)) + " " + c.text + "\n";
       if(c.trans) script += "> " + c.trans + "\n";
+      if(c.transVi) script += "📢 " + c.transVi + "\n";
       script += "\n";
     }
   }
@@ -9359,6 +9465,8 @@ $("filein").onchange = e => {
 $("updbar-go").onclick = applyUpdate;
 $("updbar-x").onclick  = ()=> $("updbar").classList.remove("on");
 $("l-mark").onclick  = markMoment;
+$("l-ear").onclick = toggleTtsLive;
+$("l-spk").onclick = toggleSpkLive;
 $("l-pause").onclick = togglePause;
 $("l-dim").onclick = ()=>{
   setDim(true);
@@ -9794,6 +9902,22 @@ $("s-ttstest").onclick = ttsTest;
 /* 화자 분리 모델은 고유명사 힌트를 아예 받지 않는다. 이걸 모르고 고르면
    용어집과 사전자료가 통째로 버려진 채 전사된다. 고르는 자리에서 알려 준다. */
 $("s-ttspan").onclick = ttsPanTest;
+/* 이어폰을 낀 채로 폰 스피커에서 베트남어가 나오는지 본다. 나간 곳이 진단창에 찍힌다. */
+$("s-spktest").onclick = async ()=>{
+  if(!spkAvail()){ toast("폰 앱(APK)에서만 됩니다.", 5000); return; }
+  if(!ttsBuild || ttsBuild < SPK_BUILD){
+    toast("새 APK 가 필요합니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 APK 를 받아 주세요.", 10000);
+    return;
+  }
+  ttsUnlocked = true; ttsStop();
+  toast("이어폰을 낀 채로 들어 보세요. 폰 스피커에서 베트남어가 나와야 합니다.", 5000);
+  try{
+    await NativeTts.speak({ text:"Xin chào, đây là loa điện thoại.", lang:"vi-VN",
+                            rate: parseFloat(CFG.ttsRate) || 1, pan:0, out:"speaker" });
+    await new Promise(r => setTimeout(r, 4500));
+    await showAudioInfo();
+  }catch(e){ toast("재생 실패: " + (e.message || e)); }
+};
 /* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
    고르는 그 자리에서 알려 준다. 골라 둔 값은 그대로 둔다 — APK 를 새로 깔면 살아난다. */
 if($("r-talkout")) $("r-talkout").onchange = function(){

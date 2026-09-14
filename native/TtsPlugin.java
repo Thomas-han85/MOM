@@ -70,7 +70,10 @@ public class TtsPlugin extends Plugin {
 
     private static class PanJob {
         final File file; final boolean left;
-        PanJob(File f, boolean l) { file = f; left = l; }
+        /** both: 두 귀 모두(가운데). speaker: 이어폰이 꽂혀 있어도 폰 스피커로. */
+        final boolean both, speaker;
+        PanJob(File f, boolean l) { this(f, l, false, false); }
+        PanJob(File f, boolean l, boolean b, boolean s) { file = f; left = l; both = b; speaker = s; }
     }
 
     @Override
@@ -125,7 +128,7 @@ public class TtsPlugin extends Plugin {
     }
 
     /** 네이티브를 고칠 때마다 올린다. 웹이 이것으로 APK 가 오래됐는지 안다. */
-    static final String NATIVE_BUILD = "2026-09-10";
+    static final String NATIVE_BUILD = "2026-09-14";
 
     @PluginMethod
     public void available(PluginCall call) {
@@ -172,11 +175,15 @@ public class TtsPlugin extends Plugin {
         float pan = panIn == null ? 0f : Math.max(-1f, Math.min(1f, panIn));
         String id = "mn" + (++counter);
 
-        if (pan != 0f) {
-            // 좌우로 갈라 보낸다. 파일로 받아 우리가 직접 재생한다.
+        /* out:"speaker" — 이어폰이 꽂혀 있어도 폰 스피커로 내보낸다. 현장에서 내 말을 옮긴
+           베트남어를 직원에게 들려줄 때 쓴다. 엔진의 speak() 는 나갈 곳을 고를 수 없어서
+           좌우 나눔과 같은 길(파일로 받아 우리 트랙으로 재생)을 탄다. */
+        boolean toSpeaker = "speaker".equals(call.getString("out", ""));
+        if (pan != 0f || toSpeaker) {
+            // 좌우로 갈라 보내거나 스피커로 보낸다. 파일로 받아 우리가 직접 재생한다.
             panCancel = false;
             File out = new File(getContext().getCacheDir(), "tts-" + id + ".wav");
-            panJobs.put(id, new PanJob(out, pan < 0f));
+            panJobs.put(id, new PanJob(out, pan < 0f, pan == 0f, toSpeaker));
             int rc = tts.synthesizeToFile(text, new Bundle(), out, id);
             if (rc != TextToSpeech.SUCCESS) { panJobs.remove(id); out.delete(); }
             JSObject res = new JSObject();
@@ -237,9 +244,10 @@ public class TtsPlugin extends Plugin {
                 src = up; n = m; outRate = OUT;
             }
 
-            byte[] pcm = stereoOneSide(src, n, job.left, 0);
-            playStereo(pcm, outRate, (job.left ? "왼쪽" : "오른쪽") + " 말 · 원본 " + rate + "Hz " + ch + "채널 "
-                    + frames + "프레임 → " + outRate + "Hz", "music", "media");
+            byte[] pcm = job.both ? stereoBoth(src, n) : stereoOneSide(src, n, job.left, 0);
+            String side = job.both ? "가운데" : (job.left ? "왼쪽" : "오른쪽");
+            playStereo(pcm, outRate, (job.speaker ? "폰 스피커로 " : "") + side + " 말 · 원본 " + rate + "Hz " + ch + "채널 "
+                    + frames + "프레임 → " + outRate + "Hz", "music", "media", job.speaker);
         } catch (Exception e) {
             lastPan = "재생 실패 · " + e;
         } finally {
@@ -266,6 +274,16 @@ public class TtsPlugin extends Plugin {
         return pcm;
     }
 
+    /** 모노 표본을 두 채널에 똑같이 담는다. 스피커로 보낼 때 쓴다. */
+    private static byte[] stereoBoth(short[] mono, int n) {
+        byte[] pcm = new byte[n * 4];
+        for (int f = 0, o = 0; f < n; f++, o += 4) {
+            byte lo = (byte) (mono[f] & 0xff), hi = (byte) ((mono[f] >> 8) & 0xff);
+            pcm[o] = lo; pcm[o + 1] = hi; pcm[o + 2] = lo; pcm[o + 3] = hi;
+        }
+        return pcm;
+    }
+
     private static AudioAttributes attrsOf(String content, String usage) {
         AudioAttributes.Builder b = new AudioAttributes.Builder();
         b.setUsage("game".equals(usage) ? AudioAttributes.USAGE_GAME
@@ -283,6 +301,10 @@ public class TtsPlugin extends Plugin {
      * 진단 문자열(lastPan)에 어디로 몇 채널로 나갔는지 남긴다.
      */
     private void playStereo(byte[] pcm, int rate, String label, String content, String usage) {
+        playStereo(pcm, rate, label, content, usage, false);
+    }
+
+    private void playStereo(byte[] pcm, int rate, String label, String content, String usage, boolean speaker) {
         AudioTrack track = null;
         lastPan = label;
         try {
@@ -300,6 +322,14 @@ public class TtsPlugin extends Plugin {
                             .build(),
                     Math.max(min, 16384), AudioTrack.MODE_STREAM,
                     AudioManager.AUDIO_SESSION_ID_GENERATE);
+            /* 이어폰이 꽂혀 있어도 이 소리만 폰 스피커로. 트랙마다 나갈 곳을 고르는 길이다
+               (안드로이드 6 부터). 기기가 이 뜻을 따랐는지는 아래 "나간 곳" 에 남는다. */
+            if (speaker) {
+                AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+                for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                    if (d.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) { track.setPreferredDevice(d); break; }
+                }
+            }
             panTrack = track;
             track.play();
 
