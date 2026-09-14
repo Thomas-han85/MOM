@@ -849,7 +849,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.14-5";
+const APP_VERSION = "2026.09.14-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1630,7 +1630,18 @@ function toggleTtsLive(){
    꽂힌 채 스피커로 내보내는 것은 네이티브가 한다. */
 const SPK_BUILD = "2026-09-14";
 function spkAvail(){ return !!(NativeTts && NATIVE); }
-function spkOn(note){ return CFG.spkVi === "1" && spkAvail() && !!note && note.mode !== "talk"; }
+function spkOn(note){ return CFG.spkVi === "1" && spkAvail() && !!note && note.mode !== "talk" && transTarget(note) !== ""; }
+
+/* 이 회의의 구간을 어느 말로 옮기나. 옮기지 않으면 "".
+
+   9월 14일: 회의록만 쓰는 회의도 구간마다 두 줄(원문 + 번역)씩 생겼다. 회의록만 모드는
+   "통역할 언어" 칸을 감추기만 했고, 칸에 남아 있던 값(지난번 고른 한국어 등)이 그대로
+   회의에 적혀 구간마다 번역을 불렀다. 쓸 데 없는 호출이다. note.target 은 지우지 않는다 —
+   전사할 때 어떤 말이 오가는지 알려 주는 데와 시리즈 기본값에 쓰인다. 번역만 안 한다. */
+function transTarget(note){
+  if(!note || note.mode === "doc" || note.mode === "text") return "";
+  return note.target || "";
+}
 
 /* 한 구간을 내 말과 상대 말로 가른다. 문장마다 본다.
    한글이 베트남어 글자보다 많으면 내 말. 베트남어 글자가 없고 영어 낱말이 둘 넘으면 내 말.
@@ -5952,9 +5963,11 @@ async function dRead(id){
   if(!r.ok) throw new Error("읽기 실패 "+r.status);
   return r.json();
 }
-async function dWrite(id, name, obj, updated){
+async function dWrite(id, name, obj, updated, extra){
   const t = await gToken();
-  const meta = { name, appProperties:{ u:String(updated||Date.now()) } };
+  const props = { u:String(updated||Date.now()) };
+  for(const k in (extra || {})) props[k] = String(extra[k]);
+  const meta = { name, appProperties: props };
   if(!id) meta.parents = [await dFolder()];
   const B = "mnb"+Math.random().toString(36).slice(2);
   const body =
@@ -5981,11 +5994,35 @@ async function dDelete(id){
    회의록을 만들어 노트가 다시 쓰일 때까지 새 전사가 안 올라갔다.
    노트를 다시 써서 시각을 올리는 길은 쓰지 않는다 — 회의록을 만드는 중이면 방금 만든
    문서를 옛 사본으로 덮을 수 있다. 구간의 시각을 함께 본다. */
-async function noteStamp(n){
-  let t = n.updated || 0;
-  for(const c of await byIndex("chunks","note",n.id)) if((c.doneAt||0) > t) t = c.doneAt;
-  return t;
+async function noteInfo(n){
+  let u = n.updated || 0, k = 0;
+  for(const c of await byIndex("chunks","note",n.id)){
+    if((c.doneAt||0) > u) u = c.doneAt;
+    if(c.text || c.trans) k++;
+  }
+  return { u, k };
 }
+async function noteStamp(n){ return (await noteInfo(n)).u; }
+
+/* 드라이브 파일에 적힌 구간 수. 옛 판이 올린 것은 없다 → -1 (모름). */
+function propK(f){
+  const k = (f && f.appProperties || {}).k;
+  return (k == null || k === "") ? -1 : +k;
+}
+
+/* 받을까. 드라이브 것이 더 새것이거나, 구간이 더 많거나, 구간 수를 모르면 받아서 합친다.
+
+   9월 14일: 동기화 단추를 눌러도 전사가 안 넘어왔다. 한쪽이 그 회의를 한 번이라도
+   건드리면 그쪽 시각이 더 늦어져 "받을 것 없음" 이 되고, 그쪽의 구간 적은 판만 올라갔다.
+   구간은 합치는 일이 없었다. 이제 시각만이 아니라 구간 수도 본다. */
+function needDown(me, remoteU, remoteK){
+  return !(me.u >= remoteU && remoteK >= 0 && remoteK <= me.k);
+}
+/* 올릴까. 드라이브에 없거나, 이쪽이 더 새것이거나, 구간이 더 많으면. */
+function needUp(me, remoteU, remoteK, exists){
+  return !exists || me.u > remoteU || me.k > remoteK;
+}
+
 async function packNote(n, u){
   const cs = (await byIndex("chunks","note",n.id)).sort((a,b)=>a.seq-b.seq);
   return { v:1, u: u || 0, note: Object.assign({}, n),
@@ -5999,18 +6036,51 @@ async function unpackNote(p){
      안 그러면 다음 맞춤에서 "드라이브가 더 새것" 으로 보여 같은 것을 또 받는다. */
   const nt = Object.assign({}, p.note);
   if(p.u && p.u > (nt.updated || 0)) nt.updated = p.u;
-  await putRaw("notes", nt);
-  const mine = new Map((await byIndex("chunks","note",nt.id)).map(c=>[c.id, c]));
+  const local = await get("notes", nt.id);
+  /* 문서(회의록)는 합집합으로. 저쪽에서 만든 회의록과 이쪽에서 만든 회의록이 둘 다 남는다.
+     어느 쪽에서든 지운 문서(docGone)는 되살리지 않는다. */
+  const gone = [...new Set([...(nt.docGone || []), ...((local && local.docGone) || [])])].slice(-50);
+  const goneSet = new Set(gone);
+  const union = (a, b) => {
+    const out = [], ids = new Set();
+    for(const d of [...(a || []), ...(b || [])])
+      if(d && !goneSet.has(d.id) && !ids.has(d.id)){ out.push(d); ids.add(d.id); }
+    return out;
+  };
+  /* 열려 있던 문서가 빠졌으면 첫 장으로 돌린다 (deleteDoc 과 같은 규칙) */
+  const fixOpen = x => {
+    if(!Array.isArray(x.docs) || x.docs.some(d => d.id === x.openDoc)) return;
+    x.openDoc = x.docs.length ? x.docs[0].id : "";
+    x.summary = x.docs.length ? x.docs[0].body : "";
+  };
+  const idsOf = a => (a || []).map(d => d.id).join(",");
+  if(!local || (local.updated || 0) <= (nt.updated || 0)){
+    /* 옛 노트(docs 없이 summary 만)는 건드리지 않는다 — 열 때 migrateDocs 가 옮긴다 */
+    if(local && (local.docs || nt.docs)){ nt.docs = union(nt.docs, local.docs); nt.docGone = gone; fixOpen(nt); }
+    await putRaw("notes", nt);
+  } else {
+    /* 이 기기 것이 더 새것이면 노트는 그대로 두고 저쪽 문서와 구간만 합친다.
+       통째로 덮으면 이쪽에서 고친 것이 사라진다. 합친 것은 다음 올리기에서 드라이브로 간다. */
+    if(local.docs || nt.docs){
+      const docs = union(local.docs, nt.docs);
+      if(idsOf(docs) !== idsOf(local.docs) || gone.length !== (local.docGone || []).length){
+        const nl = Object.assign({}, local, { docs, docGone: gone }); fixOpen(nl);
+        await putRaw("notes", nl);
+      }
+    }
+  }
+  const id = nt.id;
+  const mine = new Map((await byIndex("chunks","note",id)).map(c=>[c.id, c]));
   for(const c of (p.chunks||[])){
     const lc = mine.get(c.id);
     if(lc){
       /* 이미 있는 구간이라도 글이 달라졌으면 새 글을 받는다(다시 전사한 경우).
          다만 녹음 파일을 쥐고 있는 기기(녹음한 쪽)의 구간은 건드리지 않는다 — 그쪽이 원본이다. */
       if(!lc.blob && (lc.text !== c.text || lc.trans !== c.trans || (lc.transVi||"") !== (c.transVi||"")))
-        await putRaw("chunks", Object.assign({}, lc, c, { noteId: nt.id }));
+        await putRaw("chunks", Object.assign({}, lc, c, { noteId: id }));
       continue;
     }
-    await putRaw("chunks", Object.assign({ noteId:nt.id, blob:null, error:"", retry:0,
+    await putRaw("chunks", Object.assign({ noteId:id, blob:null, error:"", retry:0,
       keepAudio:false, created:Date.now() }, c));
   }
 }
@@ -6093,6 +6163,7 @@ async function syncDrive(manual){
     if(syncing){ syncing = false; paintSync("시간이 지나 멈췄습니다. 다시 눌러 봐 주세요."); }
   }, 120000);
   try{
+    let got = 0, sent = 0;   // 이번에 받은 것·올린 것
     const files = await dList();
     const byName = {};
     files.forEach(f => byName[f.name] = f);
@@ -6138,21 +6209,30 @@ async function syncDrive(manual){
       if(tombSet.has(id)) continue;
       const remoteU = +((f.appProperties||{}).u || 0);
       const mine = localById[id];
-      if(mine && (await noteStamp(mine)) >= remoteU) continue;
+      if(mine && !needDown(await noteInfo(mine), remoteU, propK(f))) continue;
       if(recording && activeNote && activeNote.id === id) continue;   // 녹음 중인 것은 건드리지 않는다
       await unpackNote(await dRead(f.id));
+      got++;
     }
 
     // 올리기: 이 기기가 더 새것이거나 드라이브에 없는 것
-    for(const n of await all("notes")){
-      if(tombSet.has(n.id)) continue;
+    for(const n0 of await all("notes")){
+      if(tombSet.has(n0.id)) continue;
       /* 녹음 중인 회의도 올린다. 3분마다 맞추므로 컴퓨터에서 전사를 따라 볼 수 있다.
          (내려받을 때는 녹음 중인 회의를 건드리지 않는다 — 위에서 그대로 막는다.) */
-      const f = byName["note-"+n.id+".json"];
+      const f = byName["note-"+n0.id+".json"];
       const remoteU = f ? +((f.appProperties||{}).u || 0) : -1;
-      const mineU = await noteStamp(n);
-      if(f && remoteU >= mineU) continue;
-      await dWrite(f ? f.id : null, "note-"+n.id+".json", await packNote(n, mineU), mineU || Date.now());
+      let me = await noteInfo(n0);
+      if(!needUp(me, remoteU, propK(f), !!f)) continue;
+      let n = n0;
+      /* 덮어쓰기 전에 드라이브 것을 먼저 합친다. 저쪽에서 만든 회의록이나 저쪽에만 있는
+         구간이 이 기기의 판으로 덮여 사라지면 안 된다. 녹음 중인 회의는 합치지 않는다. */
+      if(f && !(recording && activeNote && activeNote.id === n0.id)){
+        try{ await unpackNote(await dRead(f.id)); n = (await get("notes", n0.id)) || n0; me = await noteInfo(n); }
+        catch(e){ /* 못 읽었으면 이 기기 판을 그대로 올린다 */ }
+      }
+      await dWrite(f ? f.id : null, "note-"+n.id+".json", await packNote(n, me.u), me.u || Date.now(), { k: me.k });
+      sent++;
     }
 
     // 지운 것 목록을 드라이브에 반영하고, 이 기기 목록은 비운다
@@ -6166,7 +6246,7 @@ async function syncDrive(manual){
     try{ sharedChanged = await syncShared(byName); }catch(e){}
 
     lastSync = Date.now();
-    paintSync("맞췄습니다 · "+timeLabel(lastSync));
+    paintSync("맞췄습니다 · "+timeLabel(lastSync) + ((got || sent) ? " · 받음 "+got+" · 올림 "+sent : ""));
     await refreshList();
     if(openId) renderDetail();
     if(sharedChanged){
@@ -6174,7 +6254,9 @@ async function syncDrive(manual){
       if($("v-settings").classList.contains("on")){ renderSeriesList(); renderPeople(); }
       if(!recording) renderSeriesPicker($("r-series") ? $("r-series").value : "");
     }
-    if(manual) toast(sharedChanged ? "드라이브와 맞췄습니다. 시리즈와 참석자도 가져왔습니다." : "드라이브와 맞췄습니다.");
+    if(manual) toast(((got || sent) ? "맞췄습니다 · 받음 " + got + "건 · 올림 " + sent + "건."
+                                    : "이미 같습니다. 주고받을 것이 없었습니다.")
+                     + (sharedChanged ? " 시리즈와 참석자도 가져왔습니다." : ""), 5000);
   }catch(e){
     paintSync("실패 · "+(e.message||e));
     if(manual) toast(e.message||"동기화 실패", 6000);
@@ -6622,7 +6704,7 @@ async function drain(){
            알아듣고 반대쪽으로 보낸다 — 내가 말하면 상대 언어로, 상대가 말하면 내 언어로. */
         const tgt = (note.mode === "talk" && c.text)
           ? (detectLang(c.text, note.langA, note.langB) === note.langA ? note.langB : note.langA)
-          : note.target;
+          : transTarget(note);
         if(tgt && c.text){
           /* 앞 구간의 원문만 넘기고 있었다. 통역기는 자기가 앞에서 그 말을 뭐라고
              옮겼는지 모른 채 다음 구간을 옮긴다. 같은 부서 이름이 구간마다 다르게
@@ -6954,7 +7036,7 @@ async function createTextNote(){
   });
 
   // 통역할 언어가 지정돼 있으면 원문 옆에 통역도 붙인다.
-  if(note.target && navigator.onLine && CFG.oai){
+  if(transTarget(note) && navigator.onLine && CFG.oai){
     (async ()=>{
       try{
         const cs = await byIndex("chunks","note",note.id);
@@ -9268,6 +9350,8 @@ async function askDelete(){
 
 async function deleteDoc(n, id){
   n.docs = (n.docs||[]).filter(d=>d.id!==id);
+  /* 지웠다는 표시를 남긴다. 안 그러면 다른 기기와 맞출 때 저쪽에 남은 사본이 되돌아온다. */
+  n.docGone = (n.docGone || []).filter(x => x !== id).concat(id).slice(-50);
   n.openDoc = n.docs.length ? n.docs[0].id : "";
   n.summary = n.docs.length ? n.docs[0].body : "";
   await put("notes", n);
