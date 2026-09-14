@@ -192,6 +192,9 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .setbtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .setbtn:active{background:var(--rule)}
+#btn-sync{margin-right:6px}
+.setbtn.spin svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---------- 설정 구획 ----------
    한 줄로 죽 늘어놓으니 무엇이 무엇인지 가늠이 안 됐다. 묶어서 칸을 나눈다. */
@@ -436,6 +439,9 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <path fill="currentColor" fill-rule="evenodd" d="M60 37H78A3 3 0 0 1 81 40V68A3 3 0 0 1 78 71H60A3 3 0 0 1 57 68V40A3 3 0 0 1 60 37ZM60.5 45H77.5V49H60.5ZM60.5 59H77.5V63H60.5Z"/>
     </svg></span>
     <h1>trans-mom<span class="sub">실시간 통역 · 회의록</span></h1>
+    <button class="setbtn" id="btn-sync" aria-label="지금 맞추기" title="지금 맞추기" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2"/><path d="M21 4v5h-5M3 20v-5h5"/></svg>
+    </button>
     <button class="setbtn" id="btn-settings" aria-label="설정">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -843,7 +849,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.14-4";
+const APP_VERSION = "2026.09.14-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -5968,25 +5974,51 @@ async function dDelete(id){
 }
 
 /* --- 노트 한 건을 주고받을 꾸러미로 만든다. 오디오는 뺀다. --- */
-async function packNote(n){
+/* 이 노트가 마지막으로 바뀐 때. 노트 자체의 시각과 구간이 전사된 시각 중 늦은 것.
+
+   구간은 chunks 칸에 따로 쌓여서, 전사가 들어와도 노트의 updated 는 그대로였다.
+   동기화는 "노트가 드라이브 것보다 새것일 때만" 올리므로, 녹음이 끝날 때 한 번 올라간 뒤로는
+   회의록을 만들어 노트가 다시 쓰일 때까지 새 전사가 안 올라갔다.
+   노트를 다시 써서 시각을 올리는 길은 쓰지 않는다 — 회의록을 만드는 중이면 방금 만든
+   문서를 옛 사본으로 덮을 수 있다. 구간의 시각을 함께 본다. */
+async function noteStamp(n){
+  let t = n.updated || 0;
+  for(const c of await byIndex("chunks","note",n.id)) if((c.doneAt||0) > t) t = c.doneAt;
+  return t;
+}
+async function packNote(n, u){
   const cs = (await byIndex("chunks","note",n.id)).sort((a,b)=>a.seq-b.seq);
-  return { v:1, note: Object.assign({}, n),
+  return { v:1, u: u || 0, note: Object.assign({}, n),
     chunks: cs.filter(c=>c.text||c.trans).map(c=>({
-      id:c.id, seq:c.seq, offsetMs:c.offsetMs, text:c.text||"", trans:c.trans||"", status:"done" })) };
+      id:c.id, seq:c.seq, offsetMs:c.offsetMs, text:c.text||"", trans:c.trans||"",
+      transVi:c.transVi||"", doneAt:c.doneAt||0, status:"done" })) };
 }
 async function unpackNote(p){
   if(!p || !p.note) return;
-  await putRaw("notes", p.note);            // 남의 시각을 그대로 보존한다
-  const have = new Set((await byIndex("chunks","note",p.note.id)).map(c=>c.id));
+  /* 남의 시각을 그대로 보존하되, 올린 쪽이 구간까지 셈한 시각(u)이 더 늦으면 그것을 쓴다.
+     안 그러면 다음 맞춤에서 "드라이브가 더 새것" 으로 보여 같은 것을 또 받는다. */
+  const nt = Object.assign({}, p.note);
+  if(p.u && p.u > (nt.updated || 0)) nt.updated = p.u;
+  await putRaw("notes", nt);
+  const mine = new Map((await byIndex("chunks","note",nt.id)).map(c=>[c.id, c]));
   for(const c of (p.chunks||[])){
-    if(have.has(c.id)) continue;
-    await putRaw("chunks", Object.assign({ noteId:p.note.id, blob:null, error:"", retry:0,
+    const lc = mine.get(c.id);
+    if(lc){
+      /* 이미 있는 구간이라도 글이 달라졌으면 새 글을 받는다(다시 전사한 경우).
+         다만 녹음 파일을 쥐고 있는 기기(녹음한 쪽)의 구간은 건드리지 않는다 — 그쪽이 원본이다. */
+      if(!lc.blob && (lc.text !== c.text || lc.trans !== c.trans || (lc.transVi||"") !== (c.transVi||"")))
+        await putRaw("chunks", Object.assign({}, lc, c, { noteId: nt.id }));
+      continue;
+    }
+    await putRaw("chunks", Object.assign({ noteId:nt.id, blob:null, error:"", retry:0,
       keepAudio:false, created:Date.now() }, c));
   }
 }
 
 /* --- 동기화 --- */
 let syncing = false, lastSync = 0;
+/* 동기화 뒤로 전사가 새로 끝난 구간이 있는가. 큐가 비면 이것을 보고 한 번 맞춘다. */
+let syncDirty = false;
 const TOMB = "tombstones.json";
 /* 백업에서 되살린 회의의 번호. 다음 맞춤 때 무덤에서 빼내야 할 것들이다.
    빼지 않으면 사람이 되살린 회의가 말없이 다시 사라진다. */
@@ -6106,7 +6138,7 @@ async function syncDrive(manual){
       if(tombSet.has(id)) continue;
       const remoteU = +((f.appProperties||{}).u || 0);
       const mine = localById[id];
-      if(mine && (mine.updated||0) >= remoteU) continue;
+      if(mine && (await noteStamp(mine)) >= remoteU) continue;
       if(recording && activeNote && activeNote.id === id) continue;   // 녹음 중인 것은 건드리지 않는다
       await unpackNote(await dRead(f.id));
     }
@@ -6114,12 +6146,13 @@ async function syncDrive(manual){
     // 올리기: 이 기기가 더 새것이거나 드라이브에 없는 것
     for(const n of await all("notes")){
       if(tombSet.has(n.id)) continue;
-      if(recording && activeNote && activeNote.id === n.id) continue;
+      /* 녹음 중인 회의도 올린다. 3분마다 맞추므로 컴퓨터에서 전사를 따라 볼 수 있다.
+         (내려받을 때는 녹음 중인 회의를 건드리지 않는다 — 위에서 그대로 막는다.) */
       const f = byName["note-"+n.id+".json"];
       const remoteU = f ? +((f.appProperties||{}).u || 0) : -1;
-      const mineU = n.updated || 0;
+      const mineU = await noteStamp(n);
       if(f && remoteU >= mineU) continue;
-      await dWrite(f ? f.id : null, "note-"+n.id+".json", await packNote(n), mineU || Date.now());
+      await dWrite(f ? f.id : null, "note-"+n.id+".json", await packNote(n, mineU), mineU || Date.now());
     }
 
     // 지운 것 목록을 드라이브에 반영하고, 이 기기 목록은 비운다
@@ -6154,10 +6187,21 @@ function markDeleted(id){
   t.push(id); store.set("mn_tombs", JSON.stringify([...new Set(t)]));
 }
 function paintSync(msg){
+  paintSyncBtn();
   const el = $("g-state"); if(!el) return;
   el.textContent = driveOn() ? ("연결됨 · "+(msg||"")) : "연결 안 됨";
   paintSetSummaries();
 }
+
+/* 목록 화면 맨 위 맞추기 단추. 연결돼 있을 때만 보이고, 맞추는 동안 돈다.
+   예전에는 설정 → 폰과 컴퓨터 연동 안에만 있어서, 칸을 접은 뒤로는 찾을 수가 없었다. */
+function paintSyncBtn(){
+  const b = $("btn-sync"); if(!b) return;
+  b.style.display = driveOn() ? "" : "none";
+  b.classList.toggle("spin", !!syncing);
+  b.title = syncing ? "맞추는 중…" : (lastSync ? "맞춤 " + timeLabel(lastSync) + " · 누르면 지금 맞춥니다" : "지금 맞추기");
+}
+setInterval(paintSyncBtn, 1500);   // 끝나면 도는 것을 멈춘다. 어느 길로 끝나든 따라간다
 
 /* 설정의 접힌 칸마다 제목 옆에 지금 상태를 한 줄로 적는다. 열지 않고도 알 수 있게.
    OpenAI 열쇠가 비었으면 열쇠 칸만은 펼쳐 둔다 — 그것은 봐야 한다. */
@@ -6481,6 +6525,8 @@ async function drain(){
            만질 때까지 그대로 선다. */
         const soon = all0.map(c => c.nextAt || 0).filter(t => t > nowT).sort((a,b)=>a-b)[0];
         if(soon) setTimeout(drain, Math.max(500, Math.min(soon - nowT + 200, 30000)));
+        /* 밀린 전사를 다 끝냈으면 다른 기기에도 올린다. 1분에 한 번보다 자주는 안 한다. */
+        if(syncDirty && Date.now() - lastSync > 60000){ syncDirty = false; syncDrive(false); }
         break;
       }
       const c = pend[0];
@@ -6645,6 +6691,7 @@ async function drain(){
           }
         }
         c.status = "done"; c.error = ""; c.nextAt = 0; c.slow = 0;
+        c.doneAt = Date.now(); syncDirty = true;   // 동기화가 "이 노트가 바뀌었다" 고 알게
         // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
         c.blob = (c.keepAudio || CFG.diar==="1") ? c.blob : null;
       }catch(err){
@@ -10102,6 +10149,12 @@ $("s-gcsec-show").onclick = ()=>{
 $("g-sync").onclick = ()=>{
   if(!driveOn()){ toast("먼저 구글에 연결해 주세요."); return; }
   syncDrive(true);
+};
+$("btn-sync").onclick = ()=>{
+  if(!driveOn()){ toast("먼저 설정에서 구글에 연결해 주세요."); return; }
+  if(syncing){ toast("맞추는 중입니다.", 2000); return; }
+  toast("다른 기기와 맞추는 중…", 2500);
+  syncDrive(true); paintSyncBtn();
 };
 $("g-unlink").onclick = ()=>{
   confirmSheet("구글 연결을 끊습니다",
