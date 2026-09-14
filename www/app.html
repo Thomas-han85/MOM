@@ -476,8 +476,8 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
   </div>
   <div style="padding:18px">
 
-    <!-- 9월 14일 정리: 늘 보는 것(업데이트·쓴 돈)만 펼쳐 두고 나머지는 접는다.
-         접힌 칸은 제목 옆에 상태 한 줄을 적어, 열지 않고도 어떤 상태인지 알게 한다. -->
+    <!-- 9월 14일 정리: 늘 보는 칸(업데이트·쓴 돈·용어집·녹음·읽어주는 목소리)을 위에 펼쳐 두고,
+         가끔 여는 칸은 아래에 접어 둔다. 접힌 칸은 제목 옆에 상태 한 줄을 적는다. -->
 
     <div class="setgroup">
       <h3>업데이트</h3>
@@ -497,25 +497,8 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         청구액을 보려면 아래 <b>열쇠</b> 칸에 OpenAI 관리자 열쇠가 있어야 합니다.</p>
     </div>
 
-    <details class="setgroup fold" id="f-keys">
-      <summary><h3>열쇠</h3><span class="fsub" id="fs-keys"></span></summary>
-      <p class="lead">열쇠는 이 기기에만 저장되고 어디로도 보내지 않습니다. 쓴 만큼 그 계정으로 결제됩니다.</p>
-      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 통역, 회의록</label>
-        <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
-      <div class="field"><label for="s-oaiadmin">OpenAI 관리자 열쇠 · 쓴 돈 조회용 (선택)
-          <button type="button" id="s-oaiadmin-show" class="linkbtn">보기</button></label>
-        <input id="s-oaiadmin" type="password" autocomplete="off" placeholder="sk-admin-..."></div>
-      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없습니다.
-        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 따로 만듭니다.</p>
-      <div class="field"><label for="s-eleven">ElevenLabs API 키 · 회의 뒤 화자 분리용 (선택)
-          <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
-        <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
-      <p class="hint">회의가 끝난 뒤 목소리로 누가 말했는지 가르는 일은 이 열쇠로 합니다.
-        비워 두면 화자 분리를 하지 않습니다.</p>
-    </details>
-
-    <details class="setgroup fold" id="f-gloss">
-      <summary><h3>용어집</h3><span class="fsub" id="fs-gloss"></span></summary>
+    <div class="setgroup" id="f-gloss">
+      <h3>용어집</h3>
       <p class="lead">현장 이름·회사명·사람 이름을 넣어 두면 받아쓰기와 통역이 이 표기를 씁니다.</p>
       <p class="hint" id="gloss-nag" style="display:none;margin:0 0 14px;color:var(--warn)">
         용어집이 비어 있습니다. 넣지 않으면 낯선 이름이 비슷한 소리의 다른 말로 바뀝니다 —
@@ -526,39 +509,10 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         지난 회의에서 이름 모으기</button>
       <p class="hint" style="margin:-4px 0 14px">지금까지 만든 회의록에서 현장 이름·회사명·사람 이름을
         긁어 용어집에 넣습니다. 요금이 들지 않습니다. 넣고 나서 잘못 들어간 것은 지우십시오.</p>
-    </details>
+    </div>
 
-    <details class="setgroup fold" id="f-model">
-      <summary><h3>정리 품질</h3><span class="fsub" id="fs-model"></span></summary>
-      <div class="field"><label for="s-stt">전사</label>
-        <select id="s-stt">
-          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
-          <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
-          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
-          <option value="whisper-1">whisper-1 · $0.006/분</option>
-        </select>
-        <p class="hint" style="margin-top:6px"><b>gpt-transcribe</b> 는 고유명사와 회의 언어(한·베·영)를
-          따로 된 칸으로 받습니다. 현장 용어가 자꾸 깨지거나 다른 나라 말이 섞이면 이걸 먼저 써 보세요.</p></div>
-      <div class="field"><label for="s-trans">통역</label>
-        <select id="s-trans">
-          <option value="gpt-4o-mini">gpt-4o-mini</option>
-          <option value="gpt-4o">gpt-4o · 정확도 우선</option>
-        </select></div>
-      <div class="field"><label for="s-doc">회의록·요약</label>
-        <select id="s-doc">
-          <option value="gpt-4o-mini">gpt-4o-mini</option>
-          <option value="gpt-4o">gpt-4o · 정확도 우선</option>
-        </select></div>
-      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 큽니다. 문서 한 건에 100~200원쯤입니다.</p>
-      <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
-        <select id="s-vision">
-          <option value="gpt-4o-mini">gpt-4o-mini</option>
-          <option value="gpt-4o">gpt-4o · 손글씨나 흐린 사진에 강함</option>
-        </select></div>
-    </details>
-
-    <details class="setgroup fold" id="f-rec">
-      <summary><h3>녹음</h3><span class="fsub" id="fs-rec"></span></summary>
+    <div class="setgroup" id="f-rec">
+      <h3>녹음</h3>
       <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 통역이 정확해집니다</label>
         <select id="s-chunk">
           <option value="10000">10초 · 대화용 · 문장이 자주 잘립니다</option>
@@ -589,10 +543,10 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         화면을 새까맣게 덮어 배터리를 아끼면서 전사는 그대로 돕니다.</p>
       <button class="bigbtn ghost" id="s-lat" style="width:100%;margin:0 0 10px">이번 회의 지연 재기</button>
       <p class="hint" style="margin:-4px 0 14px">무엇이 느린지 봅니다. 요금이 들지 않습니다. 회의를 한 건 하고 나서 눌러 주세요.</p>
-    </details>
+    </div>
 
-    <details class="setgroup fold" id="f-voice">
-      <summary><h3>읽어주는 목소리</h3><span class="fsub" id="fs-voice"></span></summary>
+    <div class="setgroup" id="f-voice">
+      <h3>읽어주는 목소리</h3>
       <p class="lead">켜고 끄는 것은 녹음 중 아래 막대의 🎧·📢 단추로 합니다. 여기서는 목소리만 맞추고 시험합니다.</p>
       <div class="field"><label for="s-ttsrate">읽기 속도</label>
         <select id="s-ttsrate">
@@ -613,6 +567,52 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
       <p class="hint">조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아 주세요.
         베트남어와 캄보디아어는 따로 받아야 하는 기기가 많습니다.</p>
+    </div>
+
+    <details class="setgroup fold" id="f-keys">
+      <summary><h3>열쇠</h3><span class="fsub" id="fs-keys"></span></summary>
+      <p class="lead">열쇠는 이 기기에만 저장되고 어디로도 보내지 않습니다. 쓴 만큼 그 계정으로 결제됩니다.</p>
+      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 통역, 회의록</label>
+        <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
+      <div class="field"><label for="s-oaiadmin">OpenAI 관리자 열쇠 · 쓴 돈 조회용 (선택)
+          <button type="button" id="s-oaiadmin-show" class="linkbtn">보기</button></label>
+        <input id="s-oaiadmin" type="password" autocomplete="off" placeholder="sk-admin-..."></div>
+      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없습니다.
+        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 따로 만듭니다.</p>
+      <div class="field"><label for="s-eleven">ElevenLabs API 키 · 회의 뒤 화자 분리용 (선택)
+          <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
+        <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
+      <p class="hint">회의가 끝난 뒤 목소리로 누가 말했는지 가르는 일은 이 열쇠로 합니다.
+        비워 두면 화자 분리를 하지 않습니다.</p>
+    </details>
+
+    <details class="setgroup fold" id="f-model">
+      <summary><h3>정리 품질</h3><span class="fsub" id="fs-model"></span></summary>
+      <div class="field"><label for="s-stt">전사</label>
+        <select id="s-stt">
+          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
+          <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
+          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
+          <option value="whisper-1">whisper-1 · $0.006/분</option>
+        </select>
+        <p class="hint" style="margin-top:6px"><b>gpt-transcribe</b> 는 고유명사와 회의 언어(한·베·영)를
+          따로 된 칸으로 받습니다. 현장 용어가 자꾸 깨지거나 다른 나라 말이 섞이면 이걸 먼저 써 보세요.</p></div>
+      <div class="field"><label for="s-trans">통역</label>
+        <select id="s-trans">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o · 정확도 우선</option>
+        </select></div>
+      <div class="field"><label for="s-doc">회의록·요약</label>
+        <select id="s-doc">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o · 정확도 우선</option>
+        </select></div>
+      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 큽니다. 문서 한 건에 100~200원쯤입니다.</p>
+      <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
+        <select id="s-vision">
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4o">gpt-4o · 손글씨나 흐린 사진에 강함</option>
+        </select></div>
     </details>
 
     <details class="setgroup fold" id="f-theme">
@@ -842,7 +842,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.14-2";
+const APP_VERSION = "2026.09.14-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6076,25 +6076,19 @@ function paintSync(msg){
 }
 
 /* 설정의 접힌 칸마다 제목 옆에 지금 상태를 한 줄로 적는다. 열지 않고도 알 수 있게.
-   열쇠가 비었으면 열쇠 칸을, 용어집이 비었으면 용어집 칸을 펼쳐 둔다 — 그것만은 봐야 한다. */
+   OpenAI 열쇠가 비었으면 열쇠 칸만은 펼쳐 둔다 — 그것은 봐야 한다. */
 function paintSetSummaries(open){
   const put = (id, t) => { const e = $(id); if(e) e.textContent = t; };
   put("fs-keys", (CFG.oai ? "OpenAI ✓" : "OpenAI 열쇠 없음")
                + (CFG.oaiAdmin ? " · 관리자 ✓" : "") + (CFG.eleven ? " · 화자 분리 ✓" : ""));
-  const gl = String(CFG.gloss || "").split("\n").filter(l => l.trim()).length;
-  put("fs-gloss", gl ? gl + "줄" : "비어 있음");
   const short = m => String(m || "").replace(/^gpt-/, "");
   put("fs-model", "전사 " + short(CFG.stt) + " · 회의록 " + short(CFG.doc));
-  put("fs-rec", Math.round((+CFG.chunk || 30000) / 1000) + "초 구간"
-              + (CFG.awake === "0" ? " · 화면 안 켜 둠" : ""));
-  put("fs-voice", (parseFloat(CFG.ttsRate) || 1) + "배");
   put("fs-theme", ({ auto:"기기 설정", light:"밝게", dark:"어둡게" })[CFG.theme || "auto"] || "");
   const ls = (typeof lastSync !== "undefined" && lastSync) ? " · " + timeLabel(lastSync) : "";
   put("fs-sync", driveOn() ? "연결됨" + ls : "연결 안 됨");
   if(open){
     document.querySelectorAll("#v-settings details.fold").forEach(d => { d.open = false; });
     if(!CFG.oai && $("f-keys")) $("f-keys").open = true;
-    if(!gl && $("f-gloss")) $("f-gloss").open = true;
   }
 }
 // 녹음이 끝나거나 회의록이 만들어진 뒤, 그리고 주기적으로 맞춘다.
