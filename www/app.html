@@ -200,6 +200,18 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .setgroup > h3{margin:0 0 4px;font-size:14.5px;font-weight:700;letter-spacing:-.01em}
 .setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);line-height:1.6}
 .setgroup .field:last-of-type{margin-bottom:10px}
+/* 접는 칸. 제목 옆에 상태 한 줄, 오른쪽 끝에 꺾쇠. */
+details.setgroup{padding:0 15px;margin:0 0 10px}
+details.setgroup > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 0}
+details.setgroup > summary::-webkit-details-marker{display:none}
+details.setgroup > summary h3{margin:0;font-size:14.5px;font-weight:700;letter-spacing:-.01em;flex:none}
+details.setgroup > summary .fsub{flex:1;min-width:0;font-size:12.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+details.setgroup > summary::after{content:"›";color:var(--muted);font-size:20px;line-height:1;
+  transition:transform .15s;flex:none}
+details.setgroup[open] > summary::after{transform:rotate(90deg)}
+details.setgroup[open]{padding-bottom:6px}
+details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);line-height:1.6}
 
 /* ---------- 녹음 시트의 접히는 칸 ---------- */
 .fold{border-top:1px solid var(--rule);margin-top:4px}
@@ -464,40 +476,60 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   </div>
   <div style="padding:18px">
 
+    <!-- 9월 14일 정리: 늘 보는 것(업데이트·쓴 돈)만 펼쳐 두고 나머지는 접는다.
+         접힌 칸은 제목 옆에 상태 한 줄을 적어, 열지 않고도 어떤 상태인지 알게 한다. -->
+
     <div class="setgroup">
-      <h3>열쇠</h3>
-      <p class="lead">각자 자기 열쇠를 씁니다. 쓴 만큼 그 계정으로 결제됩니다. 열쇠는 이 기기에만 저장되고 어디로도 보내지 않습니다.</p>
-      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 통역, 회의록</label>
-        <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
-      <div class="field"><label for="s-eleven">ElevenLabs API 키 (선택) · 화자 분리
-          <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
-        <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
+      <h3>업데이트</h3>
+      <p class="lead" id="up-state">확인 중…</p>
+      <button class="bigbtn" id="up-apply" style="width:100%;margin:0 0 10px;display:none">지금 적용</button>
+      <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
+      <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 10px">설치된 버전으로 되돌리기</button>
     </div>
 
     <div class="setgroup">
       <h3>쓴 돈</h3>
-      <p class="lead">두 곳에서 각각 가져옵니다. OpenAI 는 실제 청구된 금액, ElevenLabs 는 이번 달 쓴 양입니다.
-        앱이 어림한 값이 아니라 그 회사가 계산한 값입니다.</p>
       <div id="cost-box" class="costbox">아직 확인하지 않았다.</div>
       <button class="bigbtn ghost" id="s-cost-now" style="width:100%;margin:0 0 14px">지금 확인</button>
-
-      <div class="field"><label for="s-oaiadmin">OpenAI 관리자 열쇠 · 청구액 조회용
-          <button type="button" id="s-oaiadmin-show" class="linkbtn">보기</button></label>
-        <input id="s-oaiadmin" type="password" autocomplete="off" placeholder="sk-admin-..."></div>
-      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없습니다. 다른 열쇠가 따로 있습니다.
-        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 만들어 여기에 넣습니다.
-        안 넣어도 앱은 그대로 돌아가고, ElevenLabs 쪽만 보입니다.</p>
-
       <div class="field"><label for="s-budget">월 한도 · 달러 · 비워 두면 알리지 않습니다</label>
         <input id="s-budget" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 20"></div>
-      <p class="hint">두 곳 다 달러로 청구하므로 달러로 적습니다. 한도의 80% 와 100% 에서 첫 화면에 한 줄로 알립니다.
-        <strong>녹음이나 회의록을 막지는 않습니다.</strong> 회의 도중에 갑자기 멈추면 안 되기 때문입니다.
-        실제로 돈이 나가는 것을 막으려면 OpenAI 쪽에서 결제 한도를 걸어야 합니다.</p>
+      <p class="hint">한도의 80% 와 100% 에서 첫 화면에 한 줄로 알립니다. 녹음이나 회의록을 막지는 않습니다.
+        청구액을 보려면 아래 <b>열쇠</b> 칸에 OpenAI 관리자 열쇠가 있어야 합니다.</p>
     </div>
 
-    <div class="setgroup">
-      <h3>정리 품질</h3>
-      <p class="lead">기본은 전부 mini 입니다. 시간당 약 $0.22. 특정 단계 결과가 아쉬우면 그 항목만 올립니다.</p>
+    <details class="setgroup fold" id="f-keys">
+      <summary><h3>열쇠</h3><span class="fsub" id="fs-keys"></span></summary>
+      <p class="lead">열쇠는 이 기기에만 저장되고 어디로도 보내지 않습니다. 쓴 만큼 그 계정으로 결제됩니다.</p>
+      <div class="field"><label for="s-oai">OpenAI API 키 · 전사와 통역, 회의록</label>
+        <input id="s-oai" type="password" autocomplete="off" placeholder="sk-..."></div>
+      <div class="field"><label for="s-oaiadmin">OpenAI 관리자 열쇠 · 쓴 돈 조회용 (선택)
+          <button type="button" id="s-oaiadmin-show" class="linkbtn">보기</button></label>
+        <input id="s-oaiadmin" type="password" autocomplete="off" placeholder="sk-admin-..."></div>
+      <p class="hint">평소 쓰는 sk- 열쇠로는 청구액을 볼 수 없습니다.
+        <strong>platform.openai.com/settings/organization/admin-keys</strong> 에서 따로 만듭니다.</p>
+      <div class="field"><label for="s-eleven">ElevenLabs API 키 · 회의 뒤 화자 분리용 (선택)
+          <button type="button" id="s-eleven-show" class="linkbtn">보기</button></label>
+        <input id="s-eleven" type="password" autocomplete="off" placeholder="sk_..."></div>
+      <p class="hint">회의가 끝난 뒤 목소리로 누가 말했는지 가르는 일은 이 열쇠로 합니다.
+        비워 두면 화자 분리를 하지 않습니다.</p>
+    </details>
+
+    <details class="setgroup fold" id="f-gloss">
+      <summary><h3>용어집</h3><span class="fsub" id="fs-gloss"></span></summary>
+      <p class="lead">현장 이름·회사명·사람 이름을 넣어 두면 받아쓰기와 통역이 이 표기를 씁니다.</p>
+      <p class="hint" id="gloss-nag" style="display:none;margin:0 0 14px;color:var(--warn)">
+        용어집이 비어 있습니다. 넣지 않으면 낯선 이름이 비슷한 소리의 다른 말로 바뀝니다 —
+        실제로 <b>Gem Park</b> 가 <b>Zenpad</b> 로, <b>Kim Oanh</b> 이 <b>Kim 1</b> 로 나온 적이 있습니다.</p>
+      <div class="field">
+        <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
+      <button class="bigbtn ghost" id="s-gloss-scan" style="width:100%;margin:0 0 10px">
+        지난 회의에서 이름 모으기</button>
+      <p class="hint" style="margin:-4px 0 14px">지금까지 만든 회의록에서 현장 이름·회사명·사람 이름을
+        긁어 용어집에 넣습니다. 요금이 들지 않습니다. 넣고 나서 잘못 들어간 것은 지우십시오.</p>
+    </details>
+
+    <details class="setgroup fold" id="f-model">
+      <summary><h3>정리 품질</h3><span class="fsub" id="fs-model"></span></summary>
       <div class="field"><label for="s-stt">전사</label>
         <select id="s-stt">
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
@@ -505,12 +537,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
           <option value="whisper-1">whisper-1 · $0.006/분</option>
         </select>
-        <p class="hint" style="margin-top:6px">
-          <b>gpt-transcribe</b> 는 고유명사를 <b>따로 된 칸(keywords)</b> 으로 받습니다.
-          지금처럼 길잡이 글에 섞어 넣으면 소리가 흐릿할 때 그 글을 그대로 되뱉는 일이 있는데,
-          이쪽은 그 위험이 없습니다. 현장 용어가 자꾸 깨지면 이걸 먼저 써 보세요.<br>
-          누가 말했는지는 여기서 고르지 않습니다. 녹음 시작 화면의 <b>화자 분리</b> 를 켜면
-          회의가 끝난 뒤 전체 녹음을 목소리로 갈라 참석자 이름을 붙입니다.</p></div>
+        <p class="hint" style="margin-top:6px"><b>gpt-transcribe</b> 는 고유명사와 회의 언어(한·베·영)를
+          따로 된 칸으로 받습니다. 현장 용어가 자꾸 깨지거나 다른 나라 말이 섞이면 이걸 먼저 써 보세요.</p></div>
       <div class="field"><label for="s-trans">통역</label>
         <select id="s-trans">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
@@ -521,47 +549,16 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o · 정확도 우선</option>
         </select></div>
-      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 큽니다.
-        문서 한 건에 100~200원쯤입니다. 전사(위)는 mini 로 두어도 됩니다 — 비싼 건 그쪽입니다.</p>
+      <p class="hint">회의록 품질이 아쉬우면 여기를 gpt-4o 로 올리는 것이 제일 효과가 큽니다. 문서 한 건에 100~200원쯤입니다.</p>
       <div class="field"><label for="s-vision">사진 · 스캔 읽기</label>
         <select id="s-vision">
           <option value="gpt-4o-mini">gpt-4o-mini</option>
           <option value="gpt-4o">gpt-4o · 손글씨나 흐린 사진에 강함</option>
         </select></div>
-    </div>
+    </details>
 
-    <div class="setgroup">
-      <h3>녹음</h3>
-      <button class="bigbtn ghost" id="s-lat" style="width:100%;margin:0 0 10px">이번 회의 지연 재기</button>
-      <p class="hint" style="margin:-4px 0 14px">무엇이 느린지 봅니다. 요금이 들지 않고,
-        회의를 방해하지도 않습니다. 회의를 한 건 하고 나서 눌러 주세요.</p>
-      <button class="bigbtn ghost" id="s-gloss-scan" style="width:100%;margin:0 0 10px">
-        지난 회의에서 이름 모으기</button>
-      <p class="hint" style="margin:-4px 0 14px">지금까지 만든 회의록에서 현장 이름·회사명·사람 이름을
-        긁어 용어집에 넣습니다. 요금이 들지 않습니다. 넣고 나서 잘못 들어간 것은 지우십시오.</p>
-      <p class="hint" id="gloss-nag" style="display:none;margin:0 0 14px;color:var(--warn)">
-        용어집이 비어 있습니다. 현장 이름·회사명·사람 이름을 여기 넣어 두면 받아쓰기가
-        그것을 그대로 씁니다. 넣지 않으면 낯선 이름이 비슷한 소리의 다른 말로 바뀝니다 —
-        실제로 <b>Gem Park</b> 가 <b>Zenpad</b> 로, <b>Kim Oanh</b> 이 <b>Kim 1</b> 로 나온 적이 있습니다.</p>
-      <div class="field"><label for="s-stream">통역을 문장이 끝날 때마다 내보내기</label>
-        <select id="s-stream">
-          <option value="1">켜기 · 한 문장이 끝나면 바로 읽고 자막에 올립니다</option>
-          <option value="0">끄기 · 통역이 다 끝난 뒤 한꺼번에</option>
-        </select>
-        <p class="hint">통역기에 보내는 글은 예전과 <b>똑같이 구간 전체</b>입니다.
-          번역의 정확도는 달라지지 않습니다. 달라지는 것은 다 만들어질 때까지
-          기다리는가 하나뿐입니다.<br>
-          읽어 주는 소리가 겹치거나 문장 중간에서 끊기면 이것을 <b>끄기</b>로 바꿔 주세요.
-          회의 도중에 바꿔도 되고, 바꾸는 즉시 다음 구간부터 예전 방식으로 돌아갑니다.</p></div>
-      <div class="field"><label for="s-livesum">회의 중 '지금까지' 정리</label>
-        <select id="s-livesum">
-          <option value="1">켜기 · 2분쯤마다 한 줄씩 쌓입니다</option>
-          <option value="0">끄기</option>
-        </select>
-        <p class="hint">회의가 도는 동안 숫자·날짜·금액·담당이 나온 대목을 한 줄로 쌓아
-          아래 선반에 보여 줍니다. 쌓는 데 요금이 조금 더 나갑니다(회의 한 건에 1센트 안팎).
-          이 줄은 화면에만 쓰고 회의록에는 넣지 않습니다 — 회의록은 끝나고 전사문 전체를
-          다시 읽어 만듭니다.</p></div>
+    <details class="setgroup fold" id="f-rec">
+      <summary><h3>녹음</h3><span class="fsub" id="fs-rec"></span></summary>
       <div class="field"><label for="s-chunk">구간 길이 · 짧을수록 자막이 빨리 뜨고, 길수록 통역이 정확해집니다</label>
         <select id="s-chunk">
           <option value="10000">10초 · 대화용 · 문장이 자주 잘립니다</option>
@@ -571,30 +568,32 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="45000">45초</option>
           <option value="60000">60초</option>
         </select></div>
+      <div class="field"><label for="s-stream">통역을 문장이 끝날 때마다 내보내기</label>
+        <select id="s-stream">
+          <option value="1">켜기 · 한 문장이 끝나면 바로 읽고 자막에 올립니다</option>
+          <option value="0">끄기 · 통역이 다 끝난 뒤 한꺼번에</option>
+        </select>
+        <p class="hint">읽어 주는 소리가 겹치거나 문장 중간에서 끊기면 <b>끄기</b>로 바꿔 주세요. 정확도는 같습니다.</p></div>
+      <div class="field"><label for="s-livesum">회의 중 '지금까지' 정리</label>
+        <select id="s-livesum">
+          <option value="1">켜기 · 2분쯤마다 한 줄씩 쌓입니다</option>
+          <option value="0">끄기</option>
+        </select>
+        <p class="hint">숫자·날짜·금액·담당이 나온 대목을 아래 선반에 한 줄씩 보여 줍니다. 회의록에는 넣지 않습니다.</p></div>
       <div class="field"><label for="s-awake">녹음 중 화면 켜 두기</label>
         <select id="s-awake">
           <option value="1">켜기 · 자막이 끊기지 않습니다</option>
           <option value="0">끄기 · 배터리를 아낍니다</option>
         </select></div>
-      <p class="hint">화면이 꺼지면 전사와 통역이 멈춥니다. 녹음 자체는 이어지고, 화면을 켜면 밀린 구간을 몰아서 처리합니다.
-        <strong>배터리가 걱정되면 이것을 끄지 말고, 녹음 중 아래쪽 [절전] 을 눌러 주세요.</strong>
+      <p class="hint">배터리가 걱정되면 이것을 끄지 말고, 녹음 중 아래쪽 <b>[절전]</b> 을 눌러 주세요.
         화면을 새까맣게 덮어 배터리를 아끼면서 전사는 그대로 돕니다.</p>
-    </div>
+      <button class="bigbtn ghost" id="s-lat" style="width:100%;margin:0 0 10px">이번 회의 지연 재기</button>
+      <p class="hint" style="margin:-4px 0 14px">무엇이 느린지 봅니다. 요금이 들지 않습니다. 회의를 한 건 하고 나서 눌러 주세요.</p>
+    </details>
 
-    <div class="setgroup">
-      <h3>화면</h3>
-      <div class="field"><label for="s-theme">밝기</label>
-        <select id="s-theme">
-          <option value="auto">기기 설정을 따름</option>
-          <option value="light">밝게</option>
-          <option value="dark">어둡게</option>
-        </select></div>
-      <p class="hint">고르면 바로 바뀝니다. 저장을 안 눌러도 됩니다.</p>
-    </div>
-
-    <div class="setgroup">
-      <h3>읽어주는 목소리</h3>
-      <p class="lead">켜고 끄는 것은 녹음할 때 회의마다 고릅니다. 여기서는 목소리만 맞춥니다.</p>
+    <details class="setgroup fold" id="f-voice">
+      <summary><h3>읽어주는 목소리</h3><span class="fsub" id="fs-voice"></span></summary>
+      <p class="lead">켜고 끄는 것은 녹음 중 아래 막대의 🎧·📢 단추로 합니다. 여기서는 목소리만 맞추고 시험합니다.</p>
       <div class="field"><label for="s-ttsrate">읽기 속도</label>
         <select id="s-ttsrate">
           <option value="0.8">0.8배 · 천천히</option>
@@ -610,24 +609,26 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
           <option value="en-US">English</option>
         </select></div>
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
-      <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
       <button class="bigbtn ghost" id="s-spktest" style="width:100%;margin:0 0 10px">폰 스피커로 베트남어 시험</button>
-      <p class="hint"><b>좌우 시험</b>은 왼쪽에서 한 번, 오른쪽에서 한 번 읽습니다.
-        이어폰 두 짝을 모두 케이스에서 꺼낸 뒤 한 짝씩 귀에 대고 들어 보세요.
-        한쪽에서만 들리면 대화 모드의 좌우 나눠 듣기가 됩니다.</p>
-      <p class="hint">기기에 내장된 목소리를 씁니다. 무료이고 인터넷 없이도 읽습니다. 조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아 주세요. 베트남어와 캄보디아어는 따로 받아야 하는 기기가 많습니다.</p>
-    </div>
+      <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
+      <p class="hint">조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아 주세요.
+        베트남어와 캄보디아어는 따로 받아야 하는 기기가 많습니다.</p>
+    </details>
 
-    <div class="setgroup">
-      <h3>용어집</h3>
-      <p class="lead">통역과 번역에서 이 표기를 강제합니다. 현장 용어가 매번 다르게 나오는 것을 막습니다.</p>
-      <div class="field">
-        <textarea id="s-gloss" placeholder="적산 = bóc tách khối lượng = quantity takeoff&#10;펀치리스트 = danh sách lỗi = punch list"></textarea></div>
-    </div>
+    <details class="setgroup fold" id="f-theme">
+      <summary><h3>화면</h3><span class="fsub" id="fs-theme"></span></summary>
+      <div class="field"><label for="s-theme">밝기</label>
+        <select id="s-theme">
+          <option value="auto">기기 설정을 따름</option>
+          <option value="light">밝게</option>
+          <option value="dark">어둡게</option>
+        </select></div>
+      <p class="hint">고르면 바로 바뀝니다. 저장을 안 눌러도 됩니다.</p>
+    </details>
 
-    <div class="setgroup">
-      <h3>폰과 컴퓨터 연동</h3>
-      <p class="lead">구글 드라이브에 회의록 글자만 올려 두 기기가 같은 내용을 봅니다. 오디오는 올리지 않습니다. 안 써도 앱은 잘 돌아갑니다.</p>
+    <details class="setgroup fold" id="f-sync">
+      <summary><h3>폰과 컴퓨터 연동</h3><span class="fsub" id="fs-sync"></span></summary>
+      <p class="lead">구글 드라이브에 회의록 글자만 올려 두 기기가 같은 내용을 봅니다. 오디오는 올리지 않습니다.</p>
       <p class="hint" id="g-state">연결 안 됨</p>
       <div class="field"><label for="s-gcid">구글 클라이언트 ID</label>
         <input id="s-gcid" type="text" autocomplete="off" placeholder="....apps.googleusercontent.com"></div>
@@ -639,34 +640,29 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
       <button class="bigbtn" id="g-link" style="width:100%;margin:0 0 10px">구글 연결</button>
       <button class="bigbtn ghost" id="g-sync" style="width:100%;margin:0 0 10px">지금 맞추기</button>
       <button class="bigbtn ghost" id="g-unlink" style="width:100%;margin:0 0 10px">연결 끊기</button>
-    </div>
+    </details>
 
-    <div class="setgroup">
-      <h3>백업</h3>
-      <p class="lead">회의록은 이 기기에만 있습니다. 앱을 지우면 사라집니다. 가끔 내보내 두시는 편이 좋습니다.
+    <details class="setgroup fold" id="f-backup">
+      <summary><h3>백업</h3><span class="fsub" id="fs-backup"></span></summary>
+      <p class="lead">회의록은 이 기기에만 있습니다. 앱을 지우면 사라집니다.
         녹음이 끝날 때마다 글자만 담은 백업이 하루 한 번 다운로드 폴더에 저절로 내려갑니다.</p>
       <p class="hint" id="stor-state">저장공간 확인 중…</p>
       <button class="bigbtn ghost" id="s-trim" style="width:100%;margin:0 0 10px">녹음 파일 비우기</button>
+      <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
+      <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 10px">백업 가져오기</button>
+      <input type="file" id="backupin" accept=".json,application/json" style="display:none">
       <button class="bigbtn ghost" id="s-carry-out" style="width:100%;margin:0 0 10px">설정 옮기기 · 복사</button>
       <button class="bigbtn ghost" id="s-carry-in" style="width:100%;margin:0 0 10px">설정 옮기기 · 붙여넣기</button>
       <p class="hint" style="margin:-4px 0 14px">폰에서 복사해 노트북에 붙여넣으면 구글 연결·용어집·
         참석자·시리즈가 한 번에 넘어옵니다. 열쇠는 담지 않습니다 — 그것만 각 기기에서 따로 넣으십시오.</p>
-      <button class="bigbtn ghost" id="s-export" style="width:100%;margin:0 0 10px">백업 내보내기</button>
-      <button class="bigbtn ghost" id="s-import" style="width:100%;margin:0 0 10px">백업 가져오기</button>
-      <input type="file" id="backupin" accept=".json,application/json" style="display:none">
-    </div>
-
-    <div class="setgroup">
-      <h3>업데이트</h3>
-      <p class="lead" id="up-state">확인 중…</p>
-      <button class="bigbtn" id="up-apply" style="width:100%;margin:0 0 10px;display:none">지금 적용</button>
-      <button class="bigbtn ghost" id="up-check" style="width:100%;margin:0 0 10px">지금 업데이트 확인</button>
-      <button class="bigbtn ghost" id="up-revert" style="width:100%;margin:0 0 10px">설치된 버전으로 되돌리기</button>
-    </div>
+    </details>
 
     <div class="savedock"><button class="bigbtn" id="s-save" style="margin:0">설정 저장</button></div>
 
-    <p class="hint" style="margin-top:22px"><span id="envnote"></span><span id="nvbuild"></span></p>
+    <details class="setgroup fold" id="f-env" style="margin-top:22px">
+      <summary><h3>진단 정보</h3><span class="fsub">APK · 부품 · 버전</span></summary>
+      <p class="hint"><span id="envnote"></span><span id="nvbuild"></span></p>
+    </details>
   </div>
 </div>
 
@@ -846,7 +842,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.14-1";
+const APP_VERSION = "2026.09.14-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6076,6 +6072,30 @@ function markDeleted(id){
 function paintSync(msg){
   const el = $("g-state"); if(!el) return;
   el.textContent = driveOn() ? ("연결됨 · "+(msg||"")) : "연결 안 됨";
+  paintSetSummaries();
+}
+
+/* 설정의 접힌 칸마다 제목 옆에 지금 상태를 한 줄로 적는다. 열지 않고도 알 수 있게.
+   열쇠가 비었으면 열쇠 칸을, 용어집이 비었으면 용어집 칸을 펼쳐 둔다 — 그것만은 봐야 한다. */
+function paintSetSummaries(open){
+  const put = (id, t) => { const e = $(id); if(e) e.textContent = t; };
+  put("fs-keys", (CFG.oai ? "OpenAI ✓" : "OpenAI 열쇠 없음")
+               + (CFG.oaiAdmin ? " · 관리자 ✓" : "") + (CFG.eleven ? " · 화자 분리 ✓" : ""));
+  const gl = String(CFG.gloss || "").split("\n").filter(l => l.trim()).length;
+  put("fs-gloss", gl ? gl + "줄" : "비어 있음");
+  const short = m => String(m || "").replace(/^gpt-/, "");
+  put("fs-model", "전사 " + short(CFG.stt) + " · 회의록 " + short(CFG.doc));
+  put("fs-rec", Math.round((+CFG.chunk || 30000) / 1000) + "초 구간"
+              + (CFG.awake === "0" ? " · 화면 안 켜 둠" : ""));
+  put("fs-voice", (parseFloat(CFG.ttsRate) || 1) + "배");
+  put("fs-theme", ({ auto:"기기 설정", light:"밝게", dark:"어둡게" })[CFG.theme || "auto"] || "");
+  const ls = (typeof lastSync !== "undefined" && lastSync) ? " · " + timeLabel(lastSync) : "";
+  put("fs-sync", driveOn() ? "연결됨" + ls : "연결 안 됨");
+  if(open){
+    document.querySelectorAll("#v-settings details.fold").forEach(d => { d.open = false; });
+    if(!CFG.oai && $("f-keys")) $("f-keys").open = true;
+    if(!gl && $("f-gloss")) $("f-gloss").open = true;
+  }
 }
 // 녹음이 끝나거나 회의록이 만들어진 뒤, 그리고 주기적으로 맞춘다.
 setInterval(()=>{ if(Date.now()-lastSync > 180000) syncDrive(false); }, 60000);
@@ -9708,6 +9728,7 @@ $("btn-settings").onclick = ()=>{
   paintStorage();
   paintCosts(CFG.costCache);   // 저장해 둔 값을 먼저 띄우고
   checkCosts(false);           // 오래됐으면 조용히 새로 가져온다
+  paintSetSummaries(true);     // 접힌 칸은 접어 두고, 비어서 꼭 봐야 할 칸만 펼친다
   show("v-settings");
 };
 /* 어디가 느린지는 이 숫자로만 갈린다. 올리는 데 느린지, 서버가 늦는지,
