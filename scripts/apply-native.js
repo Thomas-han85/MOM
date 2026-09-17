@@ -95,6 +95,45 @@ ${regKt}
   } else ok("MainActivity.kt 이미 등록됨 (" + PLUGINS.length + "개)");
 } else fail("MainActivity 를 찾을 수 없다: " + JAVA_DIR);
 
+/* ---------- 2.2 뒤로 가기 ----------
+   기본 BridgeActivity 는 뒤로 가기에 앱을 끝낸다. 시트를 열었다가 뒤로 가기를 누르면 앱이 통째로
+   죽었고, 녹음 중이면 녹음까지 끊겼다. 화면 쪽(app.html 의 window.__mnBack)에 먼저 묻는다 —
+   열린 시트나 화면을 하나 닫고 "handled" 를 돌려주면 거기서 끝. 더 닫을 것이 없으면("exit")
+   앱을 뒤로 보낸다. 죽이지 않는다. 다른 앱들과 같은 움직임이다. */
+const BACK_JAVA = `
+    @Override
+    public void onBackPressed() {
+        try {
+            android.webkit.WebView wv = getBridge() == null ? null : getBridge().getWebView();
+            if (wv == null) { moveTaskToBack(true); return; }
+            wv.evaluateJavascript(
+                "(function(){try{return window.__mnBack?window.__mnBack():'exit'}catch(e){return 'exit'}})()",
+                v -> { if (v == null || v.indexOf("handled") < 0) moveTaskToBack(true); });
+        } catch (Exception e) { moveTaskToBack(true); }
+    }
+`;
+const BACK_KT = `
+    override fun onBackPressed() {
+        try {
+            val wv = bridge?.webView
+            if (wv == null) { moveTaskToBack(true); return }
+            wv.evaluateJavascript(
+                "(function(){try{return window.__mnBack?window.__mnBack():'exit'}catch(e){return 'exit'}})()"
+            ) { v -> if (v == null || v.indexOf("handled") < 0) moveTaskToBack(true) }
+        } catch (e: Exception) { moveTaskToBack(true) }
+    }
+`;
+for (const [file, snippet] of [[mainJava, BACK_JAVA], [mainKt, BACK_KT]]) {
+  if (!fs.existsSync(file)) continue;
+  let src = fs.readFileSync(file, "utf8");
+  if (src.includes("onBackPressed")) { ok("뒤로 가기 이미 있음: " + path.basename(file)); continue; }
+  const last = src.lastIndexOf("}");
+  if (last < 0) fail("MainActivity 끝을 못 찾았다");
+  src = src.slice(0, last) + snippet + src.slice(last);
+  fs.writeFileSync(file, src);
+  ok("뒤로 가기 삽입: " + path.basename(file));
+}
+
 /* ---------- 2.5 서명을 못 박는다 ----------
    기본 디버그 키에 기대면 빌드 환경에 따라 키가 달라질 수 있다. 그러면 안드로이드가
    다른 앱으로 보고 덮어쓰기 설치를 막는다. 쓸 키를 build.gradle 에 직접 적어
