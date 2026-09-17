@@ -523,6 +523,11 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         지난 회의에서 이름 모으기</button>
       <p class="hint" style="margin:-4px 0 14px">지금까지 만든 회의록에서 현장 이름·회사명·사람 이름을
         긁어 용어집에 넣습니다. 요금이 들지 않습니다. 넣고 나서 잘못 들어간 것은 지우십시오.</p>
+      <div class="field"><label for="s-fixes">고침 사전 · 잘못 들린 표기 → 옳은 표기 (한 줄에 하나)</label>
+        <textarea id="s-fixes" placeholder="Zenpad → Gem Park&#10;Kim 1 → Kim Oanh&#10;띤푸 → Tín Phú"></textarea></div>
+      <p class="hint" style="margin:-4px 0 14px">받아쓰기가 같은 말을 늘 같은 식으로 잘못 듣습니다. 여기 적어 두면
+        전사문이 앉기 전에 바꿔 놓습니다 — 통역·회의록이 처음부터 옳은 이름을 봅니다. 회의가 끝난 뒤 전사문을
+        검토해 틀린 것을 한 줄씩 더하는 것이 가장 빠르게 정확해지는 길입니다. 짧은 말(두 글자 미만)은 안 바꿉니다.</p>
     </div>
 
     <div class="setgroup" id="f-rec">
@@ -883,7 +888,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-8";
+const APP_VERSION = "2026.09.17-9";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -922,7 +927,7 @@ addEventListener("load", clearBoot);
 
    API 열쇠는 담지 않는다. 이 글은 카톡이나 메일을 타고 다닐 텐데, 거기에 열쇠가
    섞이면 새는 순간 돈이 나간다. 옮길 값은 "다시 받기 번거로운 것" 이지 "비밀" 이 아니다. */
-const CARRY_KEYS = ["gcid","gcsec","gloss","people","series","stt","doc","trans","vision",
+const CARRY_KEYS = ["gcid","gcsec","gloss","fixes","people","series","stt","doc","trans","vision",
                     "chunk","ttsRate","ttsLang","talkOut","liveSum","awake","theme","budgetUsd"];
 
 function carryOut(){
@@ -989,7 +994,7 @@ const DEFAULTS = { oai:"", ant:"",
                    doc:"gpt-4o-mini",              // 회의록
                    trans:"gpt-4o-mini",            // 통역
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
-                   chunk:"30000", gloss:"", people:[], series:[], stream:"1",
+                   chunk:"30000", gloss:"", fixes:"", people:[], series:[], stream:"1",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
@@ -6623,10 +6628,33 @@ const STUCK_MS = 100000;   // 4분이었다. 회의 중 4분은 구간 여덟 �
    전사가 어디서 왔든 — 파일을 올려 받은 것이든 실시간 소켓에서 온 것이든 — 그 뒤는 한 길이다.
    걸러 내기, 통역, 읽어 주기, 스피커로 내보내기를 전부 여기서 한다. 두 벌로 만들지 않는다.
    before 는 이 구간보다 앞선 구간들(시각순). prompt 는 전사에 넣었던 길잡이 글 — 되뱉기 판정에 쓴다. */
+/* 고침 사전. 받아쓰기가 같은 말을 늘 같은 식으로 잘못 듣는다(Gem Park→Zenpad). 사람이 한 줄씩
+   적어 둔 것을 전사문이 앉기 전에 바꾼다. 라틴 글자만인 말은 낱말 경계로, 한글·베트남어가 섞인
+   말은 그대로 찾아 바꾼다(한글은 조사가 붙어 경계가 없다). 두 글자 미만은 안 바꾼다 — 헛맞는다. */
+let fixesSrc = null, fixesList = [];
+function applyFixes(text){
+  const src = String(CFG.fixes || "");
+  if(src !== fixesSrc){
+    fixesSrc = src; fixesList = [];
+    for(const ln of src.split("\n")){
+      const m = ln.split(/\s*(?:→|=>|->)\s*/);
+      if(m.length < 2) continue;
+      const bad = m[0].trim(), good = m.slice(1).join(" ").trim();
+      if(bad.length < 2 || !good || bad === good) continue;
+      const esc = bad.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const latin = /^[A-Za-z0-9 .'-]+$/.test(bad);
+      fixesList.push({ re: new RegExp(latin ? "\\b" + esc + "\\b" : esc, latin ? "gi" : "g"), good });
+    }
+  }
+  let s = String(text || "");
+  for(const f of fixesList) s = s.replace(f.re, f.good);
+  return s;
+}
+
 async function absorbText(c, note, raw, before, prompt){
   const recent = before.filter(s=>s.text).slice(-4);   // 최근에 말이 있던 네 구간
   const prev = recent.length ? recent[recent.length-1] : null;
-  let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
+  let txt = applyFixes(dedupeInside(raw));         // 안에서 되풀이된 말을 접고, 고침 사전을 건다
 
   /* 앞 구간과 겹치는 앞머리는 덜어 내되, 뒤에 붙은 새 말은 살린다.
      통째로 버리면 그 새 말까지 함께 사라진다. */
@@ -10588,7 +10616,7 @@ $("btn-settings").onclick = ()=>{
   $("s-live").value = CFG.live === "0" ? "0" : (CFG.liveFast === "1" ? "fast" : "1");
   $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
-  $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
+  $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss; $("s-fixes").value=CFG.fixes||"";
   $("s-livesum").value=CFG.liveSum || "1";
   $("gloss-nag").style.display = String(CFG.gloss||"").trim() ? "none" : "";
   $("s-stream").value=CFG.stream || "1";
@@ -10925,7 +10953,7 @@ $("s-save").onclick = ()=>{
   { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
   CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
-  CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
+  CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
   CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
