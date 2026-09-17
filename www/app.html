@@ -439,6 +439,10 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <path fill="currentColor" fill-rule="evenodd" d="M60 37H78A3 3 0 0 1 81 40V68A3 3 0 0 1 78 71H60A3 3 0 0 1 57 68V40A3 3 0 0 1 60 37ZM60.5 45H77.5V49H60.5ZM60.5 59H77.5V63H60.5Z"/>
     </svg></span>
     <h1>trans-mom<span class="sub">실시간 통역 · 회의록</span></h1>
+    <button class="setbtn" id="btn-theme" aria-label="밝게·어둡게" title="밝게·어둡게">
+      <svg viewBox="0 0 24 24" class="ic-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg viewBox="0 0 24 24" class="ic-moon"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
     <button class="setbtn" id="btn-sync" aria-label="지금 맞추기" title="지금 맞추기" style="display:none">
       <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2"/><path d="M21 4v5h-5M3 20v-5h5"/></svg>
     </button>
@@ -876,7 +880,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-4";
+const APP_VERSION = "2026.09.17-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1045,7 +1049,19 @@ function applyTheme(){
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   const m = document.querySelector('meta[name="theme-color"]');
   if(m) m.setAttribute("content", dark ? "#16181A" : "#F7F6F3");
+  // 목록 위 단추: 어두우면 해, 밝으면 달 — 누르면 그쪽으로 간다는 뜻이다
+  const b = $("btn-theme");
+  if(b){ b.querySelector(".ic-sun").style.display = dark ? "" : "none";
+         b.querySelector(".ic-moon").style.display = dark ? "none" : ""; }
 }
+/* 설정의 「모양」 칸에 접혀 있어 찾기 어려웠다. 맞추기 단추 옆에서 바로 뒤집는다.
+   기기 설정을 따르던 것도 누르는 순간 밝게·어둡게 중 하나로 못 박힌다 — 그래야 누른 대로 된다. */
+$("btn-theme").onclick = ()=>{
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  CFG.theme = dark ? "light" : "dark";
+  saveCfg(); applyTheme();
+  if($("s-theme")) $("s-theme").value = CFG.theme;
+};
 try{
   if(matchMedia) matchMedia("(prefers-color-scheme: dark)")
     .addEventListener("change", ()=>{ if((CFG.theme||"auto")==="auto") applyTheme(); });
