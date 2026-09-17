@@ -880,7 +880,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-5";
+const APP_VERSION = "2026.09.17-6";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1050,18 +1050,10 @@ function applyTheme(){
   const m = document.querySelector('meta[name="theme-color"]');
   if(m) m.setAttribute("content", dark ? "#16181A" : "#F7F6F3");
   // 목록 위 단추: 어두우면 해, 밝으면 달 — 누르면 그쪽으로 간다는 뜻이다
-  const b = $("btn-theme");
+  const b = document.getElementById("btn-theme");   // $ 는 이 아래에서 정의된다. 여기서 쓰면 앱이 안 뜬다
   if(b){ b.querySelector(".ic-sun").style.display = dark ? "" : "none";
          b.querySelector(".ic-moon").style.display = dark ? "none" : ""; }
 }
-/* 설정의 「모양」 칸에 접혀 있어 찾기 어려웠다. 맞추기 단추 옆에서 바로 뒤집는다.
-   기기 설정을 따르던 것도 누르는 순간 밝게·어둡게 중 하나로 못 박힌다 — 그래야 누른 대로 된다. */
-$("btn-theme").onclick = ()=>{
-  const dark = document.documentElement.getAttribute("data-theme") === "dark";
-  CFG.theme = dark ? "light" : "dark";
-  saveCfg(); applyTheme();
-  if($("s-theme")) $("s-theme").value = CFG.theme;
-};
 try{
   if(matchMedia) matchMedia("(prefers-color-scheme: dark)")
     .addEventListener("change", ()=>{ if((CFG.theme||"auto")==="auto") applyTheme(); });
@@ -10861,6 +10853,15 @@ $("s-gcsec-show").onclick = ()=>{
 $("g-sync").onclick = ()=>{
   if(!driveOn()){ toast("먼저 구글에 연결해 주세요."); return; }
   syncDrive(true);
+};
+/* 설정의 「모양」 칸에 접혀 있어 찾기 어려웠다. 맞추기 단추 옆에서 바로 뒤집는다.
+   기기 설정을 따르던 것도 누르는 순간 밝게·어둡게 중 하나로 못 박힌다 — 그래야 누른 대로 된다.
+   17-5 에서 이 줄을 $ 가 정의되기 전에 두어 앱이 통째로 안 떴다. 단추 묶는 자리는 여기다. */
+$("btn-theme").onclick = ()=>{
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  CFG.theme = dark ? "light" : "dark";
+  saveCfg(); applyTheme();
+  if($("s-theme")) $("s-theme").value = CFG.theme;
 };
 $("btn-sync").onclick = ()=>{
   if(!driveOn()){ toast("먼저 설정에서 구글에 연결해 주세요."); return; }
