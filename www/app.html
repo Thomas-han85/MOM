@@ -192,7 +192,7 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .setbtn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .setbtn:active{background:var(--rule)}
-#btn-sync{margin-right:6px}
+#btn-sync,#btn-sync2{margin-right:6px}
 .setbtn.spin svg{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -462,6 +462,9 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
     </button>
     <h1 id="d-title" role="button" tabindex="0" style="cursor:pointer">—<span class="sub" id="d-meta"></span></h1>
+    <button class="setbtn" id="btn-sync2" aria-label="지금 맞추기" title="지금 맞추기" style="display:none">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2M3 12a9 9 0 0 1 15.5-6.2"/><path d="M21 4v5h-5M3 20v-5h5"/></svg>
+    </button>
     <button class="iconbtn" id="btn-share" aria-label="내보내기">
       <svg viewBox="0 0 24 24"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
     </button>
@@ -880,7 +883,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-6";
+const APP_VERSION = "2026.09.17-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6338,10 +6341,13 @@ function paintSync(msg){
 /* 목록 화면 맨 위 맞추기 단추. 연결돼 있을 때만 보이고, 맞추는 동안 돈다.
    예전에는 설정 → 폰과 컴퓨터 연동 안에만 있어서, 칸을 접은 뒤로는 찾을 수가 없었다. */
 function paintSyncBtn(){
-  const b = $("btn-sync"); if(!b) return;
-  b.style.display = driveOn() ? "" : "none";
-  b.classList.toggle("spin", !!syncing);
-  b.title = syncing ? "맞추는 중…" : (lastSync ? "맞춤 " + timeLabel(lastSync) + " · 누르면 지금 맞춥니다" : "지금 맞추기");
+  // 목록 위 하나, 회의 상세 위 하나. 회의록을 보다가 바로 맞추고 싶다고 하셔서 둘이 됐다.
+  for(const b of [$("btn-sync"), $("btn-sync2")]){
+    if(!b) continue;
+    b.style.display = driveOn() ? "" : "none";
+    b.classList.toggle("spin", !!syncing);
+    b.title = syncing ? "맞추는 중…" : (lastSync ? "맞춤 " + timeLabel(lastSync) + " · 누르면 지금 맞춥니다" : "지금 맞추기");
+  }
 }
 setInterval(paintSyncBtn, 1500);   // 끝나면 도는 것을 멈춘다. 어느 길로 끝나든 따라간다
 
@@ -8306,10 +8312,36 @@ let openId = null, curTab = "doc";
 let listFolder = "";      // 목록에서 지금 고른 폴더. 빈 문자열이면 전체
 let retitleDone = false;  // 이미 있는 회의의 이름을 한 번 다시 지었는가
 
-function show(v){
+/* 화면 이동을 브라우저 방문 기록에 넣는다.
+
+   브라우저(크롬)의 뒤로 가기는 방문 기록을 따른다. 앱이 한 페이지라 기록이 없었고, 회의 상세에서
+   뒤로 가기를 누르면 사이트 밖으로 나갔다. 화면을 열 때마다 기록을 하나 밀어 넣고(pushState),
+   뒤로 가기(popstate)가 오면 그 화면을 그린다. 앱 안의 뒤로 단추도 기록을 되감는 식으로 간다 —
+   그래야 브라우저 뒤로 가기와 앱의 뒤로 단추가 같은 줄을 밟는다.
+   navDepth 는 이번에 우리가 밀어 넣은 개수다. 0 이면 되감을 것이 없으니 그냥 그린다 —
+   안 그러면 사이트 밖으로 나간다. 폰 앱(APK)의 뒤로 가기는 __mnBack 이 따로 받는다. */
+let navDepth = 0;
+function paintView(v){
   ["v-list","v-detail","v-settings"].forEach(x=>$(x).classList.toggle("on", x===v));
   paintFab();
 }
+function show(v, fromPop){
+  const cur = ["v-list","v-detail","v-settings"].find(x => $(x).classList.contains("on")) || "v-list";
+  if(!fromPop && v !== cur && typeof history !== "undefined" && history.pushState){
+    const goingBack = (v === "v-list") || (cur === "v-settings" && v === "v-detail");
+    if(goingBack && navDepth > 0){ history.back(); return; }   // popstate 가 그린다
+    if(!goingBack){ try{ history.pushState({ v }, ""); navDepth++; }catch(e){} }
+  }
+  paintView(v);
+}
+addEventListener("popstate", e => {
+  if(navDepth > 0) navDepth--;
+  const v = (e.state && e.state.v) || "v-list";
+  if(v === "v-list") openId = null;
+  paintView(v);
+  if(v === "v-list") refreshList();
+  else if(v === "v-detail" && openId) renderDetail();
+});
 /* 새 회의 버튼은 목록에서만 보인다. 녹음 중에는 목록에 있어도 감춘다 —
    누르면 시트가 열리고 그 안의 "녹음 시작" 이 지금 도는 녹음을 갈아엎는다. */
 function paintFab(){
@@ -10863,7 +10895,7 @@ $("btn-theme").onclick = ()=>{
   saveCfg(); applyTheme();
   if($("s-theme")) $("s-theme").value = CFG.theme;
 };
-$("btn-sync").onclick = ()=>{
+$("btn-sync").onclick = $("btn-sync2").onclick = ()=>{
   if(!driveOn()){ toast("먼저 설정에서 구글에 연결해 주세요."); return; }
   if(syncing){ toast("맞추는 중입니다.", 2000); return; }
   toast("다른 기기와 맞추는 중…", 2500);
