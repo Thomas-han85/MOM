@@ -883,7 +883,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-7";
+const APP_VERSION = "2026.09.17-8";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1226,7 +1226,7 @@ async function sttChunk(blob, prompt, terms){
     if(model === "gpt-transcribe"){
       // 낱말 목록으로 따로 넣는다. 줄바꿈과 꺾쇠는 넣지 말라고 문서가 못박는다.
       const kw = (terms || []).map(t => String(t).replace(/[<>\r\n]/g, " ").trim())
-                              .filter(Boolean).slice(-100);
+                              .filter(Boolean).slice(-300);
       if(kw.length) kw.forEach(k => fd.append("keywords[]", k));
       if(prompt) fd.append("prompt", prompt);
     }else{
@@ -7055,7 +7055,7 @@ function liveSession(note){
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
   const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
   const uniq = Array.from(new Map(terms.map(t => [String(t).toLowerCase(), String(t)])).values());
-  const kw = uniq.map(t => t.replace(/[<>\r\n]/g, " ").trim()).filter(Boolean).slice(-100);
+  const kw = uniq.map(t => t.replace(/[<>\r\n]/g, " ").trim()).filter(Boolean).slice(-300);
   const two = { Vietnamese:"vi", English:"en", Khmer:"km", Korean:"ko", Japanese:"ja", Chinese:"zh", Thai:"th", Indonesian:"id" };
   const langs = ["ko"];
   for(const l of [note.langA, note.langB, note.target]){ const c = two[l]; if(c && langs.indexOf(c) < 0) langs.push(c); }
@@ -10096,7 +10096,12 @@ async function primeTerms(noteId, brief){
      carry — 지난 회의의 미결 사항. 다음 회의록의 "지난 회의 후속" 이 된다.
      참석자·성격·통역언어 — 매번 다시 입력하지 않게 한다.
    ===================================================================== */
-const TERM_CAP = 40;   // 전사 프롬프트에 넣을 수 있는 길이가 제한적이라 최근 것만 유지한다
+/* 시리즈에 쌓아 두는 고유명사 상한.
+   40 이던 것은 옛 전사 모델이 길잡이 글(prompt) 500자밖에 못 받던 때의 값이다. 지금 전사(gpt-transcribe,
+   실시간 소켓과 파일 둘 다)는 낱말 목록(keywords)을 따로 받고, 9월 17일에 1,000개까지 넣어도 받았다.
+   다만 힌트는 많을수록 묽어지므로 200 에서 멈춘다. 옛 모델(gpt-4o-transcribe)의 길잡이 글에는
+   sttPrompt 가 여전히 뒤에서 40개만 넣는다 — 그쪽 한도는 모델의 것이라 못 늘린다. */
+const TERM_CAP = 200;
 
 function findSeries(id){ return CFG.series.find(s=>s.id===id) || null; }
 
