@@ -572,6 +572,18 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
       <button class="bigbtn ghost" id="s-spktest" style="width:100%;margin:0 0 10px">폰 스피커로 베트남어 시험</button>
       <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
+      <div class="field"><label for="s-earmine">좌우 나눠 들을 때 · 내 쪽 소리 크기</label>
+        <select id="s-earmine">
+          <option value="1">100%</option><option value="0.7">70%</option>
+          <option value="0.5">50%</option><option value="0.35">35%</option>
+        </select></div>
+      <div class="field"><label for="s-earother">좌우 나눠 들을 때 · 상대 쪽 소리 크기</label>
+        <select id="s-earother">
+          <option value="1">100%</option><option value="0.7">70%</option>
+          <option value="0.5">50%</option><option value="0.35">35%</option>
+        </select>
+        <p class="hint" style="margin-top:6px">오픈형 이어폰은 소리가 귀 밖으로도 나갑니다. 크게 안 들어도 되는 쪽을
+          줄이면 반대쪽 사람에게 건너가는 소리가 줍니다.</p></div>
       <p class="hint">조용하면 안드로이드 설정 → 일반 → 언어 → 음성 합성(TTS)에서 그 언어 목소리를 받아 주세요.
         베트남어와 캄보디아어는 따로 받아야 하는 기기가 많습니다.</p>
     </div>
@@ -595,7 +607,16 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 
     <details class="setgroup fold" id="f-model">
       <summary><h3>정리 품질</h3><span class="fsub" id="fs-model"></span></summary>
-      <div class="field"><label for="s-stt">전사</label>
+      <div class="field"><label for="s-live">실시간 전사 · 말이 멎는 대로</label>
+        <select id="s-live">
+          <option value="1">켬 · gpt-transcribe · $0.0045/분 · 말이 멎고 0.5초</option>
+          <option value="fast">더 빠르게 · gpt-live-transcribe · $0.017/분 · 말하는 중에 글이 흐름</option>
+          <option value="0">끔 · 예전처럼 구간 파일이 닫힌 뒤 전사</option>
+        </select>
+        <p class="hint" style="margin-top:6px">녹음 소리를 곧바로 실시간 소켓에도 보냅니다. 말이 멎으면 바로
+          받아 적고 통역합니다. 소켓이 끊기면 그동안의 말은 아래 「전사」 모델이 구간 파일로 받아 적습니다.
+          조용한 동안은 보내지 않아 값이 안 나갑니다. 폰 앱은 9월 17일 이후 APK 가 있어야 합니다.</p></div>
+      <div class="field"><label for="s-stt">전사 · 구간 파일과 불러온 음성</label>
         <select id="s-stt">
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
           <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
@@ -791,6 +812,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         <option value="other">상대 말만 읽기 · 이어폰을 안 나눠도 됩니다</option>
         <option value="splitL">좌우 나눠 듣기 · 내 쪽 왼쪽</option>
         <option value="splitR">좌우 나눠 듣기 · 내 쪽 오른쪽</option>
+        <option value="earSpk">내 것은 이어폰, 상대 것은 폰 스피커</option>
         <option value="both">양쪽 다 읽기 · 예전 방식</option>
       </select>
       <p class="hint" style="margin-top:6px">
@@ -801,7 +823,12 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         한 짝을 케이스에 두면 무선 이어폰이 좌우를 하나로 합쳐 버립니다.<br>
         무선 이어폰은 <b>녹음이 폰 마이크로 되어야</b> 좌우가 삽니다. 이어폰 마이크가 잡히면
         이어폰이 통화 모드로 내려가 좌우가 사라집니다 — 그렇게 되면 녹음 시작 직후에
-        알려 드립니다.<br>
+        알려 드립니다. 오픈형 이어폰(귀에 거는 것)은 소리가 귀 밖으로도 나가므로 반대쪽 사람에게
+        작게 건너갑니다 — 마주 앉으면 한 사람 머리에서 시험할 때보다 훨씬 작습니다. 설정에서
+        귀마다 소리 크기를 줄일 수 있습니다.<br>
+        <b>내 것은 이어폰, 상대 것은 폰 스피커</b> — 상대 말의 번역은 내 이어폰(양쪽)으로, 내 말의
+        번역은 폰 스피커로 나갑니다. 이어폰 한 짝을 상대에게 줄 필요가 없고, 이어폰이 새어도
+        상관없습니다. 스피커 소리가 마이크로 되들어와도 기록에서 걸러 냅니다.<br>
         읽어 준 소리가 마이크로 되들어와도 기록에는 섞이지 않게 걸러 줍니다.</p>
     </div>
     <div class="field" id="r-tts-field"><label for="r-tts">통역 읽어주기</label>
@@ -849,7 +876,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.14-7";
+const APP_VERSION = "2026.09.17-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -964,6 +991,8 @@ const DEFAULTS = { oai:"", ant:"",
                    theme:"auto",                             // 화면 밝기 (auto/light/dark)
                    talkA:"Korean", talkB:"Vietnamese",       // 대화 모드 언어쌍
                    talkOut:"other",                          // 대화 모드에서 통역 소리를 어디로 보낼지
+                   live:"1", liveFast:"0",                   // 실시간 전사(소켓) · 더 빠른 모델
+                   earMine:"1", earOther:"1",                // 좌우 나눠 들을 때 귀마다 소리 크기
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
@@ -1566,6 +1595,7 @@ function foreignScript(text){
    앱이 왜 그랬는지 스스로 말해야 한다. */
 const SKIP_WHY = {
   quiet:  "(조용해서 건너뜀)",
+  live:   "",   // 실시간 소켓이 이미 받아 적은 시간대의 파일 구간. 글은 그쪽 구간에 있다
   prompt: "(앞말을 되뱉은 것이라 버림)",
   repeat: "(앞 구간과 같은 말이라 버림)",
   trim:   "",   // 겹친 앞머리만 덜어 냈다. 남은 말은 그대로 있으므로 알릴 것이 없다.
@@ -2140,7 +2170,7 @@ if(NativeTts && NativeTts.addListener){
 }
 /* pan 은 소리를 어느 귀로 보낼지다. -1 왼쪽, 0 가운데, +1 오른쪽.
    좌우를 나눠 들을 때만 쓴다. */
-function speakTrans(text, target, pan, gid){
+function speakTrans(text, target, pan, gid, gain){
   if(CFG.tts!=="1" || !text || !TTS_OK || ttsSuspended) return;
   text = stripSpeakerTags(text);
   if(!text || looksUntranslated(text, target)) return;
@@ -2148,7 +2178,7 @@ function speakTrans(text, target, pan, gid){
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
   noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
-  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "" });
+  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "", gain: gain || 1 });
   /* 밀린 것을 버리는 단위가 발화에서 구간으로 바뀐다.
 
      예전에는 한 구간이 발화 하나였다. 이제 한 구간이 문장 여러 개로 나뉘어 들어온다.
@@ -2184,7 +2214,7 @@ function ttsPump(){
     ttsPending = done;
     ttsWatch = setTimeout(done, Math.max(4000, j.text.length * 110));
     NativeTts.speak({ text:j.text, lang:j.lang, rate: parseFloat(CFG.ttsRate)||1,
-                      pan: j.pan || 0, out: j.out || "" })
+                      pan: j.pan || 0, out: j.out || "", gain: j.gain || 1 })
       .then(r => { if(r && r.spoken === false) done(); }, done);
     return;
   }
@@ -2213,7 +2243,7 @@ let ttsCanPan = null;
 /* 음성 부품이 언제 것인지. 없으면 2026-09-03 이전 APK 다 — 좌우 나눔이 새는 판.
    웹은 자동으로 갈리는데 APK 는 안 갈려서, 고친 뒤에도 같은 증상을 보고 헤맸다. */
 let ttsBuild = null;
-const NATIVE_WANT = "2026-09-14";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
+const NATIVE_WANT = "2026-09-17";   // 지금 소스의 native/ 가 이 날짜다. 네이티브를 고치면 올린다
 const nativeStale = () => NATIVE && ttsBuild !== null && (!ttsBuild || ttsBuild < NATIVE_WANT);
 const staleApkMsg = () => "APK 가 오래됐습니다 (음성 부품 " + (ttsBuild || "9월 3일 이전") + ", 지금 " + NATIVE_WANT + "). "
   + "좌우 나눠 듣기가 샙니다. 폰 크롬에서 github.com/Thomas-han85/MOM/releases/latest 의 새 APK 를 받아 깔아 주세요.";
@@ -2316,6 +2346,13 @@ async function ttsPanTest(){
     await wait(2800);
     await NativeTts.speak({ text:"오른쪽에서만 들리면 정상입니다.", lang:"ko-KR", rate, pan:1 });
     await wait(2800);
+    /* 반대쪽에서 작게 들릴 때, 그것이 전기로 새는 것인지 공기로 건너오는 것인지를 가른다.
+       왼쪽 이어폰을 손바닥으로 꼭 감싸면 공기로 나가는 소리가 막힌다. 그래도 오른쪽에서
+       들리면 전기다. 조용해지면 공기다 — 오픈형 이어폰이 그렇다. */
+    toast("⑦ 왼쪽 이어폰을 손바닥으로 꼭 감싸 쥐고, 오른쪽 이어폰만 귀에 두세요. 3초 뒤 왼쪽으로만 읽습니다.", 4500);
+    await wait(3500);
+    await NativeTts.speak({ text:"왼쪽 이어폰을 손으로 감싼 채입니다. 지금 오른쪽에서 안 들리면 소리는 공기로 건너간 것입니다.", lang:"ko-KR", rate, pan:-1 });
+    await wait(6000);
     await showAudioInfo();
   }catch(e){ toast("재생 실패: "+(e.message||e)); }
 }
@@ -2351,11 +2388,15 @@ async function showAudioInfo(){
              "    · 적응형 사운드 / Adapt Sound\n" +
              "    · UHQ 업스케일러\n" +
              "  이어폰 앱(갤럭시 웨어러블)의 「주변 소리」와 「음향 효과」도 함께 봐 주세요.\n" +
-             "· 그래도 새면 블루투스 코덱이나 이어폰입니다. 저가 무선 이어폰은 낮은 소리(400Hz 아래)는\n" +
-             "  갈라 내지만 말소리 높이(300~4000Hz)는 반대쪽에 조금 흘립니다 — 유튜브 스테레오 시험\n" +
-             "  영상 중 베이스가 굵은 것만 '한쪽씩' 들리는 까닭이 그것입니다.\n" +
-             "  개발자 옵션 → 「블루투스 오디오 코덱」 을 SBC 에서 AAC 로 바꿔 보시고,\n" +
-             "  그래도 같으면 이어폰을 바꾸는 수밖에 없습니다. 앱이 보내는 소리에는 문제가 없습니다.");
+             "· 오픈형(귀에 거는) 이어폰이면 그것이 답입니다. 소리가 귀 밖으로도 나가 반대쪽 귀에\n" +
+             "  공기로 건너옵니다. 낮은 소리(베이스)는 작게 들리면 귀가 못 느끼고 말소리 높이는 느끼므로\n" +
+             "  베이스 굵은 유튜브 시험만 '한쪽씩' 들립니다. 위 ⑦ 에서 왼쪽을 손으로 감싸 오른쪽이 조용해지면\n" +
+             "  확인된 것입니다. 앱이 보내는 소리에는 문제가 없습니다.\n" +
+             "  두 사람이 마주 앉아 한 짝씩 끼면 머리 하나에서 시험할 때보다 훨씬 작게 건너갑니다.\n" +
+             "  더 줄이려면 설정의 「귀마다 소리 크기」를 낮추거나, 「내 것은 이어폰, 상대 것은 폰 스피커」를\n" +
+             "  고르거나, 귓속에 꽂는(커널형) 이어폰을 쓰면 됩니다.\n" +
+             "· 커널형인데도 ⑦ 에서 오른쪽에서 계속 들리면 전기로 새는 것입니다. 개발자 옵션 →\n" +
+             "  「블루투스 오디오 코덱」 을 AAC 로 바꿔 보시고, 그래도 같으면 이어폰을 바꾸는 수밖에 없습니다.");
   const body =
     "나갈 수 있는 곳: " + (d.outputs || "모름") + "\n" +
     "소리 모드: " + d.mode + " (0 이 보통, 3 이 통화)\n" +
@@ -5815,7 +5856,7 @@ function transNeed(target){
 
 /* 이번 회의에서 잰 것. 어디가 느린지는 이 숫자로만 갈린다.
    화면 어디에도 자동으로 뜨지 않는다. 설정에서 눌러야 보인다. */
-let lat = { up:[], srv:[], trans:[], first:[], dur:[], trans2:0, calls:0 };
+let lat = { up:[], srv:[], trans:[], first:[], dur:[], stt:[], live:[], trans2:0, calls:0 };
 const latAdd = (k, v) => { if(v > 0 && lat[k]){ lat[k].push(v); if(lat[k].length > 400) lat[k].shift(); } };
 const latMid = a => { if(!a || !a.length) return 0; const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
 
@@ -5830,6 +5871,7 @@ function latSave(){
     at: Date.now(),
     up: latMid(lat.up), srv: latMid(lat.srv),
     trans: latMid(lat.trans), first: latMid(lat.first),
+    stt: latMid(lat.stt), live: latMid(lat.live),
     calls: lat.calls, trans2: lat.trans2
   };
   saveCfg();
@@ -6024,7 +6066,7 @@ function needUp(me, remoteU, remoteK, exists){
 }
 
 async function packNote(n, u){
-  const cs = (await byIndex("chunks","note",n.id)).sort((a,b)=>a.seq-b.seq);
+  const cs = (await byIndex("chunks","note",n.id)).sort(chunkOrder);
   return { v:1, u: u || 0, note: Object.assign({}, n),
     chunks: cs.filter(c=>c.text||c.trans).map(c=>({
       id:c.id, seq:c.seq, offsetMs:c.offsetMs, text:c.text||"", trans:c.trans||"",
@@ -6358,7 +6400,7 @@ function wordsToTurns(words){
 
 async function runDiarize(note, onStep){
   if(!CFG.eleven) throw new Error("ElevenLabs 키가 없습니다. 설정에서 넣어 주세요.");
-  const cs = (await byIndex("chunks","note",note.id)).sort((a,b)=>a.seq-b.seq);
+  const cs = (await byIndex("chunks","note",note.id)).sort(chunkOrder);
   const withAudio = cs.filter(c=>c.blob);
   if(!withAudio.length) throw new Error("오디오가 남아 있지 않습니다. 설정에서 '화자 분리용 오디오 보관' 을 켠 뒤 녹음한 회의만 됩니다.");
 
@@ -6552,6 +6594,132 @@ let unsticking = false;
    넉넉히 잡는다. */
 const STUCK_MS = 100000;   // 4분이었다. 회의 중 4분은 구간 여덟 개다. 100초면 충분히 너그럽다
 
+/* 받아쓴 글을 구간에 앉히고, 옮기고, 읽어 준다.
+
+   전사가 어디서 왔든 — 파일을 올려 받은 것이든 실시간 소켓에서 온 것이든 — 그 뒤는 한 길이다.
+   걸러 내기, 통역, 읽어 주기, 스피커로 내보내기를 전부 여기서 한다. 두 벌로 만들지 않는다.
+   before 는 이 구간보다 앞선 구간들(시각순). prompt 는 전사에 넣었던 길잡이 글 — 되뱉기 판정에 쓴다. */
+async function absorbText(c, note, raw, before, prompt){
+  const recent = before.filter(s=>s.text).slice(-4);   // 최근에 말이 있던 네 구간
+  const prev = recent.length ? recent[recent.length-1] : null;
+  let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
+
+  /* 앞 구간과 겹치는 앞머리는 덜어 내되, 뒤에 붙은 새 말은 살린다.
+     통째로 버리면 그 새 말까지 함께 사라진다. */
+  if(txt && prev){
+    const kept = stripOverlap(txt, prev.text);
+    if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "repeat"; }
+  }
+
+  /* 버릴 문장만 하나씩 덜어 낸다. 남은 진짜 발언은 반드시 살린다. */
+  const sift = (bad, why) => {
+    if(!txt) return;
+    const kept = keepGood(txt, bad);
+    if(kept === txt) return;
+    if(why === "tts") ttsEchoSeen();
+    txt = kept; c.skip = kept ? "trim" : why;
+  };
+  sift(s => spokenLately(s), "tts");            // 우리가 읽어 준 소리가 되들어왔다
+  if(prompt) sift(s => echoOfPrompt(s, prompt), "prompt");
+  sift(foreignScript, "foreign");               // 이 회의에 있을 수 없는 글자 (문장째)
+  if(txt){ const st = stripForeign(txt); if(st !== txt){ txt = st; c.skip = st ? "trim" : "foreign"; } }  // 낱말째
+  sift(junkLine, "junk");                       // 자막 뭉치에서 튀어나온 말
+
+  /* 앞 네 구간과 통째로 같은 말은 버린다. 다만 실시간 말차례는 짧아서 "네." "Vâng." 같은
+     진짜 대답이 거듭 나온다. 그것까지 버리면 기록에서 대답이 사라진다. 스무 자 넘는 것만 본다. */
+  if(txt && recent.some(s=>nearSame(txt, s.text)) && (!c.live || normText(txt).length >= 20)){
+    txt = ""; c.skip = "repeat";
+  }
+  c.text = txt;
+  if(!txt){ c.trans = ""; c.echo = true; }
+
+  /* 어느 말로 옮길 것인가.
+     보통은 회의에서 정한 언어 하나다. 대화 모드에서는 구간마다 말을
+     알아듣고 반대쪽으로 보낸다 — 내가 말하면 상대 언어로, 상대가 말하면 내 언어로. */
+  const tgt = (note.mode === "talk" && c.text)
+    ? (detectLang(c.text, note.langA, note.langB) === note.langA ? note.langB : note.langA)
+    : transTarget(note);
+  if(tgt && c.text){
+    /* 앞 구간의 원문만 넘기고 있었다. 통역기는 자기가 앞에서 그 말을 뭐라고
+       옮겼는지 모른 채 다음 구간을 옮긴다. 같은 부서 이름이 구간마다 다르게
+       나오던 까닭이 이것이다. 원문과 번역을 짝으로 넘긴다. */
+    const pv = prev && prev.text  ? prev.text.slice(-200)  : "";
+    const pt = prev && prev.trans ? prev.trans.slice(-200) : "";
+    const pair = pv ? (pt ? pv + "\n→ " + pt : pv) : "";
+    /* 읽어 주는 것은 지금 벌어지는 회의일 때만이다. 화면이 꺼져 밀린 것이
+       한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다.
+       이 판단을 통역 호출보다 앞으로 옮겼다 — 문장이 끝나는 대로 읽어 주려면
+       읽을지 말지를 미리 알고 있어야 한다. */
+    const fresh = (Date.now() - (c.created||0)) < 90000;
+
+    /* 대화 모드에서는 스피커 하나가 두 사람을 섬긴다. 그래서 둘 다 헷갈린다 —
+       내 말의 번역은 상대를 위한 것이라 나에게는 소음이고, 상대 말의 번역은
+       나를 위한 것이라 상대에게는 소음이다. 방향을 보고 갈라 보낸다.
+         상대 말만     — 나를 위한 것만 읽는다. 내 말의 번역은 화면으로만 간다
+         좌우 나눔     — 둘 다 읽되 서로 반대쪽 귀로 보낸다. 귀마다 소리 크기를 따로 둔다
+         이어폰+스피커 — 나를 위한 것은 이어폰으로, 상대를 위한 것은 폰 스피커로
+         양쪽 다       — 예전 방식. 둘 다 가운데로
+       c.spoken 은 이미 한 번 읽어 준 구간이다 — 실시간으로 읽은 뒤 파일이 다시 전사한 것. 두 번 읽지 않는다. */
+    let say = !c.spoken, pan = 0, gain = 1, viaSpk = false;
+    if(note.mode === "talk"){
+      const forMe = (tgt === note.langA);   // 상대가 한 말을 내 언어로 옮긴 것
+      const how = CFG.talkOut || "other";
+      if(how === "other")       say = say && forMe;
+      else if(how === "splitL") pan = forMe ? -1 : 1;
+      else if(how === "splitR") pan = forMe ?  1 : -1;
+      else if(how === "earSpk") viaSpk = !forMe;
+      if(pan) gain = forMe ? (parseFloat(CFG.earMine) || 1) : (parseFloat(CFG.earOther) || 1);
+    }
+    const live = fresh && ((recording && activeNote && activeNote.id === c.noteId)
+              || (openId === c.noteId && !recording && CFG.tts === "1" && ttsUnlocked));
+    const read = s => {
+      if(viaSpk){ if(!looksUntranslated(s, tgt)) speakOut(s, TTS_LANG[tgt] || "vi-VN", c.id); }
+      else speakTrans(s, tgt, pan, c.id, gain);
+    };
+
+    /* 문장 하나가 끝날 때마다 그 자리에서 읽고 자막에 올린다.
+       통역기에 보낸 것은 구간 전체 한 덩이 그대로다. 기다리지 않을 뿐이다. */
+    /* 스피커로 내 말을 옮겨 줄 때는 내가 한 한국어가 내 귀로 되돌아오지 않게 한다. */
+    const ownKo = spkOn(note) ? splitMine(c.text).ko : [];
+    const tStart = Date.now();
+    let partial = "", firstAt = 0;
+    const onSent = t0 => {
+      if(!firstAt){
+        firstAt = Date.now(); latAdd("first", firstAt - tStart);
+        if(c.stopAt && say && live) latAdd("live", firstAt - c.stopAt);   // 말이 멎고 귀에 들리기까지
+      }
+      partial += (partial ? " " : "") + t0;
+      c.trans = partial;
+      renderIfOpen(c.noteId);
+      if(say && live && !(ownKo.length && ownKo.some(m => nearSame(t0, m)))) read(t0);
+    };
+
+    workingAt = Date.now();
+    c.trans = await translateChunk(c.text, tgt, pair, note.ctx, onSent);
+    latAdd("trans", Date.now() - tStart);
+    lat.calls++;
+    noteRatio(tgt, c.text.length, (c.trans||"").length);
+    // 흘려받기가 꺼졌거나 안 되는 기기면 예전처럼 한 번에 읽는다
+    if(!partial && say && live) read(c.trans);
+    if(say && live) c.spoken = true;
+  }
+  /* 내 말 → 베트남어 → 폰 스피커. 지금 벌어지는 회의일 때만. 실패해도 기록은 이어간다. */
+  if(c.text && spkOn(note) && recording && activeNote && activeNote.id === c.noteId
+     && (Date.now() - (c.created || 0)) < 90000){
+    const mine = splitMine(c.text).mine;
+    if(mine){
+      try{
+        workingAt = Date.now();
+        let said = false;
+        c.transVi = await translateChunk(mine, "Vietnamese", "", note.ctx,
+          s => { said = true; speakOut(s, "vi-VN", c.id); });
+        if(!said && c.transVi) speakOut(c.transVi, "vi-VN", c.id);
+        renderIfOpen(c.noteId);
+      }catch(e){ /* 스피커 쪽 실패는 조용히 넘긴다 */ }
+    }
+  }
+}
+
 function drainStuck(){
   return working && workingAt > 0 && (Date.now() - workingAt > STUCK_MS);
 }
@@ -6565,6 +6733,7 @@ async function unstick(){
        않는다. 되돌린다. 얼어붙은 것은 그 조각의 잘못이 아니므로 너그럽게 센다. */
     let back = 0;
     for(const c of await byIndex("chunks","status","sent")){
+      if(c.live) continue;   // 실시간 구간은 큐가 아니라 소켓 쪽이 앉히는 중이다
       c.slow = (c.slow||0) + 1;
       c.status = c.slow >= 8 ? "failed" : "pending";
       c.nextAt = 0;
@@ -6618,8 +6787,8 @@ async function drain(){
       CFG.lastTarget = note.target || "";   // 전사에 어떤 말이 오가는지 알려 주려고
       c.status = "sent"; await put("chunks", c); renderIfOpen(c.noteId); paintStrips();
       try{
-        const sibs = (await byIndex("chunks","note",c.noteId)).sort((a,b)=>a.seq-b.seq);
-        const before = sibs.filter(s=>s.seq < c.seq);
+        const sibs = (await byIndex("chunks","note",c.noteId)).sort(chunkOrder);
+        const before = sibs.filter(s => chunkOrder(s, c) < 0);
         const recent = before.filter(s=>s.text).slice(-4);   // 최근에 말이 있던 네 구간
         const prev = recent.length ? recent[recent.length-1] : null;
 
@@ -6654,7 +6823,7 @@ async function drain(){
            바닥 소리부터 다르다. 그래서 이 회의에서 실제로 말이 있던 구간들의
            크기를 모아 가운뎃값을 잡고, 그 4분의 1에 못 미치면 말이 없던 것으로 본다.
            예전의 붙박이 기준은 아래쪽 한계로만 남긴다. */
-        const rms = await loudness(c.blob);
+        const rms = c.blob ? await loudness(c.blob) : null;
         c.rms = rms;
         /* 기준은 넉넉히 낮게 잡는다. 멀리 앉은 사람의 작은 목소리를 조용함으로
            잘못 판정해 버리면, 지어낸 말 하나 막자고 진짜 발언을 잃는 것이다.
@@ -6668,109 +6837,10 @@ async function drain(){
           c.text = ""; c.trans = ""; c.quiet = true; c.skip = "quiet";
         } else {
           workingAt = Date.now();
-          const raw = await sttChunk(c.blob, prompt, terms);
-          let txt = dedupeInside(raw);                     // 안에서 되풀이된 말을 접는다
-
-          /* 앞 구간과 겹치는 앞머리는 덜어 내되, 뒤에 붙은 새 말은 살린다.
-             통째로 버리면 그 새 말까지 함께 사라진다. */
-          if(txt && prev){
-            const kept = stripOverlap(txt, prev.text);
-            if(kept !== txt){ txt = kept; c.skip = kept ? "trim" : "repeat"; }
-          }
-
-          /* 버릴 문장만 하나씩 덜어 낸다. 남은 진짜 발언은 반드시 살린다. */
-          const sift = (bad, why) => {
-            if(!txt) return;
-            const kept = keepGood(txt, bad);
-            if(kept === txt) return;
-            if(why === "tts") ttsEchoSeen();
-            txt = kept; c.skip = kept ? "trim" : why;
-          };
-          sift(s => spokenLately(s), "tts");            // 우리가 읽어 준 소리가 되들어왔다
-          if(prompt) sift(s => echoOfPrompt(s, prompt), "prompt");
-          sift(foreignScript, "foreign");               // 이 회의에 있을 수 없는 글자 (문장째)
-          if(txt){ const st = stripForeign(txt); if(st !== txt){ txt = st; c.skip = st ? "trim" : "foreign"; } }  // 낱말째
-          sift(junkLine, "junk");                       // 자막 뭉치에서 튀어나온 말
-
-          if(txt && recent.some(s=>nearSame(txt, s.text))){
-            txt = ""; c.skip = "repeat";                // 앞 네 구간과 통째로 같은 말
-          }
-          c.text = txt;
-          if(!txt){ c.trans = ""; c.echo = true; }
-        }
-
-        /* 어느 말로 옮길 것인가.
-           보통은 회의에서 정한 언어 하나다. 대화 모드에서는 구간마다 말을
-           알아듣고 반대쪽으로 보낸다 — 내가 말하면 상대 언어로, 상대가 말하면 내 언어로. */
-        const tgt = (note.mode === "talk" && c.text)
-          ? (detectLang(c.text, note.langA, note.langB) === note.langA ? note.langB : note.langA)
-          : transTarget(note);
-        if(tgt && c.text){
-          /* 앞 구간의 원문만 넘기고 있었다. 통역기는 자기가 앞에서 그 말을 뭐라고
-             옮겼는지 모른 채 다음 구간을 옮긴다. 같은 부서 이름이 구간마다 다르게
-             나오던 까닭이 이것이다. 원문과 번역을 짝으로 넘긴다. */
-          const pv = prev && prev.text  ? prev.text.slice(-200)  : "";
-          const pt = prev && prev.trans ? prev.trans.slice(-200) : "";
-          const pair = pv ? (pt ? pv + "\n→ " + pt : pv) : "";
-          /* 읽어 주는 것은 지금 벌어지는 회의일 때만이다. 화면이 꺼져 밀린 것이
-             한꺼번에 처리될 때 그것까지 다 읽으면 회의를 따라갈 수 없다.
-             이 판단을 통역 호출보다 앞으로 옮겼다 — 문장이 끝나는 대로 읽어 주려면
-             읽을지 말지를 미리 알고 있어야 한다. */
-          const fresh = (Date.now() - (c.created||0)) < 90000;
-
-          /* 대화 모드에서는 스피커 하나가 두 사람을 섬긴다. 그래서 둘 다 헷갈린다 —
-             내 말의 번역은 상대를 위한 것이라 나에게는 소음이고, 상대 말의 번역은
-             나를 위한 것이라 상대에게는 소음이다. 방향을 보고 갈라 보낸다.
-               상대 말만  — 나를 위한 것만 읽는다. 내 말의 번역은 화면으로만 간다
-               좌우 나눔 — 둘 다 읽되 서로 반대쪽 귀로 보낸다
-               양쪽 다   — 예전 방식. 둘 다 가운데로 */
-          let say = true, pan = 0;
-          if(note.mode === "talk"){
-            const forMe = (tgt === note.langA);   // 상대가 한 말을 내 언어로 옮긴 것
-            const how = CFG.talkOut || "other";
-            if(how === "other")       say = forMe;
-            else if(how === "splitL") pan = forMe ? -1 : 1;
-            else if(how === "splitR") pan = forMe ?  1 : -1;
-          }
-          const live = fresh && ((recording && activeNote && activeNote.id === c.noteId)
-                    || (openId === c.noteId && !recording && CFG.tts === "1" && ttsUnlocked));
-
-          /* 문장 하나가 끝날 때마다 그 자리에서 읽고 자막에 올린다.
-             통역기에 보낸 것은 구간 전체 한 덩이 그대로다. 기다리지 않을 뿐이다. */
-          /* 스피커로 내 말을 옮겨 줄 때는 내가 한 한국어가 내 귀로 되돌아오지 않게 한다. */
-          const ownKo = spkOn(note) ? splitMine(c.text).ko : [];
-          const tStart = Date.now();
-          let partial = "", firstAt = 0;
-          const onSent = t0 => {
-            if(!firstAt){ firstAt = Date.now(); latAdd("first", firstAt - tStart); }
-            partial += (partial ? " " : "") + t0;
-            c.trans = partial;
-            renderIfOpen(c.noteId);
-            if(say && live && !(ownKo.length && ownKo.some(m => nearSame(t0, m)))) speakTrans(t0, tgt, pan, c.id);
-          };
-
-          workingAt = Date.now();
-          c.trans = await translateChunk(c.text, tgt, pair, note.ctx, onSent);
-          latAdd("trans", Date.now() - tStart);
-          lat.calls++;
-          noteRatio(tgt, c.text.length, (c.trans||"").length);
-          // 흘려받기가 꺼졌거나 안 되는 기기면 예전처럼 한 번에 읽는다
-          if(!partial && say && live) speakTrans(c.trans, tgt, pan, c.id);
-        }
-        /* 내 말 → 베트남어 → 폰 스피커. 지금 벌어지는 회의일 때만. 실패해도 기록은 이어간다. */
-        if(c.text && spkOn(note) && recording && activeNote && activeNote.id === c.noteId
-           && (Date.now() - (c.created || 0)) < 90000){
-          const mine = splitMine(c.text).mine;
-          if(mine){
-            try{
-              workingAt = Date.now();
-              let said = false;
-              c.transVi = await translateChunk(mine, "Vietnamese", "", note.ctx,
-                s => { said = true; speakOut(s, "vi-VN", c.id); });
-              if(!said && c.transVi) speakOut(c.transVi, "vi-VN", c.id);
-              renderIfOpen(c.noteId);
-            }catch(e){ /* 스피커 쪽 실패는 조용히 넘긴다 */ }
-          }
+          /* 실시간 소켓이 받아 적은 구간은 소리가 없고 글만 있다. 통역이 실패해 큐로 되돌아온 것이다.
+             그 글로 그 뒤만 다시 간다. 걸러 내기·통역·읽기는 파일 경로와 같은 absorbText 다. */
+          const raw = c.live ? c.text : await sttChunk(c.blob, prompt, terms);
+          await absorbText(c, note, raw, before, prompt);
         }
         c.status = "done"; c.error = ""; c.nextAt = 0; c.slow = 0;
         c.doneAt = Date.now(); syncDirty = true;   // 동기화가 "이 노트가 바뀌었다" 고 알게
@@ -6846,6 +6916,12 @@ let recording=false, paused=false, seq=0, activeNote=null, mode="live";
 let startedAt=0, pausedTotal=0, pauseAt=0, webOffset=0;
 const elapsed = () => Date.now()-startedAt-pausedTotal-(paused?Date.now()-pauseAt:0);
 
+/* 구간의 차례는 시각으로 잡는다. 순번(seq)만 보던 때는 구간이 곧 녹음 파일이라 그걸로 충분했다.
+   실시간 전사가 들어오면 한 녹음 파일(15~45초) 안에 말차례 여러 개가 따로 구간으로 앉는다.
+   그것들은 파일 순번 사이에 끼어야 하므로 시작 시각으로 줄을 세우고, 시각이 같을 때만 순번을 본다. */
+const chunkPos = c => (c.offsetMs != null ? c.offsetMs : c.seq * (+CFG.chunk || 30000));
+const chunkOrder = (a, b) => (chunkPos(a) - chunkPos(b)) || (a.seq - b.seq);
+
 /* --- 네이티브(APK) 여부. 있으면 Foreground Service 로 녹음해 화면이 꺼져도 이어진다 --- */
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform
   && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins
@@ -6902,6 +6978,475 @@ function holdAwake(who, on, force){
 // 브라우저는 탭을 벗어났다 돌아오면 잠금 방지가 풀린다. 잡는 사람이 남아 있으면 다시 잡는다.
 addEventListener("visibilitychange", ()=>{ if(!document.hidden && awakeHold.size) keepAwake(true); });
 
+/* =====================================================================
+   실시간 전사 — 말이 멎는 대로 받아 적는다
+
+   여태 구간 파일(15~45초)이 닫혀야 전사가 시작됐다. 말한 지 평균 20초가 지나서야 통역이
+   나오니 대화는 안 되고 회의도 한두 차례 늦었다. 8월 20일 제안서가 잰 대로, 지연의 대부분은
+   API 가 아니라 "파일이 차기를 기다리는 시간" 이었다.
+
+   그래서 소리를 녹음기에서 곧바로 OpenAI 실시간 소켓에도 흘려 넣는다. 서버가 말이 멎는
+   자리(0.5초 침묵)를 잡아 그 말차례를 바로 받아 적어 준다 — 9월 17일 실측 0.3~0.7초.
+   그 글이 "전사 완료" 구간으로 앉고, 그 뒤(걸러 내기·통역·읽기·회의록)는 파일 경로와 같은
+   함수(absorbText)를 탄다. 두 벌이 아니다.
+
+   지켜야 할 것.
+   - 녹음은 그대로다. 녹음기는 여전히 파일로만 남기고, 소켓은 그 위에 얹힌 가속기다.
+     소켓이 죽으면 파일이 예전처럼 큐를 타고 전사된다. 오프라인은 여기서도 분기가 아니다 —
+     소켓이 안 열릴 뿐이고 파일은 큐에 쌓인다.
+   - 파일 구간이 닫혀 올 때, 그 시간대를 소켓이 건강하게 덮고 있었으면(liveCovers) 그 파일은
+     전사하지 않는다(skip:"live"). 조금이라도 구멍이 있으면 파일을 전사하고, 그 시간대에 앉은
+     실시간 구간은 지운다(liveEvict). 기록은 한 벌만 남는다.
+   - 소켓이 끊기면 덮은 시간의 끝을 "아직 글이 안 온 말차례의 시작" 까지 물린다. 그 말은
+     파일이 다시 받아 적는다. 잃지 않고 늦어질 뿐이다.
+   - 조용할 때는 보내지 않는다(값이 안 나간다). 말차례 밖에서 2초 조용하면 멈추고, 다시
+     소리가 나면 앞 0.4초를 붙여 보낸다. 소켓 쪽 시각과 녹음 시각의 대응은 segs 에 적는다.
+   - 한 말차례가 4초를 넘으면 숨 고르는 자리(0.2초)에서 우리가 자른다. 서버는 침묵에서만
+     자르므로 긴 독백은 끝까지 기다리게 되기 때문이다. 7초가 넘으면 자리를 안 가리고 자른다.
+   - 화면이 잠들어 이 코드가 멈추면 네이티브가 알아서 보내기를 그친다(1초마다 livePing).
+     그 사이는 덮이지 않은 시간이라 파일 경로가 맡는다.
+   - 모델은 gpt-transcribe (분당 $0.0045, 파일 경로의 gpt-4o-transcribe 보다 싸다). 고유명사
+     목록(keywords)·언어 목록·앞 말차례를 스스로 맥락으로 쓴다. gpt-4o-transcribe 는 실시간
+     소켓을 받지 않는다(모델 문서). "더 빠르게" 는 gpt-live-transcribe — 말하는 도중에 글이
+     흐르지만 분당 $0.017 이고 말차례 감지가 없어 우리가 문장에서 가른다.
+   ===================================================================== */
+const LIVE_URL = "wss://api.openai.com/v1/realtime?intent=transcription";
+const LIVE_RATE = 24000;      // 소켓이 받는 표본율. 녹음기는 16kHz 라 3:2 로 올려 보낸다
+/* 한 소켓을 오래 쓰면 느려진다. 12분 시험에서 10분을 넘기자 받아 적기가 두세 번 5~17초씩 늦었다.
+   그래서 20분마다 조용한 틈에 새 소켓을 먼저 열어 두고 갈아탄다. 구멍이 안 생긴다. */
+let LIVE_ROTATE_MS = 20 * 60000;
+let live = null;              // 지금(또는 방금까지) 열린 소켓의 상태
+let liveSeq = 0;              // 실시간 구간의 순번 꼬리표. 차례는 시각(chunkOrder)으로 잡으므로 유일하기만 하면 된다
+let liveChain = Promise.resolve();
+let nativePcmSub = null;
+
+function liveModel(){ return CFG.liveFast === "1" ? "gpt-live-transcribe" : "gpt-transcribe"; }
+function liveWanted(){ return CFG.live !== "0" && !!CFG.oai && typeof WebSocket === "function"; }
+function liveOn(noteId){ return !!(live && live.noteId === noteId && !live.closed && live.ready); }
+
+/* 소켓에 알려 줄 것 — 회의 맥락, 고유명사, 오갈 말. 파일 경로의 sttChunk 와 같은 재료다. */
+function liveSession(note){
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
+  const uniq = Array.from(new Map(terms.map(t => [String(t).toLowerCase(), String(t)])).values());
+  const kw = uniq.map(t => t.replace(/[<>\r\n]/g, " ").trim()).filter(Boolean).slice(-100);
+  const two = { Vietnamese:"vi", English:"en", Khmer:"km", Korean:"ko", Japanese:"ja", Chinese:"zh", Thai:"th", Indonesian:"id" };
+  const langs = ["ko"];
+  for(const l of [note.langA, note.langB, note.target]){ const c = two[l]; if(c && langs.indexOf(c) < 0) langs.push(c); }
+  if(langs.indexOf("en") < 0) langs.push("en");
+  /* 회의 맥락(prompt)은 넣지 않는다. 100초 시험에서 "벤쩨 병원 현장 회의" 라는 맥락이 조용한 자리에서
+     두 번 그대로 전사문으로 되뱉혔다. 파일 경로가 앞 구간 꼬리를 빼면서 배운 것과 같은 일이다.
+     고유명사는 낱말 목록(keywords)으로만 준다. 낱말은 문장으로 되뱉히는 일이 드물고, 되뱉혀도 liveAbsorb 가 거른다. */
+  const tr = { model: liveModel(), languages: langs };
+  if(kw.length) tr.keywords = kw;
+  const fast = tr.model === "gpt-live-transcribe";
+  if(fast) tr.delay = "low";
+  const talk = note.mode === "talk";
+  return { type:"transcription",
+    audio:{ input:{ format:{ type:"audio/pcm", rate: LIVE_RATE },
+                    noise_reduction: null,     // 실측: 잡음 제거를 켜면 낮은 소리를 침묵으로 보고 말을 놓쳤다
+                    transcription: tr,
+                    /* 문턱은 낮게 잡는다. 0.4 에서는 상 위의 폰이 받는 작은 목소리를 절반 넘게 놓쳤고,
+                       0.15 에서 다 잡았다. 헛잡은 차례는 빈 글로 돌아와 값만 조금 든다. */
+                    turn_detection: fast ? null
+                      : { type:"server_vad", threshold: 0.2, prefix_padding_ms: 300,
+                          silence_duration_ms: talk ? 450 : 550 } } } };
+}
+
+function liveOpen(note){
+  if(!liveWanted() || !note || !modeDoes().live) return;
+  if(NATIVE && nativeStale()){ toast("실시간 전사는 새 APK 가 있어야 합니다. 그때까지는 예전처럼 구간 파일로 전사합니다.", 8000); return; }
+  if(live && !live.closed) liveStop();
+  const L = live = { noteId: note.id, note, ws:null, ready:false, closed:false, retry:0, openedAt:0, next:null, nextReady:null, pre:[],
+    sockMs:0, segs:[], covers:[], cover:null, lastAt:-1, quietMs:0, gap:true, ring:[],
+    turns:{}, turn:null, cutTurn:null, dip:0, gain:1, loudAvg:0,
+    fast: liveModel() === "gpt-live-transcribe", partial:"", pStart:0, deltaAt:0, pT:null, pingT:null };
+  liveConnect(L);
+  if(NATIVE && Native && Native.livePing){
+    const ping = () => { if(L.ready && !L.closed){ try{ Native.livePing(); }catch(e){} } };
+    L.pingT = setInterval(ping, 1000);
+  }
+}
+
+function liveConnect(L){
+  let ws;
+  try{ ws = new WebSocket(LIVE_URL, ["realtime", "openai-insecure-api-key." + CFG.oai]); }
+  catch(e){ liveDown(L); return; }
+  L.ws = ws; L.ready = false; L.sockMs = 0; L.segs = []; L.turn = null; L.cutTurn = null;
+  L.turns = {}; L.partial = ""; L.pStart = 0; L.gap = true; L.ring = [];
+  L.openedAt = Date.now();
+  ws.onopen = () => { try{ ws.send(JSON.stringify({ type:"session.update", session: liveSession(L.note) })); }catch(e){} };
+  ws.onmessage = ev => { if(L.ws !== ws) return; let e; try{ e = JSON.parse(ev.data); }catch(x){ return; } liveEvent(L, e); };
+  ws.onclose = () => { if(L.ws !== ws) return; liveDown(L); };
+  ws.onerror = () => {};
+}
+
+/* 새 소켓을 먼저 열어 준비되면 갈아탄다. 조용한 틈(말차례 없음)에만 부른다. */
+function liveRotate(L){
+  if(L.next || L.closed) return;
+  let ws;
+  try{ ws = new WebSocket(LIVE_URL, ["realtime", "openai-insecure-api-key." + CFG.oai]); }
+  catch(e){ return; }
+  L.next = ws;
+  ws.onopen = () => { try{ ws.send(JSON.stringify({ type:"session.update", session: liveSession(L.note) })); }catch(e){} };
+  ws.onmessage = ev => {
+    if(L.next !== ws) return;
+    let e; try{ e = JSON.parse(ev.data); }catch(x){ return; }
+    if(e.type !== "session.updated"){ if(e.type === "error"){ L.next = null; try{ ws.close(); }catch(x){} } return; }
+    /* 준비됐다. 그런데 이 순간 말차례가 진행 중일 수 있다 — 지금 갈아타면 그 말을 잃는다.
+       조용한 틈(liveFrame 의 gap 분기)에서 갈아탄다. 1분 안에 틈이 안 오면 이 소켓은 버린다. */
+    L.nextReady = ws;
+    setTimeout(() => { if(L.nextReady === ws){ L.nextReady = null; L.next = null; try{ ws.close(); }catch(x){} } }, 60000);
+  };
+  ws.onclose = () => { if(L.next === ws) L.next = null; if(L.nextReady === ws) L.nextReady = null; };
+  ws.onerror = () => {};
+}
+function liveSwitch(L){
+  const ws = L.nextReady; if(!ws || ws.readyState !== 1){ L.nextReady = null; return; }
+  const old = L.ws;
+  L.next = null; L.nextReady = null; L.ws = ws; L.openedAt = Date.now(); L.sockMs = 0; L.segs = []; L.gap = true; L.ring = [];
+  L.turns = {}; L.turn = null; L.cutTurn = null; L.partial = ""; L.pStart = 0; L.ready = true;
+  ws.onmessage = ev2 => { if(L.ws !== ws) return; let e2; try{ e2 = JSON.parse(ev2.data); }catch(x){ return; } liveEvent(L, e2); };
+  ws.onclose = () => { if(L.ws !== ws) return; liveDown(L); };
+  if(old){ try{ old.onclose = null; old.close(); }catch(e){} }
+}
+
+/* 소켓이 죽었다. 덮은 시간을 마무리하고, 녹음 중이면 조금 기다렸다 다시 연다. */
+function liveDown(L){
+  L.ready = false; L.ws = null;
+  if(L.pingT && L.closed){ clearInterval(L.pingT); L.pingT = null; }
+  /* 글이 아직 안 온 말차례는 잃는다. 그 시작까지 덮은 시간을 물려 파일이 다시 적게 한다. */
+  const open = Object.values(L.turns).filter(t => t.startRec != null);
+  const back = open.length ? Math.min.apply(null, open.map(t => t.startRec)) : null;
+  if(L.fast && L.partial){ liveFlushPartial(L, false, true); }
+  else if(back != null && L.cover && L.cover.b > back) L.cover.b = Math.max(L.cover.a, back);
+  L.turns = {}; L.turn = null; L.cutTurn = null;
+  liveCoverEnd(L);
+  if(live !== L || L.closed || L.dead || !recording) return;
+  const wait = Math.min(15000, 1000 * Math.pow(2, L.retry++));
+  setTimeout(() => { if(live === L && !L.closed && recording) liveConnect(L); }, wait);
+}
+
+function liveCoverEnd(L){
+  if(L.cover){ if(L.cover.b > L.cover.a) L.covers.push(L.cover); L.cover = null; }
+  L.lastAt = -1; L.gap = true; L.ring = [];
+}
+
+/* 녹음 시각 [a,b) 를 소켓이 건강하게 덮었나. 0.5초 미만의 구멍은 눈감는다. */
+function liveCovers(noteId, a, b){
+  const L = live;
+  if(!L || L.noteId !== noteId || b <= a) return false;
+  const ivs = L.covers.concat(L.cover ? [L.cover] : []);
+  let got = 0;
+  for(const iv of ivs){ const s = Math.max(a, iv.a), e = Math.min(b, iv.b); if(e > s) got += e - s; }
+  return (b - a) - got < 500;
+}
+
+/* 파일이 이 시간대를 맡기로 했다. 거기 앉은 실시간 구간은 지운다.
+   이미 읽어 준 말이 있었으면 파일 구간에 표시해 두 번 읽지 않게 한다. */
+async function liveEvict(noteId, a, b){
+  let spoken = false, n = 0;
+  for(const c of await byIndex("chunks","note",noteId)){
+    if(c.src !== "live" || c.offsetMs == null) continue;
+    const s = c.offsetMs, e = s + (c.durMs || 0);
+    if(e <= a || s >= b) continue;
+    if(c.spoken) spoken = true;
+    await del("chunks", c.id); n++;
+  }
+  return { spoken, n };
+}
+
+/* 소켓 시각(보낸 소리의 ms) → 녹음 시각. 안 보낸 침묵만큼 둘이 어긋나므로 대응표를 본다. */
+function liveRec(L, sockMs){
+  let seg = L.segs[0] || { sock:0, rec:0 };
+  for(const s of L.segs){ if(s.sock <= sockMs) seg = s; else break; }
+  return seg.rec + (sockMs - seg.sock);
+}
+
+/* 녹음기에서 온 소리 조각 하나. { data: base64 16kHz PCM16, atMs, durMs, rms, quiet } */
+function liveFrame(L, f){
+  if(!L || L.closed || !f || !f.data) return;
+  /* 화면이 잠들었다 깨면 밀린 조각이 한꺼번에 온다. 사이가 벌어졌으면 덮은 시간을 끊는다 —
+     그 사이는 파일이 맡는다. */
+  if(L.lastAt >= 0 && f.atMs - L.lastAt > 1500) liveCoverEnd(L);
+  if(!L.ready || !L.ws || L.ws.readyState !== 1){
+    /* 소켓이 아직 안 열렸다. 5초까지는 모아 두었다가 열리면 보낸다. 안 그러면 녹음 첫 1초가 구멍이 되어
+       첫 파일 구간이 통째로 다시 전사되고, 그 사이 읽어 준 말은 두 번 적힌다. */
+    L.lastAt = f.atMs; L.pre.push(f); if(L.pre.length > 40) L.pre.shift();
+    return;
+  }
+  if(!L.cover) L.cover = { a: f.atMs, b: f.atMs + f.durMs }; else L.cover.b = f.atMs + f.durMs;
+  L.lastAt = f.atMs;
+
+  /* 소리 크기를 맞춘다. 상 위의 폰이 받는 소리는 작아서 서버의 말 감지가 놓친다.
+     말이 있던 조각의 크기를 따라가며 -22dBFS 근처로 올린다. 여섯 배 넘게는 안 올린다. */
+  if(!f.quiet && f.rms > 0) L.loudAvg = L.loudAvg ? L.loudAvg * 0.95 + f.rms * 0.05 : f.rms;
+  const want = L.loudAvg > 0 ? Math.max(1, Math.min(6, 2500 / L.loudAvg)) : 1;
+  L.gain = L.gain * 0.9 + want * 0.1;
+
+  /* 말차례 밖에서 2초 넘게 조용하면 보내지 않는다. 말차례 안에서는 서버가 끝을 봐야 하므로 보낸다. */
+  L.quietMs = f.quiet ? L.quietMs + f.durMs : 0;
+  if(L.quietMs > 2000 && !L.turn && !L.cutTurn){
+    L.ring.push(f); if(L.ring.length > 3) L.ring.shift();
+    L.gap = true;
+    if(!Object.keys(L.turns).length){
+      if(L.nextReady) liveSwitch(L);
+      else if(Date.now() - L.openedAt > LIVE_ROTATE_MS) liveRotate(L);
+    }
+    return;
+  }
+  if(L.gap){
+    L.gap = false;
+    const first = L.ring.length ? L.ring[0] : f;
+    L.segs.push({ sock: L.sockMs, rec: first.atMs });
+    for(const r of L.ring) liveSend(L, r);
+    L.ring = [];
+  }
+  liveSend(L, f);
+
+  if(L.turn && !L.fast){
+    const len = L.sockMs - L.turn.sock;
+    L.dip = f.quiet ? L.dip + f.durMs : 0;
+    if(len > 4000 && (L.dip >= 200 || len > 7000)) liveCut(L);
+  }
+}
+
+/* 지금 말차례를 여기서 자른다. 서버가 그때까지의 소리로 글을 만들고, 이어지는 말은 새 차례가 된다. */
+function liveCut(L){
+  if(!L || !L.turn || !L.ws || L.ws.readyState !== 1 || L.fast) return;
+  const t = L.turn;
+  t.cutSock = L.sockMs; t.cutAt = Date.now(); t.forced = true;
+  L.cutTurn = t; L.turn = null; L.dip = 0;
+  try{ L.ws.send(JSON.stringify({ type:"input_audio_buffer.commit" })); }catch(e){}
+}
+
+function liveSend(L, f){
+  const bin = atob(f.data), n = bin.length >> 1;
+  if(!n) return;
+  const g = L.gain, m = Math.floor(n * LIVE_RATE / 16000);
+  const out = new Int16Array(m);
+  for(let k = 0; k < m; k++){
+    const pos = k * 16000 / LIVE_RATE, a = pos | 0, b = a + 1 < n ? a + 1 : a, t = pos - a;
+    let va = bin.charCodeAt(2*a) | (bin.charCodeAt(2*a+1) << 8); if(va & 0x8000) va -= 0x10000;
+    let vb = bin.charCodeAt(2*b) | (bin.charCodeAt(2*b+1) << 8); if(vb & 0x8000) vb -= 0x10000;
+    const v = (va * (1 - t) + vb * t) * g;
+    out[k] = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+  }
+  const u = new Uint8Array(out.buffer); let s = "";
+  for(let i = 0; i < u.length; i += 0x2000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x2000));
+  try{ L.ws.send(JSON.stringify({ type:"input_audio_buffer.append", audio: btoa(s) })); }catch(e){ return; }
+  L.sockMs += m * 1000 / LIVE_RATE;
+}
+
+function liveEvent(L, e){
+  const t = e.type;
+  if(t === "session.updated"){
+    L.ready = true; L.retry = 0; L.gap = true; L.ring = []; L.lastAt = -1;
+    const pre = L.pre; L.pre = [];
+    for(const f of pre) liveFrame(L, f);   // 열리기 전에 모아 둔 조각부터
+    paintStrips(); return;
+  }
+  if(t === "error"){
+    const m = (e.error && e.error.message) || "";
+    /* 열쇠·모델·설정이 틀린 것은 다시 연다고 낫지 않는다. 이 녹음 동안은 파일 경로로 간다. */
+    if(!L.ready){ L.dead = true; L.closed = true; toast("실시간 전사를 열지 못했습니다 · " + m.slice(0, 120) + " — 이번에는 구간 파일로 전사합니다.", 9000); try{ L.ws && L.ws.close(); }catch(x){} }
+    return;
+  }
+  if(t === "input_audio_buffer.speech_started"){
+    const turn = { id: e.item_id, sock: e.audio_start_ms, startRec: liveRec(L, e.audio_start_ms) };
+    L.turns[e.item_id] = turn; L.turn = turn; L.cutTurn = null; L.dip = 0; return;
+  }
+  if(t === "input_audio_buffer.speech_stopped"){
+    let turn = L.turns[e.item_id];
+    if(!turn){   // 우리가 잘라 낸 뒤 이어진 말. 시작 신호가 따로 없다
+      const cut = L.cutTurn, sock = cut ? cut.cutSock : Math.max(0, e.audio_end_ms - 1000);
+      turn = L.turns[e.item_id] = { id: e.item_id, sock, startRec: liveRec(L, sock) };
+    }
+    turn.endRec = liveRec(L, e.audio_end_ms); turn.stopAt = Date.now();
+    if(L.turn === turn) L.turn = null;
+    L.cutTurn = null;
+    return;
+  }
+  if(t === "input_audio_buffer.committed"){
+    let turn = L.turns[e.item_id];
+    if(!turn){
+      const cut = L.cutTurn, sock = cut ? cut.cutSock : Math.max(0, L.sockMs - 1000);
+      turn = L.turns[e.item_id] = { id: e.item_id, sock, startRec: liveRec(L, sock) };
+      if(cut){ L.cutTurn = null; L.turn = turn; }   // 잘린 뒤 이어지는 말은 새 차례로 계속 센다
+    } else if(turn.forced && turn.endRec == null){ turn.endRec = liveRec(L, turn.cutSock); turn.stopAt = turn.cutAt; }
+    return;
+  }
+  if(t === "conversation.item.input_audio_transcription.delta"){
+    if(L.fast) livePartial(L, e.delta || "");
+    else { L.partial += e.delta || ""; livePaint(); }
+    return;
+  }
+  if(t === "conversation.item.input_audio_transcription.completed"){
+    if(L.fast) return;   // 빠른 모델은 우리가 문장에서 가른다. 여기서 오는 것은 쓰지 않는다
+    let turn = L.turns[e.item_id];
+    if(!turn) turn = { id: e.item_id, startRec: liveRec(L, Math.max(0, L.sockMs - 3000)) };
+    delete L.turns[e.item_id];
+    if(turn.endRec == null) turn.endRec = liveRec(L, L.sockMs);
+    if(turn.stopAt) latAdd("stt", Date.now() - turn.stopAt);
+    L.partial = ""; livePaint();
+    liveTurnDone(L, turn, e.transcript || "");
+    return;
+  }
+}
+
+/* 빠른 모델(gpt-live-transcribe)은 말차례를 감지하지 않고 글자를 흘려 준다.
+   문장이 끝나고 잠깐 뜸이 들면 한 차례로 내보낸다. 뜸이 길면 문장이 안 끝나도 내보낸다. */
+function livePartial(L, delta){
+  if(!L.partial) L.pStart = Math.max(0, L.sockMs - 1000);
+  L.partial += delta; L.deltaAt = Date.now();
+  livePaint();
+  clearTimeout(L.pT); L.pT = setTimeout(() => liveFlushPartial(L, false, false), 600);
+  if(L.partial.length > 260 && sentences(L.partial).length > 1) liveFlushPartial(L, true, false);
+}
+function liveFlushPartial(L, mid, force){
+  clearTimeout(L.pT); L.pT = null;
+  const text = L.partial.trim();
+  if(!text) return;
+  const ss = sentences(text);
+  let take;
+  if(mid){ take = ss.slice(0, -1).join(" "); L.partial = ss[ss.length - 1]; }
+  else {
+    const ended = /[.!?。…]\s*$/.test(text) || Date.now() - L.deltaAt >= 1500;
+    if(!ended && !force){ L.pT = setTimeout(() => liveFlushPartial(L, false, false), 600); return; }
+    take = text; L.partial = "";
+  }
+  const turn = { startRec: liveRec(L, L.pStart), endRec: liveRec(L, L.sockMs), stopAt: Date.now() };
+  L.pStart = Math.max(0, L.sockMs - 500);
+  livePaint();
+  liveTurnDone(L, turn, take);
+}
+
+function liveTurnDone(L, turn, text){
+  liveChain = liveChain.then(() => liveAbsorb(L, turn, text)).catch(() => {});
+}
+
+/* 말차례 하나를 구간으로 앉힌다. 그 뒤는 파일 경로와 같은 absorbText 다. */
+async function liveAbsorb(L, turn, text){
+  const t = String(text || "").trim();
+  if(!t) return;                                   // 빈 차례(헛잡은 소리)는 남기지 않는다
+  const note = await get("notes", L.noteId); if(!note) return;
+  /* 소리가 흐릿하면 모델이 고유명사 목록에서 하나를 집어 "Ben Tre." 처럼 내놓는다. 낱말 몇 개가
+     전부 목록에 있는 짧은 글은 들은 것이 아니라 되뱉은 것이다. */
+  const ser0 = note.seriesId ? findSeries(note.seriesId) : null;
+  const kwSet = new Set([...((ser0 && ser0.terms) || []), ...(note.terms || [])].map(x => normText(x)));
+  const words = t.replace(/[.,!?。…]/g, " ").trim().split(/\s+/).filter(Boolean);
+  if(kwSet.size && words.length <= 4){
+    const joined = normText(words.join(" "));
+    if(kwSet.has(joined) || words.every(w => kwSet.has(normText(w)))) return;
+  }
+  const startRec = Math.max(0, Math.round(turn.startRec || 0));
+  const endRec = Math.max(startRec + 200, Math.round(turn.endRec != null ? turn.endRec : startRec + 200));
+  const c = { id: uid(), noteId: L.noteId, seq: 1000000 + (++liveSeq), blob: null, status: "sent", src: "live",
+              live: true, offsetMs: startRec, durMs: endRec - startRec, text: "", trans: "", error: "", retry: 0,
+              created: Date.now(), keepAudio: false, stopAt: turn.stopAt || 0 };
+  const sibs = (await byIndex("chunks","note",L.noteId)).sort(chunkOrder);
+  const before = sibs.filter(s => chunkOrder(s, c) < 0);
+  CFG.lastTarget = note.target || "";
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
+  const prompt = sttPrompt(note.ctx, terms);       // 되뱉기 판정에 파일 경로와 같은 잣대를 쓴다
+  await put("chunks", c);
+  try{
+    await absorbText(c, note, t, before, prompt);
+    c.status = "done"; c.error = ""; c.nextAt = 0;
+  }catch(err){
+    /* 통역이 실패했다. 원문은 있으니 큐에 되돌려 통역만 다시 하게 한다(drain 의 c.live 분기). */
+    c.text = c.text || t; c.error = err.message || String(err);
+    c.status = "pending"; c.retry = 0; c.nextAt = Date.now() + 3000;
+  }
+  c.doneAt = Date.now(); syncDirty = true;
+  await put("chunks", c);
+  renderIfOpen(c.noteId); paintStrips();
+  if(c.status === "pending") setTimeout(drain, 3200);
+  if(recording && activeNote && activeNote.id === c.noteId){
+    lastChunkAt = Date.now(); paintShelf();
+    maybeLiveSum(await byIndex("chunks", "note", c.noteId));
+  }
+}
+
+/* 듣는 중인 글자를 화면 아래 줄에 보인다. 글자마다 화면을 다시 그리지는 않는다. */
+let livePaintT = 0;
+function livePaint(){
+  const L = live;
+  if(!L || openId !== L.noteId) return;
+  const txt = L.partial ? "듣는 중 · " + L.partial.slice(-160) : "듣는 중…";
+  const el = document.querySelector("#pane-raw .livepart");
+  if(el){ el.textContent = txt; return; }
+  if(Date.now() - livePaintT < 600) return;
+  livePaintT = Date.now(); renderIfOpen(L.noteId);
+}
+
+/* 사전 자료에서 고유명사가 뒤늦게 뽑히면 소켓에도 알려 준다. */
+async function liveRefresh(noteId){
+  const L = live;
+  if(!L || L.noteId !== noteId || !L.ws || L.ws.readyState !== 1) return;
+  const note = await get("notes", noteId); if(!note) return;
+  L.note = note;
+  try{ L.ws.send(JSON.stringify({ type:"session.update", session: liveSession(note) })); }catch(e){}
+}
+
+/* 녹음이 끝난다. 열린 말차례는 마무리하라고 하고, 그 글이 올 시간을 준 뒤 닫는다. */
+function liveStop(){
+  const L = live;
+  if(!L || L.closed) return;
+  L.closed = true;
+  if(L.pingT){ clearInterval(L.pingT); L.pingT = null; }
+  if(L.fast && L.partial) liveFlushPartial(L, false, true);
+  if(L.ws && L.ws.readyState === 1){
+    try{ if(L.turn && !L.fast) L.ws.send(JSON.stringify({ type:"input_audio_buffer.commit" })); }catch(e){}
+    const ws = L.ws;
+    setTimeout(() => { try{ ws.close(); }catch(e){} }, 2500);
+  }
+  liveCoverEnd(L);
+}
+
+/* 브라우저(컴퓨터)에서는 마이크·탭 소리를 웹 오디오로 받아 같은 모양의 조각으로 만든다.
+   16kHz 로 내리고, 네이티브와 같은 잣대(잡음 바닥의 2.2배)로 조용함을 판정한다. */
+let webFeed = null;
+function liveWebFeed(stream){
+  liveWebStop();
+  if(!stream || !liveWanted()) return;
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ac = new Ctx();
+    const src = ac.createMediaStreamSource(stream);
+    const proc = ac.createScriptProcessor(4096, 1, 1);
+    const mute = ac.createGain(); mute.gain.value = 0;   // 목적지에 이어야 도는데, 소리가 나가면 되울린다
+    const W = webFeed = { ac, proc, src, recMs: 0, floor: 900 };
+    const ratio = ac.sampleRate / 16000;
+    proc.onaudioprocess = e => {
+      if(!recording || paused) return;
+      const x = e.inputBuffer.getChannelData(0);
+      const m = Math.floor(x.length / ratio), o = new Int16Array(m);
+      let ss = 0;
+      for(let k = 0; k < m; k++){
+        const v = Math.max(-1, Math.min(1, x[Math.floor(k * ratio)]));
+        const s = v < 0 ? v * 32768 : v * 32767; o[k] = s; ss += s * s;
+      }
+      const rms = Math.sqrt(ss / m);
+      if(rms < W.floor) W.floor = W.floor * 0.9 + rms * 0.1; else W.floor = W.floor * 0.995 + rms * 0.005;
+      const quiet = rms < Math.max(220, W.floor * 2.2);
+      const u = new Uint8Array(o.buffer); let b = "";
+      for(let i = 0; i < u.length; i += 0x2000) b += String.fromCharCode.apply(null, u.subarray(i, i + 0x2000));
+      const durMs = m * 1000 / 16000;
+      if(live) liveFrame(live, { data: btoa(b), atMs: W.recMs, durMs, rms, quiet });
+      W.recMs += durMs;
+    };
+    src.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+  }catch(e){ webFeed = null; }
+}
+function liveWebStop(){
+  const W = webFeed; webFeed = null;
+  if(!W) return;
+  try{ W.proc.disconnect(); W.src.disconnect(); }catch(e){}
+  try{ W.ac.close(); }catch(e){}
+}
+
 /* 네이티브가 남겨 둔 구간 파일을 받아 저장하고 지운다.
    저장이 끝난 뒤에야 지우므로, 중간에 앱이 잠들거나 죽어도 그 구간은 살아남는다. */
 let taking = new Set();
@@ -6922,7 +7467,7 @@ async function takeChunk(noteId, status, ev){
   try{
     const r = await Native.read({ name });
     if(r && r.data){
-      await saveChunk(noteId, ev.seq, b64ToBlob(r.data, "audio/wav"), status, ev.offsetMs, name);
+      await saveChunk(noteId, ev.seq, b64ToBlob(r.data, "audio/wav"), status, ev.offsetMs, name, ev.durMs);
       await Native.discard({ name });
     }
   }catch(e){ /* 다음 회수 때 다시 시도한다 */ }
@@ -6967,6 +7512,7 @@ addEventListener("focus", ()=>{ sweepChunks(); drain(); });
 function dropSubs(){
   if(nativeSub){ nativeSub.remove(); nativeSub=null; }
   if(nativeErrSub){ nativeErrSub.remove(); nativeErrSub=null; }
+  if(nativePcmSub){ nativePcmSub.remove(); nativePcmSub=null; }
 }
 
 /* 일시정지. 네이티브는 서비스가 마이크를 놓고 진행 중이던 청크를 즉시 닫는다.
@@ -6977,6 +7523,7 @@ async function togglePause(){
   if(!paused){
     paused = true; pauseAt = Date.now();
     ttsStop();
+    if(live && live.turn) liveCut(live);   // 멈추기 전까지의 말을 지금 받아 적게 한다
     if(NATIVE){ try{ await Native.pause(); }catch(e){ toast(e.message||"일시정지 실패"); } }
     else {
       clearTimeout(recTimer);
@@ -7212,6 +7759,8 @@ async function startRecording(){
       await takeChunk(noteId, status, ev);
     });
     nativeErrSub = await Native.addListener("recError", ev => toast(ev.message));
+    // 실시간 전사용 소리 조각. 리스너는 start() 보다 먼저 건다 (chunk 와 같은 까닭)
+    try{ nativePcmSub = await Native.addListener("pcm", ev => { if(live) liveFrame(live, ev); }); }catch(e){ nativePcmSub = null; }
     try{
       /* 대화 모드는 호흡이 다르다. 30초를 기다렸다 통역하면 대화가 안 된다.
          짧게 끊고, 말이 멎는 자리도 더 민감하게 잡는다. */
@@ -7222,6 +7771,7 @@ async function startRecording(){
         maxChunkMs: Math.round(ch * 1.5),
         silenceHoldMs: mode === "talk" ? 500 : 700
       });
+      liveOpen(activeNote);
     }catch(e){
       toast(e.message || "녹음을 시작할 수 없습니다.");
       recording = false; clearInterval(tickTimer);
@@ -7232,6 +7782,8 @@ async function startRecording(){
       return;
     }
   } else {
+    liveWebFeed(stream);
+    liveOpen(activeNote);
     nextSegment();
   }
   holdAwake("rec", true, false);   // 녹음은 설정을 따른다. 90분씩 가기 때문이다.
@@ -7422,11 +7974,14 @@ function nextSegment(){
   rec = mime ? new MediaRecorder(stream,{mimeType:mime}) : new MediaRecorder(stream);
   const parts = [];
   rec.ondataavailable = e => { if(e.data && e.data.size) parts.push(e.data); };
+  const segStart = webFeed ? webFeed.recMs : webOffset;   // 실시간 조각과 같은 시계로 잰다
   rec.onstop = async () => {
     if(parts.length){
       const blob = new Blob(parts, { type: rec.mimeType || "audio/webm" });
-      await saveChunk(activeNote.id, seq++, blob, modeDoes().live ? "pending" : "held", webOffset);
-      webOffset += (mode === "talk" ? 9000 : +CFG.chunk);
+      const segEnd = webFeed ? webFeed.recMs : segStart + (mode === "talk" ? 9000 : +CFG.chunk);
+      await saveChunk(activeNote.id, seq++, blob, modeDoes().live ? "pending" : "held", segStart, "",
+                      Math.max(0, Math.round(segEnd - segStart)));
+      webOffset = segEnd;
     }
     if(recording){ if(!paused) nextSegment(); } else finishRecording();
   };
@@ -7436,20 +7991,35 @@ function nextSegment(){
 }
 
 let trimTick = 0;
-async function saveChunk(noteId, s, blob, status, offsetMs, src){
+async function saveChunk(noteId, s, blob, status, offsetMs, src, durMs){
   // 스무 조각마다 한 번씩 자리를 살핀다. 매번 재면 느려진다.
   if(++trimTick % 20 === 0) await trimAudio();
-  await put("chunks", { id:uid(), noteId, seq:s, blob, status, src: src || "",
-    offsetMs: (offsetMs==null ? s*(+CFG.chunk) : offsetMs),
-    text:"", trans:"", error:"", retry:0, created:Date.now(), keepAudio:false });
+  const c = { id:uid(), noteId, seq:s, blob, status, src: src || "",
+    offsetMs: (offsetMs==null ? s*(+CFG.chunk) : offsetMs), durMs: durMs || 0,
+    text:"", trans:"", error:"", retry:0, created:Date.now(), keepAudio:false };
+  if(status === "pending" && durMs && offsetMs != null){
+    if(liveCovers(noteId, offsetMs, offsetMs + durMs)){
+      /* 이 시간대는 실시간 소켓이 이미 받아 적었다. 파일은 전사하지 않는다.
+         소리는 화자 분리에 쓸 때만 남긴다 — 큐가 전사 뒤에 하는 것과 같다. */
+      c.status = "done"; c.skip = "live"; c.doneAt = Date.now();
+      c.blob = CFG.diar === "1" ? blob : null;
+    } else {
+      /* 실시간이 덮지 못한 구멍이 있다. 파일이 이 시간대를 맡는다. 거기 앉았던 실시간 구간은
+         지우고, 그중에 이미 읽어 준 것이 있었으면 두 번 읽지 않게 표시한다. */
+      const ev = await liveEvict(noteId, offsetMs, offsetMs + durMs);
+      if(ev.spoken) c.spoken = true;
+    }
+  }
+  await put("chunks", c);
   renderIfOpen(noteId); paintStrips();
-  if(status==="pending") drain();
+  if(c.status==="pending") drain();
 }
 
 async function stopRecording(){
   if(paused){ pausedTotal += Date.now()-pauseAt; paused=false; pauseAt=0; }
   recording = false;
   ttsStop();   // 회의가 끝나면 읽던 것도 멈춘다
+  liveStop();  // 열린 말차례를 마무리하고 소켓을 닫는다
   clearTimeout(recTimer); clearInterval(tickTimer);
   $("timer").classList.remove("paused");
   if(NATIVE){
@@ -7462,6 +8032,7 @@ async function stopRecording(){
 }
 
 async function finishRecording(){
+  liveWebStop();
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   releaseOnline();
   holdAwake("rec", false, false);
@@ -7637,7 +8208,7 @@ async function importNative(){
     /* 조각 길이가 제각각이라(침묵에서 자른다) 순번만으로는 시각을 알 수 없다.
        거둬들인 뒤 길이를 재어 시각을 다시 매긴다. 이게 없으면 전사문의
        시각이 실제와 어긋나고, 나중에 원본 소리를 되짚을 수 없다. */
-    const mine = (await byIndex("chunks","note",note.id)).sort((a,b)=>a.seq-b.seq);
+    const mine = (await byIndex("chunks","note",note.id)).sort(chunkOrder);
     let acc = 0;
     for(const c of mine){
       c.offsetMs = Math.round(acc);
@@ -8071,7 +8642,7 @@ function draftHint(n, fm, sz, len){
 
 async function renderDetail(){
   const n = await get("notes", openId); if(!n) return;
-  const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
+  const cs = (await byIndex("chunks","note",openId)).sort(chunkOrder);
   $("d-title").firstChild.nodeValue = n.title;
   /* 제목을 누르면 이름과 폴더를 바꾼다. 따로 버튼을 두면 상단바가 또 붐빈다.
      제목은 누를 만한 자리이고, 실제로 누르는 사람이 있다. */
@@ -8201,14 +8772,16 @@ async function renderDetail(){
     wireDiar(n, cs);
   } else {
   if(!cs.length) raw += recording
-    ? '<div class="empty"><strong>듣고 있습니다</strong>첫 구간은 약 '+
-      Math.round(+CFG.chunk/1000)+'초 뒤에 올라옵니다. 이후 같은 간격으로 이어집니다.'+
+    ? '<div class="empty"><strong>듣고 있습니다</strong>'+
+      (liveOn(n.id) ? '말이 멎는 대로 올라옵니다.'
+                    : '첫 구간은 약 '+Math.round(+CFG.chunk/1000)+'초 뒤에 올라옵니다. 이후 같은 간격으로 이어집니다.')+
       (n.target ? '' : '<br>통역할 언어를 "통역 안 함"으로 두어 통역과 읽어주기는 하지 않습니다.')+
       '</div>'
     : '<div class="empty">구간이 없습니다.</div>';
   for(const c of cs){
     /* 녹음 중에는 재생을 그리지 않는다. 스피커로 틀면 마이크가 되받아
        그 구간이 통째로 다시 전사된다. */
+    if(c.skip === "live" && !c.text) continue;   // 실시간 구간이 그 시간대를 이미 적었다
     const canPlay = !!c.blob && !recording;
     raw += '<div class="seg '+c.status+'" data-seg="'+c.id+'"><div class="gutter"><span class="mark"></span>'+
       mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+
@@ -8231,6 +8804,9 @@ async function renderDetail(){
     }
     raw += '</div></div>';
   }
+  if(recording && liveOn(n.id))
+    raw += '<div class="seg pending"><div class="gutter"><span class="mark"></span></div><div class="body">'+
+      '<div class="pending livepart">'+esc(live.partial ? "듣는 중 · " + live.partial.slice(-160) : "듣는 중…")+'</div></div></div>';
   raw += '</div>';
   $("pane-raw").innerHTML = raw;
   $("pane-raw").querySelectorAll("[data-retry]").forEach(b=>b.onclick=()=>retryChunk(b.dataset.retry));
@@ -8801,7 +9377,8 @@ async function autoBackup(){
     if(!notes.length) return;
     const chunks = (await all("chunks")).map(c=>({
       id:c.id, noteId:c.noteId, seq:c.seq, status:c.status==="done"?"done":c.status,
-      offsetMs:c.offsetMs, text:c.text, trans:c.trans, created:c.created
+      offsetMs:c.offsetMs, durMs:c.durMs||0, skip:c.skip||"", src:c.src||"",
+      text:c.text, trans:c.trans, created:c.created
     }));
     const payload = { kind:"meetnote-backup", version:1, at:Date.now(), auto:true,
       settings:{ stt:CFG.stt, doc:CFG.doc, trans:CFG.trans, vision:CFG.vision,
@@ -8824,7 +9401,8 @@ async function exportBackup(){
   const notes = await all("notes");
   const chunks = (await all("chunks")).map(c=>({
     id:c.id, noteId:c.noteId, seq:c.seq, status:c.status==="done"?"done":c.status,
-    offsetMs:c.offsetMs, text:c.text, trans:c.trans, created:c.created
+    offsetMs:c.offsetMs, durMs:c.durMs||0, skip:c.skip||"", src:c.src||"",
+    text:c.text, trans:c.trans, created:c.created
   }));
   const payload = {
     kind: "meetnote-backup", version: 1, at: Date.now(),
@@ -9058,7 +9636,7 @@ function wavHead(dataLen, rate){
 const AUDIO_PART_SEC = 600;
 
 async function saveAudio(n, cs){
-  const withAudio = cs.filter(c=>c.blob).sort((a,b)=>a.seq-b.seq);
+  const withAudio = cs.filter(c=>c.blob).sort(chunkOrder);
   if(!withAudio.length){
     toast("이 회의에는 녹음이 남아 있지 않습니다. 전사가 끝나면 지우는 것이 기본입니다. "+
           "다음 회의를 시작할 때 「끝난 뒤 녹음 파일」을 「남김」으로 두면 남습니다.", 9000);
@@ -9170,7 +9748,7 @@ async function saveAudio(n, cs){
 
 async function exportNote(){
   const n = await get("notes", openId);
-  const cs = (await byIndex("chunks","note",openId)).sort((a,b)=>a.seq-b.seq);
+  const cs = (await byIndex("chunks","note",openId)).sort(chunkOrder);
   migrateDocs(n);
   const p = exportPieces(n, cs, (n.docs||[]).find(x=>x.id===n.openDoc) || null);
 
@@ -9445,6 +10023,7 @@ async function primeTerms(noteId, brief){
   if(!n) return;
   n.terms = terms;
   await put("notes", n);
+  liveRefresh(noteId);
   if(n.seriesId){
     const s = findSeries(n.seriesId);
     if(s){
@@ -9934,6 +10513,8 @@ $("tab-raw").onclick = ()=>{ curTab="raw"; $("tab-raw").classList.add("on"); $("
   $("pane-raw").style.display=""; $("pane-doc").style.display="none"; };
 $("btn-settings").onclick = ()=>{
   $("s-oai").value=CFG.oai; $("s-stt").value=CFG.stt;
+  $("s-live").value = CFG.live === "0" ? "0" : (CFG.liveFast === "1" ? "fast" : "1");
+  $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss;
   $("s-livesum").value=CFG.liveSum || "1";
@@ -9967,7 +10548,9 @@ $("s-lat").onclick = ()=>{
       [w("소리 올리기", old.up, "회선이 느리면 여기가 큽니다."),
        w("서버가 답할 때까지", old.srv, "여기가 크면 구간을 짧게 하는 것이 답입니다."),
        w("통역 전체", old.trans, "예전에는 이만큼을 다 기다린 뒤에야 읽어 주었습니다."),
-       w("통역 첫 문장까지", old.first, "지금은 여기서 읽기 시작합니다.")].join("\n")
+       w("통역 첫 문장까지", old.first, "지금은 여기서 읽기 시작합니다."),
+       w("말이 멎고 전사까지 (실시간)", old.stt, "실시간 소켓이 받아 적기까지입니다."),
+       w("말이 멎고 귀에 들리기까지 (실시간)", old.live, "5초 안이 목표입니다.")].join("\n")
       + ((old.trans && old.first) ? "\n\n다 기다리지 않아 아낀 시간: 약 "
           + ((old.trans - old.first)/1000).toFixed(1) + "초" : "")
       + (old.calls ? "\n통역을 다시 부른 구간: " + old.trans2 + " / " + old.calls : ""),
@@ -9979,7 +10562,9 @@ $("s-lat").onclick = ()=>{
     ["소리 올리기", lat.up, "회선이 느리면 여기가 크다. 그러면 소리를 줄여 올리는 것이 답이다."],
     ["서버가 답할 때까지", lat.srv, "여기가 크면 구간을 짧게 하거나 앞질러 보내는 것이 답이다."],
     ["통역 전체", lat.trans, "예전에는 이만큼을 다 기다린 뒤에야 읽어 주었다."],
-    ["통역 첫 문장까지", lat.first, "지금은 여기서 읽기 시작한다. 위 값과의 차이가 줄어든 시간이다."]
+    ["통역 첫 문장까지", lat.first, "지금은 여기서 읽기 시작한다. 위 값과의 차이가 줄어든 시간이다."],
+    ["말이 멎고 전사까지 (실시간)", lat.stt, "실시간 소켓이 받아 적기까지. 파일 경로에는 없는 값이다."],
+    ["말이 멎고 귀에 들리기까지 (실시간)", lat.live, "말이 멎은 뒤 첫 통역 문장이 읽히기까지. 5초 안이 목표다."]
   ];
   const body = rows.map(([k, a, why]) => {
     const m = latMid(a);
@@ -10256,6 +10841,8 @@ $("backupin").onchange = e => { const f=e.target.files[0]; if(f) importBackup(f)
 $("s-save").onclick = ()=>{
   CFG.oai=$("s-oai").value.trim();
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
+  { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
+  CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim();
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;

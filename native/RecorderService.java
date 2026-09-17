@@ -40,8 +40,22 @@ public class RecorderService extends Service {
 
     public interface ChunkListener { void onChunk(File file, int seq, long offsetMs, int durMs); }
     public interface ErrorListener { void onError(String message); }
+    /**
+     * 실시간 전사용 소리 조각. 파일과 별개로, 읽는 즉시 화면 쪽으로 넘긴다.
+     *
+     * 파일 경계(15~45초)를 기다리면 통역이 그만큼 늦는다. 그래서 4096바이트(128ms)를 읽을 때마다
+     * 그대로 넘겨 화면 쪽이 OpenAI 실시간 소켓에 흘려 넣게 한다. 녹음 스트림은 건드리지 않는다 —
+     * 같은 버퍼를 파일에 쓰고 나서 한 번 더 넘길 뿐이다.
+     *
+     * 화면이 잠들면 넘긴 조각이 어디로도 못 가고 다리(bridge)에 쌓인다. 128ms 마다 7KB 니 한 시간이면
+     * 200MB 다. 그래서 화면 쪽이 1초마다 livePing 으로 살아 있음을 알려야만 넘긴다. 4초 동안
+     * 소식이 없으면 그친다. 그 사이의 말은 파일이 맡는다 — 잃어버리는 것이 아니라 늦어질 뿐이다.
+     */
+    public interface PcmListener { void onPcm(String b64, long atMs, int durMs, double rms, boolean quiet); }
     public static ChunkListener listener;
     public static ErrorListener errorListener;
+    public static PcmListener pcmListener;
+    public static volatile long livePingAt = 0;
 
     private AudioRecord audio;
     private Thread worker;
@@ -222,6 +236,16 @@ public class RecorderService extends Service {
                     boolean quiet = rms < Math.max(220.0, noiseFloor * 2.2);
                     long bufMs = (long) (n / 2) * 1000L / RATE;
                     silentMs = quiet ? silentMs + bufMs : 0;
+
+                    // 실시간 전사 — 화면 쪽이 살아 있을 때만 넘긴다 (위 PcmListener 설명 참고)
+                    PcmListener pl = pcmListener;
+                    if (pl != null && System.currentTimeMillis() - livePingAt < 4000L) {
+                        long atMs = recordedMs + (long) (curSamples - n / 2) * 1000L / RATE;
+                        try {
+                            pl.onPcm(android.util.Base64.encodeToString(buf, 0, n, android.util.Base64.NO_WRAP),
+                                     atMs, (int) bufMs, rms, quiet);
+                        } catch (Exception ignored) { }
+                    }
 
                     boolean sentenceEnd = curSamples >= minSamples && silentMs >= silenceHoldMs;
                     boolean tooLong = curSamples >= maxSamples;

@@ -23,6 +23,8 @@ import java.io.FileInputStream;
  *   const { Recorder } = Capacitor.Plugins;
  *   Recorder.addListener('chunk', ev => { ev.seq, ev.offsetMs, ev.durMs, ev.data(base64 wav) });
  *   Recorder.addListener('recError', ev => ev.message);
+ *   Recorder.addListener('pcm', ev => { ev.data(base64 16kHz PCM16 128ms), ev.atMs, ev.durMs, ev.rms, ev.quiet });
+ *       // 실시간 전사용. 1초마다 Recorder.livePing() 을 불러야 온다 (RecorderService.PcmListener 참고)
  *   await Recorder.start({ chunkMs: 30000 });
  *   await Recorder.pause();  await Recorder.resume();  await Recorder.stop();
  */
@@ -90,6 +92,16 @@ public class RecorderPlugin extends Plugin {
             notifyListeners("recError", err);
         };
 
+        RecorderService.pcmListener = (b64, atMs, durMs, rms, quiet) -> {
+            JSObject ev = new JSObject();
+            ev.put("data", b64);
+            ev.put("atMs", atMs);
+            ev.put("durMs", durMs);
+            ev.put("rms", rms);
+            ev.put("quiet", quiet);
+            notifyListeners("pcm", ev);
+        };
+
         Intent i = new Intent(getContext(), RecorderService.class);
         i.putExtra("chunkMs", chunkMs);
         i.putExtra("minChunkMs",   call.getLong("minChunkMs",   chunkMs / 2));
@@ -145,6 +157,13 @@ public class RecorderPlugin extends Plugin {
         call.resolve();
     }
 
+    /** 화면 쪽이 살아 있다는 신호. 이것이 4초 끊기면 서비스가 pcm 조각을 넘기지 않는다. */
+    @PluginMethod
+    public void livePing(PluginCall call) {
+        RecorderService.livePingAt = System.currentTimeMillis();
+        call.resolve();
+    }
+
     @PluginMethod
     public void pause(PluginCall call) {
         if (RecorderService.instance != null) RecorderService.instance.pause();
@@ -162,6 +181,7 @@ public class RecorderPlugin extends Plugin {
         if (RecorderService.instance != null) RecorderService.instance.stopAll();
         RecorderService.listener = null;
         RecorderService.errorListener = null;
+        RecorderService.pcmListener = null;
         call.resolve();
     }
 

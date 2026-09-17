@@ -72,8 +72,11 @@ public class TtsPlugin extends Plugin {
         final File file; final boolean left;
         /** both: 두 귀 모두(가운데). speaker: 이어폰이 꽂혀 있어도 폰 스피커로. */
         final boolean both, speaker;
-        PanJob(File f, boolean l) { this(f, l, false, false); }
-        PanJob(File f, boolean l, boolean b, boolean s) { file = f; left = l; both = b; speaker = s; }
+        /** 소리 크기 0.05~1. 좌우 나눠 들을 때 한쪽만 줄일 수 있게 — 오픈형 이어폰은 소리가
+         *  귀 밖으로도 새므로, 크게 안 들어도 되는 쪽을 줄이면 상대 귀로 건너가는 것이 준다. */
+        final float gain;
+        PanJob(File f, boolean l) { this(f, l, false, false, 1f); }
+        PanJob(File f, boolean l, boolean b, boolean s, float g) { file = f; left = l; both = b; speaker = s; gain = g; }
     }
 
     @Override
@@ -128,7 +131,7 @@ public class TtsPlugin extends Plugin {
     }
 
     /** 네이티브를 고칠 때마다 올린다. 웹이 이것으로 APK 가 오래됐는지 안다. */
-    static final String NATIVE_BUILD = "2026-09-14";
+    static final String NATIVE_BUILD = "2026-09-17";
 
     @PluginMethod
     public void available(PluginCall call) {
@@ -179,11 +182,13 @@ public class TtsPlugin extends Plugin {
            베트남어를 직원에게 들려줄 때 쓴다. 엔진의 speak() 는 나갈 곳을 고를 수 없어서
            좌우 나눔과 같은 길(파일로 받아 우리 트랙으로 재생)을 탄다. */
         boolean toSpeaker = "speaker".equals(call.getString("out", ""));
+        Float gainIn = call.getFloat("gain", 1f);
+        float gain = gainIn == null ? 1f : Math.max(0.05f, Math.min(1f, gainIn));
         if (pan != 0f || toSpeaker) {
             // 좌우로 갈라 보내거나 스피커로 보낸다. 파일로 받아 우리가 직접 재생한다.
             panCancel = false;
             File out = new File(getContext().getCacheDir(), "tts-" + id + ".wav");
-            panJobs.put(id, new PanJob(out, pan < 0f, pan == 0f, toSpeaker));
+            panJobs.put(id, new PanJob(out, pan < 0f, pan == 0f, toSpeaker, gain));
             int rc = tts.synthesizeToFile(text, new Bundle(), out, id);
             if (rc != TextToSpeech.SUCCESS) { panJobs.remove(id); out.delete(); }
             JSObject res = new JSObject();
@@ -244,8 +249,12 @@ public class TtsPlugin extends Plugin {
                 src = up; n = m; outRate = OUT;
             }
 
+            if (job.gain < 0.999f) {
+                for (int i = 0; i < n; i++) src[i] = (short) Math.round(src[i] * job.gain);
+            }
             byte[] pcm = job.both ? stereoBoth(src, n) : stereoOneSide(src, n, job.left, 0);
-            String side = job.both ? "가운데" : (job.left ? "왼쪽" : "오른쪽");
+            String side = (job.both ? "가운데" : (job.left ? "왼쪽" : "오른쪽"))
+                        + (job.gain < 0.999f ? " " + Math.round(job.gain * 100) + "%" : "");
             playStereo(pcm, outRate, (job.speaker ? "폰 스피커로 " : "") + side + " 말 · 원본 " + rate + "Hz " + ch + "채널 "
                     + frames + "프레임 → " + outRate + "Hz", "music", "media", job.speaker);
         } catch (Exception e) {
