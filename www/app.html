@@ -876,7 +876,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-2";
+const APP_VERSION = "2026.09.17-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7244,7 +7244,8 @@ function liveEvent(L, e){
     L.ready = true; L.retry = 0; L.gap = true; L.ring = []; L.lastAt = -1;
     const pre = L.pre; L.pre = [];
     for(const f of pre) liveFrame(L, f);   // 열리기 전에 모아 둔 조각부터
-    paintStrips(); return;
+    paintStrips(); renderIfOpen(L.noteId);   // "듣고 있습니다" 안내가 실시간 것으로 바뀌게
+    return;
   }
   if(t === "error"){
     const m = (e.error && e.error.message) || "";
