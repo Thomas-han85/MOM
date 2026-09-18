@@ -567,6 +567,21 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
     <div class="setgroup" id="f-voice">
       <h3>읽어주는 목소리</h3>
       <p class="lead">켜고 끄는 것은 녹음 중 아래 막대의 🎧·📢 단추로 합니다. 여기서는 목소리만 맞추고 시험합니다.</p>
+      <div class="field"><label for="s-voice">목소리</label>
+        <select id="s-voice">
+          <option value="device">폰 내장 · 공짜</option>
+          <option value="openai">OpenAI · 자연스러움 · 1시간 통역 약 $0.3~0.5</option>
+        </select>
+        <p class="hint" style="margin-top:6px">랩탑(브라우저)에서 좌우 나눠 들으려면 OpenAI 를 골라야 합니다 — 브라우저 내장
+          음성은 앱이 소리에 손을 못 댑니다. 전사·통역과 같은 OpenAI 열쇠를 씁니다. 첫 소리까지 2초쯤 걸려 미리 받아 둡니다.</p></div>
+      <div class="field"><label for="s-voicename">OpenAI 목소리</label>
+        <select id="s-voicename">
+          <option value="nova">nova · 여성</option>
+          <option value="coral">coral · 여성</option>
+          <option value="alloy">alloy · 중성</option>
+          <option value="onyx">onyx · 남성</option>
+          <option value="echo">echo · 남성</option>
+        </select></div>
       <div class="field"><label for="s-ttsrate">읽기 속도</label>
         <select id="s-ttsrate">
           <option value="0.8">0.8배 · 천천히</option>
@@ -838,6 +853,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         알려 드립니다. 오픈형 이어폰(귀에 거는 것)은 소리가 귀 밖으로도 나가므로 반대쪽 사람에게
         작게 건너갑니다 — 마주 앉으면 한 사람 머리에서 시험할 때보다 훨씬 작습니다. 설정에서
         귀마다 소리 크기를 줄일 수 있습니다.<br>
+        랩탑(브라우저)에서는 설정의 목소리를 <b>OpenAI</b> 로 골라야 좌우가 갈립니다.<br>
         <b>내 것은 이어폰, 상대 것은 폰 스피커</b> — 상대 말의 번역은 내 이어폰(양쪽)으로, 내 말의
         번역은 폰 스피커로 나갑니다. 이어폰 한 짝을 상대에게 줄 필요가 없고, 이어폰이 새어도
         상관없습니다. 스피커 소리가 마이크로 되들어와도 기록에서 걸러 냅니다.<br>
@@ -888,7 +904,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.17-10";
+const APP_VERSION = "2026.09.18-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -996,6 +1012,7 @@ const DEFAULTS = { oai:"", ant:"",
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
                    chunk:"30000", gloss:"", fixes:"", people:[], series:[], stream:"1",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
+                   voice:"device", voiceName:"nova",          // 목소리: 폰 내장 / OpenAI
                    spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
@@ -2169,7 +2186,7 @@ const NativeTts = (function(){
 })();
 const HAS_WEB_TTS = ("speechSynthesis" in window) &&
                     typeof window.SpeechSynthesisUtterance === "function";
-const TTS_OK = !!NativeTts || HAS_WEB_TTS;
+const TTS_OK = !!NativeTts || HAS_WEB_TTS || !!(window.AudioContext || window.webkitAudioContext);
 
 /* 소리 파일을 흘려가며 푸는 네이티브. 없으면(브라우저) 웹 방식으로 떨어진다. */
 const NativeDec = (function(){
@@ -2205,6 +2222,7 @@ function speakTrans(text, target, pan, gid, gain){
   ttsLast = text;
   noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
   ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "", gain: gain || 1 });
+  if(cloudVoiceOn()){ const jb = ttsQueue[ttsQueue.length - 1]; jb.audio = cloudFetch(jb.text).catch(() => null); }
   /* 밀린 것을 버리는 단위가 발화에서 구간으로 바뀐다.
 
      예전에는 한 구간이 발화 하나였다. 이제 한 구간이 문장 여러 개로 나뉘어 들어온다.
@@ -2225,6 +2243,55 @@ function speakTrans(text, target, pan, gid, gain){
   if(keep.size !== ttsQueue.length) ttsQueue = ttsQueue.filter(j => keep.has(j));
   ttsPump();
 }
+/* =====================================================================
+   OpenAI 음성 — 소리를 우리가 직접 튼다
+
+   폰 내장 음성은 공짜지만 브라우저(랩탑)에서는 앱이 그 소리에 손을 못 댄다. 좌우로 못 가른다.
+   OpenAI 음성(gpt-4o-mini-tts)은 소리를 PCM 으로 받아 웹 오디오로 앱이 직접 튼다 — 왼쪽·오른쪽·
+   크기를 우리가 정한다. 폰이든 랩탑이든 같은 길이다. 값은 1시간 회의의 통역 분량에 $0.3~0.5.
+   첫 소리까지 1.7~2초(9월 17일 실측)라 큐에 넣는 순간 미리 받아 둔다(j.audio).
+   폰 스피커로 보내는 것(out:"speaker")은 나갈 곳을 고를 수 있는 네이티브가 계속 맡는다.
+   ===================================================================== */
+let cloudCtx = null, cloudSrc = null;
+function cloudVoiceOn(){ return CFG.voice === "openai" && !!CFG.oai && !!(window.AudioContext || window.webkitAudioContext); }
+function cloudCtxGet(){
+  if(!cloudCtx){
+    const C = window.AudioContext || window.webkitAudioContext; if(!C) return null;
+    try{ cloudCtx = new C(); }catch(e){ return null; }
+  }
+  if(cloudCtx.state === "suspended"){ try{ cloudCtx.resume(); }catch(e){} }
+  return cloudCtx;
+}
+async function cloudFetch(text){
+  const r = await fetchT("https://api.openai.com/v1/audio/speech", { method:"POST",
+    headers:{ "Content-Type":"application/json", Authorization:"Bearer " + CFG.oai },
+    body: JSON.stringify({ model:"gpt-4o-mini-tts", voice: CFG.voiceName || "nova", input: text,
+      response_format:"pcm", speed: Math.max(0.5, Math.min(2, parseFloat(CFG.ttsRate) || 1)) }) }, 30000);
+  if(!r.ok) throw new Error("음성 " + r.status);
+  return await r.arrayBuffer();   // 24kHz 16bit 모노
+}
+/* 큐의 일감 하나를 튼다. pan -1 왼쪽 / 0 가운데 / +1 오른쪽, gain 0.05~1. 끝나면 done. */
+function cloudSpeak(j, done){
+  const p = j.audio || cloudFetch(j.text);
+  p.then(pcm => {
+    if(!pcm || !ttsBusy){ done(); return; }
+    const ac = cloudCtxGet(); if(!ac){ done(); return; }
+    const n = pcm.byteLength >> 1, dv = new DataView(pcm);
+    const buf = ac.createBuffer(2, Math.max(1, n), 24000);
+    const L = buf.getChannelData(0), R = buf.getChannelData(1);
+    const g = Math.max(0.05, Math.min(1, j.gain || 1)), pan = j.pan || 0;
+    for(let i = 0; i < n; i++){
+      const v = dv.getInt16(i * 2, true) / 32768 * g;
+      if(pan < 0) L[i] = v; else if(pan > 0) R[i] = v; else { L[i] = v; R[i] = v; }
+    }
+    const src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination);
+    src.onended = () => { if(cloudSrc === src) cloudSrc = null; done(); };
+    cloudSrc = src;
+    try{ src.start(); }catch(e){ done(); }
+  }, () => done());
+}
+function cloudStop(){ const s = cloudSrc; cloudSrc = null; if(s){ try{ s.onended = null; s.stop(); }catch(e){} } }
+
 function ttsPump(){
   if(ttsBusy || !ttsQueue.length) return;
   const j = ttsQueue.shift(); ttsBusy = true;
@@ -2234,6 +2301,11 @@ function ttsPump(){
     if(!ttsBusy) return;
     ttsBusy = false; ttsPump();
   };
+  if(cloudVoiceOn() && j.out !== "speaker"){
+    ttsWatch = setTimeout(done, Math.max(12000, j.text.length * 200));
+    cloudSpeak(j, done);
+    return;
+  }
   if(NativeTts){
     /* 낭독이 끝나기를 기다린다. 다만 신호 하나에 목을 매면 그것을 놓쳤을 때
        회의가 끝날 때까지 조용하다. 읽는 데 걸릴 만한 시간의 두 배쯤에서 강제로 푼다. */
@@ -2258,6 +2330,7 @@ function ttsStop(){
   if(ttsWatch){ clearTimeout(ttsWatch); ttsWatch = null; }
   ttsPending = null;
   ttsQueue.length = 0; ttsBusy = false;
+  cloudStop();
   if(NativeTts){ try{ NativeTts.stop(); }catch(e){} return; }
   try{ speechSynthesis.cancel(); }catch(e){}
 }
@@ -2287,6 +2360,7 @@ if(NativeTts && NativeTts.available){
 
 let ttsUnlocked = false;
 function ttsWarmup(){
+  if(cloudVoiceOn()) cloudCtxGet();   // 웹 오디오는 사람이 누른 흐름에서 깨워 둬야 뒤에 저절로 난다
   if(ttsUnlocked || CFG.tts!=="1" || !TTS_OK) return;
   ttsUnlocked = true;
   if(NativeTts) return;   // 네이티브는 잠금이 없다
@@ -2310,6 +2384,7 @@ async function ttsTest(){
             : lang.startsWith("km") ? "នេះគឺជាការសាកល្បងសំឡេង។"
             : lang.startsWith("en") ? "This is a voice test."
             : "소리가 들리면 정상이다.";
+  if(cloudVoiceOn()){ ttsQueue.push({ text: say, lang, pan: 0, gid: "test" }); ttsPump(); return; }
   if(NativeTts){
     try{
       const r = await NativeTts.speak({ text:say, lang, rate });
@@ -2335,8 +2410,17 @@ async function ttsTest(){
    기기 음성 엔진이 좌우 지정을 지키지 않는 일이 있어서, 회의를 시작하기 전에
    여기서 한 번 들어 보게 한다. 왼쪽으로 한 번, 오른쪽으로 한 번 읽는다. */
 async function ttsPanTest(){
+  /* OpenAI 음성이면 소리를 우리가 트니 폰이든 랩탑이든 같은 길로 시험한다. */
+  if(cloudVoiceOn()){
+    ttsUnlocked = true; ttsStop();
+    toast("OpenAI 음성으로 왼쪽, 그다음 오른쪽으로 읽습니다.", 4000);
+    ttsQueue.push({ text:"왼쪽에서만 들리면 정상입니다.", lang:"ko-KR", pan:-1, gid:"t1" });
+    ttsQueue.push({ text:"오른쪽에서만 들리면 정상입니다.", lang:"ko-KR", pan:1, gid:"t2" });
+    ttsPump();
+    return;
+  }
   if(!NativeTts){
-    toast("좌우 나눠 듣기는 앱(APK)에서만 됩니다. 브라우저로 열면 확인할 수 없습니다.", 6000);
+    toast("브라우저에서는 설정의 목소리를 OpenAI 로 골라야 좌우 나눠 듣기가 됩니다. 내장 음성은 앱이 소리에 손을 못 댑니다.", 7000);
     return;
   }
   if(ttsCanPan === false){
@@ -8007,7 +8091,10 @@ function paintShelf(){
     txt = last.text;
     when = last.at;
   }else{
-    txt = "숫자·날짜·금액·담당이 나오면 여기에 한 줄씩 쌓입니다";
+    /* 어느 길로 전사되고 있는지 여기서 보인다. "실시간" 이 아니면 소켓이 안 열린 것이다 —
+       옛 APK, 열쇠 없음, 소켓 끊김. 그때는 구간 파일이 닫혀야 전사되니 예전만큼 늦다. */
+    const how = (activeNote && liveOn(activeNote.id)) ? "실시간 전사 중 · " : (CFG.live === "0" ? "구간 파일 전사 · " : "구간 파일 전사(소켓 안 열림) · ");
+    txt = how + "숫자·날짜·금액·담당이 나오면 여기에 한 줄씩 쌓입니다";
   }
   el.classList.toggle("warn", kind === "warn");
   $("ls-n").textContent = num;
@@ -10634,6 +10721,7 @@ $("btn-settings").onclick = ()=>{
   $("gloss-nag").style.display = String(CFG.gloss||"").trim() ? "none" : "";
   $("s-stream").value=CFG.stream || "1";
   $("s-ttsrate").value=CFG.ttsRate;
+  $("s-voice").value=CFG.voice || "device"; $("s-voicename").value=CFG.voiceName || "nova";
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
   $("s-awake").value=CFG.awake || "1";
@@ -10863,7 +10951,12 @@ $("s-spktest").onclick = async ()=>{
 /* 좌우 나눔은 새 APK 가 있어야 한다. 예전 APK 에서 고르면 조용히 가운데로 나오므로
    고르는 그 자리에서 알려 준다. 골라 둔 값은 그대로 둔다 — APK 를 새로 깔면 살아난다. */
 if($("r-talkout")) $("r-talkout").onchange = function(){
-  if(this.value.indexOf("split") !== 0 || !NATIVE) return;
+  if(this.value.indexOf("split") !== 0) return;
+  if(!NATIVE){
+    if(!cloudVoiceOn()) toast("브라우저에서는 설정 → 읽어주는 목소리를 OpenAI 로 골라야 좌우가 갈립니다.", 7000);
+    return;
+  }
+  if(cloudVoiceOn()) return;   // OpenAI 음성은 앱이 직접 트니 APK 판과 상관없다
   if(ttsCanPan === false)
     toast("좌우 나눠 듣기는 새 APK 가 있어야 합니다. 지금 APK 로는 양쪽에서 다 들립니다. "
         + "릴리스에서 새 APK 를 받아 주세요.", 7000);
@@ -10969,6 +11062,7 @@ $("s-save").onclick = ()=>{
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
   CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
+  CFG.voice=$("s-voice").value; CFG.voiceName=$("s-voicename").value;
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
   CFG.eleven=$("s-eleven").value.trim();
