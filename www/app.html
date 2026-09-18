@@ -904,7 +904,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.18-1";
+const APP_VERSION = "2026.09.18-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -10928,6 +10928,11 @@ $("s-oaiadmin-show").onclick = ()=>{
   f.type = on ? "text" : "password"; b.textContent = on ? "숨기기" : "보기";
 };
 $("s-theme").onchange = ()=>{ CFG.theme = $("s-theme").value; saveCfg(); applyTheme(); };
+/* 목소리·속도는 고르는 순간 적용한다. 저장 전에 「소리 시험」을 누르면 옛 값으로 시험되어
+   "OpenAI 를 고르라" 는 말이 OpenAI 를 고른 채로 떴다. */
+$("s-voice").onchange = ()=>{ CFG.voice = $("s-voice").value; saveCfg(); ttsStop(); if(cloudVoiceOn()) cloudCtxGet(); };
+$("s-voicename").onchange = ()=>{ CFG.voiceName = $("s-voicename").value; saveCfg(); };
+$("s-ttsrate").onchange = ()=>{ CFG.ttsRate = $("s-ttsrate").value; saveCfg(); };
 $("s-ttstest").onclick = ttsTest;
 /* 화자 분리 모델은 고유명사 힌트를 아예 받지 않는다. 이걸 모르고 고르면
    용어집과 사전자료가 통째로 버려진 채 전사된다. 고르는 자리에서 알려 준다. */
