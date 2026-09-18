@@ -904,7 +904,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.18-2";
+const APP_VERSION = "2026.09.18-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2221,7 +2221,7 @@ function speakTrans(text, target, pan, gid, gain){
   if(nearSame(text, ttsLast)) return;
   ttsLast = text;
   noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
-  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "", gain: gain || 1 });
+  ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "", gain: gain || 1, queuedAt: Date.now() });
   if(cloudVoiceOn()){ const jb = ttsQueue[ttsQueue.length - 1]; jb.audio = cloudFetch(jb.text).catch(() => null); }
   /* 밀린 것을 버리는 단위가 발화에서 구간으로 바뀐다.
 
@@ -2295,6 +2295,7 @@ function cloudStop(){ const s = cloudSrc; cloudSrc = null; if(s){ try{ s.onended
 function ttsPump(){
   if(ttsBusy || !ttsQueue.length) return;
   const j = ttsQueue.shift(); ttsBusy = true;
+  if(j.queuedAt) latAdd("qwait", Date.now() - j.queuedAt);   // 줄에서 기다린 시간. 크면 읽기가 말을 못 따라가는 것
   const done = () => {
     if(ttsWatch){ clearTimeout(ttsWatch); ttsWatch = null; }
     ttsPending = null;
@@ -5966,7 +5967,7 @@ function transNeed(target){
 
 /* 이번 회의에서 잰 것. 어디가 느린지는 이 숫자로만 갈린다.
    화면 어디에도 자동으로 뜨지 않는다. 설정에서 눌러야 보인다. */
-let lat = { up:[], srv:[], trans:[], first:[], dur:[], stt:[], live:[], trans2:0, calls:0 };
+let lat = { up:[], srv:[], trans:[], first:[], dur:[], stt:[], live:[], qwait:[], trans2:0, calls:0 };
 const latAdd = (k, v) => { if(v > 0 && lat[k]){ lat[k].push(v); if(lat[k].length > 400) lat[k].shift(); } };
 const latMid = a => { if(!a || !a.length) return 0; const b = a.slice().sort((x,y)=>x-y); return b[b.length>>1]; };
 
@@ -5981,7 +5982,7 @@ function latSave(){
     at: Date.now(),
     up: latMid(lat.up), srv: latMid(lat.srv),
     trans: latMid(lat.trans), first: latMid(lat.first),
-    stt: latMid(lat.stt), live: latMid(lat.live),
+    stt: latMid(lat.stt), live: latMid(lat.live), qwait: latMid(lat.qwait),
     calls: lat.calls, trans2: lat.trans2
   };
   saveCfg();
@@ -6811,6 +6812,9 @@ async function absorbText(c, note, raw, before, prompt){
     const live = fresh && ((recording && activeNote && activeNote.id === c.noteId)
               || (openId === c.noteId && !recording && CFG.tts === "1" && ttsUnlocked));
     const read = s => {
+      /* 대화 모드에서 한 낱말짜리 추임새("네." "Yeah.")는 읽지 않는다. 읽는 줄이 말을 못 따라가
+         진짜 문장이 밀리는 것이 더 나쁘다. 자막에는 남는다. */
+      if(note.mode === "talk" && normText(s).length <= 4) return;
       if(viaSpk){ if(!looksUntranslated(s, tgt)) speakOut(s, TTS_LANG[tgt] || "vi-VN", c.id); }
       else speakTrans(s, tgt, pan, c.id, gain);
     };
@@ -7188,7 +7192,7 @@ function liveSession(note){
                        0.15 에서 다 잡았다. 헛잡은 차례는 빈 글로 돌아와 값만 조금 든다. */
                     turn_detection: fast ? null
                       : { type:"server_vad", threshold: 0.2, prefix_padding_ms: 300,
-                          silence_duration_ms: talk ? 450 : 550 } } } };
+                          silence_duration_ms: talk ? 600 : 550 } } } };
 }
 
 function liveOpen(note){
@@ -7460,8 +7464,32 @@ function liveFlushPartial(L, mid, force){
   liveTurnDone(L, turn, take);
 }
 
+/* 말차례 하나가 끝났다. 짧은 토막("Yeah." "네." "여러.")은 1.5초까지 붙들었다가 다음 말에 붙인다.
+   9/18 폰 대화(식당, 세 언어)에서 말차례 128개 중 절반이 이런 토막이었다 — 토막마다 따로 옮기고
+   따로 읽으니 맥락 없이 지어낸 말이 늘고 읽는 줄이 밀렸다. 다음 말이 1.5초 안에 안 오면 그대로 보낸다. */
 function liveTurnDone(L, turn, text){
+  const t = String(text || "").trim();
+  if(!t) return;
+  const words = t.split(/\s+/).filter(Boolean).length;
+  const dur = (turn.endRec || 0) - (turn.startRec || 0);
+  if(L.hold){
+    clearTimeout(L.hold.t);
+    const h = L.hold; L.hold = null;
+    turn = { startRec: h.turn.startRec, endRec: turn.endRec, stopAt: turn.stopAt };
+    text = h.text + " " + t;
+  } else if(words <= 3 && dur < 1500 && t.length < 20 && !L.closed){
+    L.hold = { turn, text: t, t: setTimeout(() => {
+      const h = L.hold; L.hold = null;
+      if(h) liveChain = liveChain.then(() => liveAbsorb(L, h.turn, h.text)).catch(() => {});
+    }, 1500) };
+    return;
+  }
   liveChain = liveChain.then(() => liveAbsorb(L, turn, text)).catch(() => {});
+}
+function liveHoldFlush(L){
+  const h = L && L.hold; if(!h) return;
+  clearTimeout(h.t); L.hold = null;
+  liveChain = liveChain.then(() => liveAbsorb(L, h.turn, h.text)).catch(() => {});
 }
 
 /* 말차례 하나를 구간으로 앉힌다. 그 뒤는 파일 경로와 같은 absorbText 다. */
@@ -7536,6 +7564,7 @@ function liveStop(){
   L.closed = true;
   if(L.pingT){ clearInterval(L.pingT); L.pingT = null; }
   if(L.fast && L.partial) liveFlushPartial(L, false, true);
+  liveHoldFlush(L);
   if(L.ws && L.ws.readyState === 1){
     try{ if(L.turn && !L.fast) L.ws.send(JSON.stringify({ type:"input_audio_buffer.commit" })); }catch(e){}
     const ws = L.ws;
@@ -10765,7 +10794,8 @@ $("s-lat").onclick = ()=>{
     ["통역 전체", lat.trans, "예전에는 이만큼을 다 기다린 뒤에야 읽어 주었다."],
     ["통역 첫 문장까지", lat.first, "지금은 여기서 읽기 시작한다. 위 값과의 차이가 줄어든 시간이다."],
     ["말이 멎고 전사까지 (실시간)", lat.stt, "실시간 소켓이 받아 적기까지. 파일 경로에는 없는 값이다."],
-    ["말이 멎고 귀에 들리기까지 (실시간)", lat.live, "말이 멎은 뒤 첫 통역 문장이 읽히기까지. 5초 안이 목표다."]
+    ["말이 멎고 귀에 들리기까지 (실시간)", lat.live, "말이 멎은 뒤 첫 통역 문장이 읽기 줄에 서기까지. 5초 안이 목표다."],
+    ["읽기 줄에서 기다림", lat.qwait, "읽어 줄 차례가 오기까지. 크면 말이 읽기보다 빠른 것이다 — 읽기 속도를 올리거나 상대 말만 읽는다."]
   ];
   const body = rows.map(([k, a, why]) => {
     const m = latMid(a);
