@@ -643,6 +643,13 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         <p class="hint" style="margin-top:6px">녹음 소리를 곧바로 실시간 소켓에도 보냅니다. 말이 멎으면 바로
           받아 적고 통역합니다. 소켓이 끊기면 그동안의 말은 아래 「전사」 모델이 구간 파일로 받아 적습니다.
           조용한 동안은 보내지 않아 값이 안 나갑니다. 폰 앱은 9월 17일 이후 APK 가 있어야 합니다.</p></div>
+      <div class="field"><label for="s-talklive">대화 모드의 실시간 전사</label>
+        <select id="s-talklive">
+          <option value="1">gpt-live-transcribe · 말하는 중에 글이 흐름 · 더 맞음 · $0.017/분</option>
+          <option value="0">회의와 같게 · gpt-transcribe · $0.0045/분</option>
+        </select>
+        <p class="hint" style="margin-top:6px">폰 대화 소리로 잰 것: 말차례 방식 0.67, 흘림 방식 0.75(통째 전사 기준 낱말 일치).
+          글이 끊기지 않고 앞뒤를 기억하며 적습니다. 대화 1시간에 약 $1.</p></div>
       <div class="field"><label for="s-pass2">회의 뒤 정리 전사 (2차)</label>
         <select id="s-pass2">
           <option value="1">켬 · 보관한 소리를 50초 창으로 다시 받아 적어 기록·회의록에 씀 · $0.0045/분</option>
@@ -911,7 +918,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.18-5";
+const APP_VERSION = "2026.09.18-6";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1030,6 +1037,7 @@ const DEFAULTS = { oai:"", ant:"",
                    talkSpk:"0",                              // 대화 모드에서 내 말의 번역을 폰 스피커로
                    live:"1", liveFast:"0",                   // 실시간 전사(소켓) · 더 빠른 모델
                    pass2:"1",                                // 회의 뒤 정리 전사(2차)
+                   talkLive:"1",                             // 대화 모드는 gpt-live-transcribe 로
                    earMine:"1", earOther:"1",                // 좌우 나눠 들을 때 귀마다 소리 크기
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
@@ -7161,7 +7169,15 @@ let liveSeq = 0;              // 실시간 구간의 순번 꼬리표. 차례는
 let liveChain = Promise.resolve();
 let nativePcmSub = null;
 
-function liveModel(){ return CFG.liveFast === "1" ? "gpt-live-transcribe" : "gpt-transcribe"; }
+/* 대화 모드는 기본이 gpt-live-transcribe 다. 9월 18일 폰 대화 6분 실측(60초 창 통째 전사 기준 낱말 F1):
+   gpt-transcribe 말차례 방식은 문턱·이득·침묵·감지 방식을 열 가지로 바꿔도 0.62~0.67 인데, 흘림 방식은 0.746 —
+   글이 끊기지 않고 앞뒤를 기억하며 적어서다. 말하는 중에 글이 흐르니 소통 감도 다르다. 값이 분당 $0.017 로
+   네 배라 회의 모드는 싼 쪽을 기본으로 두고(회의는 2차 정리 전사가 기록을 고친다), 대화만 이쪽이다. */
+function liveModel(note){
+  if(CFG.liveFast === "1") return "gpt-live-transcribe";
+  if(note && note.mode === "talk" && CFG.talkLive !== "0") return "gpt-live-transcribe";
+  return "gpt-transcribe";
+}
 function liveWanted(){ return CFG.live !== "0" && !!CFG.oai && typeof WebSocket === "function"; }
 function liveOn(noteId){ return !!(live && live.noteId === noteId && !live.closed && live.ready); }
 
@@ -7178,7 +7194,7 @@ function liveSession(note){
   /* 회의 맥락(prompt)은 넣지 않는다. 100초 시험에서 "벤쩨 병원 현장 회의" 라는 맥락이 조용한 자리에서
      두 번 그대로 전사문으로 되뱉혔다. 파일 경로가 앞 구간 꼬리를 빼면서 배운 것과 같은 일이다.
      고유명사는 낱말 목록(keywords)으로만 준다. 낱말은 문장으로 되뱉히는 일이 드물고, 되뱉혀도 liveAbsorb 가 거른다. */
-  const tr = { model: liveModel(), languages: langs };
+  const tr = { model: liveModel(note), languages: langs };
   if(kw.length) tr.keywords = kw;
   const fast = tr.model === "gpt-live-transcribe";
   if(fast) tr.delay = "low";
@@ -7203,7 +7219,7 @@ function liveOpen(note){
   const L = live = { noteId: note.id, note, ws:null, ready:false, closed:false, retry:0, openedAt:0, next:null, nextReady:null, pre:[],
     sockMs:0, segs:[], covers:[], cover:null, lastAt:-1, quietMs:0, gap:true, ring:[],
     turns:{}, turn:null, cutTurn:null, dip:0, gain:1, loudAvg:0,
-    fast: liveModel() === "gpt-live-transcribe", partial:"", pStart:0, deltaAt:0, pT:null, pingT:null };
+    fast: liveModel(note) === "gpt-live-transcribe", partial:"", pStart:0, deltaAt:0, pT:null, pingT:null };
   liveConnect(L);
   if(NATIVE && Native && Native.livePing){
     const ping = () => { if(L.ready && !L.closed){ try{ Native.livePing(); }catch(e){} } };
@@ -7441,11 +7457,14 @@ function liveEvent(L, e){
 /* 빠른 모델(gpt-live-transcribe)은 말차례를 감지하지 않고 글자를 흘려 준다.
    문장이 끝나고 잠깐 뜸이 들면 한 차례로 내보낸다. 뜸이 길면 문장이 안 끝나도 내보낸다. */
 function livePartial(L, delta){
-  if(!L.partial) L.pStart = Math.max(0, L.sockMs - 1000);
+  if(!L.partial){ L.pStart = Math.max(0, L.sockMs - 1000); L.pAt = Date.now(); }
   L.partial += delta; L.deltaAt = Date.now();
   livePaint();
   clearTimeout(L.pT); L.pT = setTimeout(() => liveFlushPartial(L, false, false), 600);
-  if(L.partial.length > 260 && sentences(L.partial).length > 1) liveFlushPartial(L, true, false);
+  /* 문장부호가 안 찍히는 말(베트남어 수다)은 끝을 못 잡아 한 토막이 30초까지 늘어졌다(9/18 시험).
+     7초가 지나면 문장이 안 끝났어도 내보낸다 — 통역이 7초 넘게 늦으면 대화가 안 된다. */
+  if(Date.now() - (L.pAt || 0) > 7000) liveFlushPartial(L, sentences(L.partial).length > 1, true);
+  else if(L.partial.length > 260 && sentences(L.partial).length > 1) liveFlushPartial(L, true, false);
 }
 function liveFlushPartial(L, mid, force){
   clearTimeout(L.pT); L.pT = null;
@@ -7457,10 +7476,14 @@ function liveFlushPartial(L, mid, force){
   else {
     const ended = /[.!?。…]\s*$/.test(text) || Date.now() - L.deltaAt >= 1500;
     if(!ended && !force){ L.pT = setTimeout(() => liveFlushPartial(L, false, false), 600); return; }
-    take = text; L.partial = "";
+    /* 흘러오는 글자는 낱말 가운데서 끊긴다("kh" + "ẳng"). 시간에 밀려 내보낼 때는 마지막 띄어쓰기에서
+       자르고 뒤 조각은 다음 토막의 머리로 남긴다. 안 그러면 "vô tr" / "ùng gì đó" 처럼 둘로 갈린다. */
+    const cut = (force && !ended) ? text.lastIndexOf(" ") : -1;
+    if(cut > 20){ take = text.slice(0, cut); L.partial = text.slice(cut + 1); }
+    else { take = text; L.partial = ""; }
   }
   const turn = { startRec: liveRec(L, L.pStart), endRec: liveRec(L, L.sockMs), stopAt: Date.now() };
-  L.pStart = Math.max(0, L.sockMs - 500);
+  L.pStart = Math.max(0, L.sockMs - 500); L.pAt = Date.now();
   livePaint();
   liveTurnDone(L, turn, take);
 }
@@ -10861,6 +10884,7 @@ $("btn-settings").onclick = ()=>{
   $("s-oai").value=CFG.oai; $("s-stt").value=CFG.stt;
   $("s-live").value = CFG.live === "0" ? "0" : (CFG.liveFast === "1" ? "fast" : "1");
   $("s-pass2").value = CFG.pass2 === "0" ? "0" : "1";
+  $("s-talklive").value = CFG.talkLive === "0" ? "0" : "1";
   $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss; $("s-fixes").value=CFG.fixes||"";
@@ -11210,7 +11234,7 @@ $("s-save").onclick = ()=>{
   CFG.oai=$("s-oai").value.trim();
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
-  CFG.pass2 = $("s-pass2").value;
+  CFG.pass2 = $("s-pass2").value; CFG.talkLive = $("s-talklive").value;
   CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
