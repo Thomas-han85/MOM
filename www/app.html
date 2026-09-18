@@ -643,6 +643,14 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         <p class="hint" style="margin-top:6px">녹음 소리를 곧바로 실시간 소켓에도 보냅니다. 말이 멎으면 바로
           받아 적고 통역합니다. 소켓이 끊기면 그동안의 말은 아래 「전사」 모델이 구간 파일로 받아 적습니다.
           조용한 동안은 보내지 않아 값이 안 나갑니다. 폰 앱은 9월 17일 이후 APK 가 있어야 합니다.</p></div>
+      <div class="field"><label for="s-pass2">회의 뒤 정리 전사 (2차)</label>
+        <select id="s-pass2">
+          <option value="1">켬 · 보관한 소리를 50초 창으로 다시 받아 적어 기록·회의록에 씀 · $0.0045/분</option>
+          <option value="0">끔 · 실시간 자막 그대로를 기록으로</option>
+        </select>
+        <p class="hint" style="margin-top:6px">실시간은 말이 멎는 자리마다 잘라 적어 빠르지만, 멀리 앉은 사람의 작은 말을
+          놓치고 앞뒤가 없어 덜 맞습니다(9월 18일 실측: 낱말의 57%). 회의가 끝나면 같은 소리를 길게 다시 들어
+          기록을 고칩니다. 자막·통역은 그대로고, 회의록은 이 글로 만듭니다. 대화 모드에는 하지 않습니다.</p></div>
       <div class="field"><label for="s-stt">전사 · 구간 파일과 불러온 음성</label>
         <select id="s-stt">
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
@@ -903,7 +911,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.18-4";
+const APP_VERSION = "2026.09.18-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1021,6 +1029,7 @@ const DEFAULTS = { oai:"", ant:"",
                    talkOut:"other",                          // 대화 모드에서 통역 소리를 어디로 보낼지
                    talkSpk:"0",                              // 대화 모드에서 내 말의 번역을 폰 스피커로
                    live:"1", liveFast:"0",                   // 실시간 전사(소켓) · 더 빠른 모델
+                   pass2:"1",                                // 회의 뒤 정리 전사(2차)
                    earMine:"1", earOther:"1",                // 좌우 나눠 들을 때 귀마다 소리 크기
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
@@ -1209,9 +1218,9 @@ function sttPrompt(ctxHint, terms){
 
    diarize 는 prompt 도 keywords 도 받지 않는다. 대신 누가 말했는지를 준다.
    30초가 넘는 소리에는 chunking_strategy 를 반드시 넣어야 한다. */
-async function sttChunk(blob, prompt, terms){
+async function sttChunk(blob, prompt, terms, modelOverride){
   if(!CFG.oai) throw new Error("OpenAI 키가 없습니다. 설정에서 입력해 주세요.");
-  const model = CFG.stt;
+  const model = modelOverride || CFG.stt;   // 정리 전사(2차)는 gpt-transcribe 로 못 박는다
   const fd = new FormData();
   const ext = (blob.type.includes("wav")?"wav":blob.type.includes("mp4")||blob.type.includes("mp4a")?"mp4":"webm");
   fd.append("file", blob, "seg."+ext);
@@ -1629,6 +1638,7 @@ function foreignScript(text){
 const SKIP_WHY = {
   quiet:  "(조용해서 건너뜀)",
   live:   "",   // 실시간 소켓이 이미 받아 적은 시간대의 파일 구간. 글은 그쪽 구간에 있다
+  pass:   "",   // 정리 전사(2차)가 다시 적은 시간대의 실시간 구간. 글은 2차 구간에 있다
   prompt: "(앞말을 되뱉은 것이라 버림)",
   repeat: "(앞 구간과 같은 말이라 버림)",
   trim:   "",   // 겹친 앞머리만 덜어 냈다. 남은 말은 그대로 있으므로 알릴 것이 없다.
@@ -6167,9 +6177,10 @@ function needUp(me, remoteU, remoteK, exists){
 async function packNote(n, u){
   const cs = (await byIndex("chunks","note",n.id)).sort(chunkOrder);
   return { v:1, u: u || 0, note: Object.assign({}, n),
-    chunks: cs.filter(c=>c.text||c.trans).map(c=>({
+    /* 2차가 비운 실시간 구간(skip:"pass")도 보낸다 — 받는 쪽이 제 것의 글을 비워야 같은 말이 두 번 남지 않는다 */
+    chunks: cs.filter(c=>c.text||c.trans||c.skip==="pass").map(c=>({
       id:c.id, seq:c.seq, offsetMs:c.offsetMs, text:c.text||"", trans:c.trans||"",
-      transVi:c.transVi||"", doneAt:c.doneAt||0, status:"done" })) };
+      transVi:c.transVi||"", doneAt:c.doneAt||0, status:"done", skip:c.skip||"" })) };
 }
 async function unpackNote(p){
   if(!p || !p.note) return;
@@ -6217,7 +6228,7 @@ async function unpackNote(p){
     if(lc){
       /* 이미 있는 구간이라도 글이 달라졌으면 새 글을 받는다(다시 전사한 경우).
          다만 녹음 파일을 쥐고 있는 기기(녹음한 쪽)의 구간은 건드리지 않는다 — 그쪽이 원본이다. */
-      if(!lc.blob && (lc.text !== c.text || lc.trans !== c.trans || (lc.transVi||"") !== (c.transVi||"")))
+      if(!lc.blob && (lc.text !== c.text || lc.trans !== c.trans || (lc.transVi||"") !== (c.transVi||"") || (lc.skip||"") !== (c.skip||"")))
         await putRaw("chunks", Object.assign({}, lc, c, { noteId: id }));
       continue;
     }
@@ -7176,10 +7187,12 @@ function liveSession(note){
     audio:{ input:{ format:{ type:"audio/pcm", rate: LIVE_RATE },
                     noise_reduction: null,     // 실측: 잡음 제거를 켜면 낮은 소리를 침묵으로 보고 말을 놓쳤다
                     transcription: tr,
-                    /* 문턱은 낮게 잡는다. 0.4 에서는 상 위의 폰이 받는 작은 목소리를 절반 넘게 놓쳤고,
-                       0.15 에서 다 잡았다. 헛잡은 차례는 빈 글로 돌아와 값만 조금 든다. */
+                    /* 문턱 0.35. 8/27 녹음(조용한 회의실)에서는 0.15 가 가장 많이 잡았지만, 9/18 폰 대화(식당)
+                       에서는 0.2 → 0.35 로 올리자 60초 창 기준 전사와의 유사도가 0.535 → 0.572 로 올랐고
+                       헛잡은 차례가 줄었다. 0.5 는 0.576 으로 거의 같되 빈 차례가 더 늘었다. 소리 크기 맞추기
+                       (L.gain)가 작은 목소리를 받쳐 주므로 중간값으로 둔다. */
                     turn_detection: fast ? null
-                      : { type:"server_vad", threshold: 0.2, prefix_padding_ms: 300,
+                      : { type:"server_vad", threshold: 0.35, prefix_padding_ms: 300,
                           silence_duration_ms: talk ? 600 : 550 } } } };
 }
 
@@ -7601,6 +7614,102 @@ function liveWebStop(){
   if(!W) return;
   try{ W.proc.disconnect(); W.src.disconnect(); }catch(e){}
   try{ W.ac.close(); }catch(e){}
+}
+
+/* =====================================================================
+   정리 전사(2차) — 회의가 끝나면 보관한 소리를 50초 창으로 다시 받아 적는다
+
+   9월 18일 폰 대화 6분으로 잰 것: 실시간 말차례가 받아 적은 낱말은 60초 창으로 통째 받아 적은 것의
+   57% 였다(문턱 0.2). 문턱·이득·침묵 길이를 여섯 가지로 바꿔도 58% 를 못 넘었다. 상 위의 폰에서
+   멀리 앉은 사람의 작은 말은 말차례 감지가 놓치고, 짧게 잘린 소리는 앞뒤가 없어 덜 맞는다.
+   길게 듣고 적는 것이 더 많이, 더 맞게 적는다.
+
+   그래서 둘로 나눈다. 실시간 경로는 자막·통역(빠름), 이 2차는 기록·회의록(정확). 회의가 끝나면
+   실시간이 덮었던 파일 조각(소리를 그대로 쥐고 있다)을 50초 안팎으로 묶어 gpt-transcribe 에 한 번 더
+   보내고, 그 글을 기록으로 앉힌다. 같은 시간대의 실시간 구간은 글을 비워 감춘다(skip:"pass" —
+   지우지 않는다. 지우면 동기화가 다른 기기의 것을 못 거둔다). 값은 분당 $0.0045 가 한 번 더 든다.
+
+   대화 모드·파일 불러오기·글 정리는 하지 않는다 — 대화는 자막이 곧 기록이고, 파일은 이미 통째로 적었다.
+   2차가 실시간보다 훨씬 짧게 나온 창(절반 미만)은 실시간을 남긴다. 통째로 놓친 창을 빈칸으로 바꾸지 않는다.
+   ===================================================================== */
+let pass2Busy = false;
+async function secondPass(noteId, onStep){
+  if(pass2Busy) return 0;
+  const note = await get("notes", noteId); if(!note) return 0;
+  if(!["live", "full", "trans", "online"].includes(note.mode)) return 0;   // 기본 회의 모드의 이름이 "live" 다
+  if(!CFG.oai || !navigator.onLine) return 0;
+  pass2Busy = true;
+  let changed = 0;
+  try{
+    const cs = (await byIndex("chunks","note",noteId)).sort(chunkOrder);
+    const files = cs.filter(c => c.src !== "live" && c.blob && c.pass === "wait");
+    if(!files.length) return 0;
+    const ser = note.seriesId ? findSeries(note.seriesId) : null;
+    const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
+    const prompt = sttPrompt(note.ctx, terms);
+    const tgt = transTarget(note);
+    // 파일 조각 경계에서 50초 안팎으로 묶는다
+    const groups = []; let g = [], gSec = 0;
+    for(const c of files){
+      const s = c.durMs ? c.durMs / 1000 : chunkSec(c);
+      if(g.length && gSec + s > 65){ groups.push(g); g = []; gSec = 0; }
+      g.push(c); gSec += s;
+    }
+    if(g.length) groups.push(g);
+    let prevText = "", prevTrans = "";
+    for(let gi = 0; gi < groups.length; gi++){
+      const grp = groups[gi];
+      if(onStep) onStep(gi, groups.length);
+      const a = grp[0].offsetMs;
+      const last = grp[grp.length - 1];
+      const b = last.offsetMs + (last.durMs || chunkSec(last) * 1000);
+      const lives = cs.filter(c => c.src === "live" && c.offsetMs != null && c.offsetMs < b && c.offsetMs + (c.durMs || 0) > a);
+      const liveText = lives.map(c => c.text || "").join(" ");
+      try{
+        const { blob } = await mergeAudio(grp);
+        const raw = await sttChunk(blob, prompt, terms, "gpt-transcribe");
+        let txt = applyFixes(dedupeInside(raw)).trim();
+        if(txt && prompt && echoOfPrompt(txt, prompt)) txt = "";
+        if(txt) txt = keepGood(txt, s => foreignScript(s) || junkLine(s));
+        if(txt){ const st = stripForeign(txt); txt = st; }
+        if(normText(txt).length < normText(liveText).length * 0.5){
+          // 2차가 훨씬 적게 적었다. 실시간을 남긴다
+          for(const c of grp){ c.pass = "kept"; }
+        } else {
+          for(const c of lives){ c.liveText = c.text; c.text = ""; c.trans = ""; c.skip = "pass"; await put("chunks", c); }
+          const head = grp[0];
+          head.text = txt; head.skip = ""; head.pass = "done"; head.status = "done"; head.quiet = false; head.echo = false;
+          if(tgt && txt){
+            const pair = prevText ? (prevTrans ? prevText.slice(-200) + "\n→ " + prevTrans.slice(-200) : prevText.slice(-200)) : "";
+            try{ head.trans = await translateChunk(txt, tgt, pair, note.ctx, null); }catch(e){ head.trans = ""; }
+          }
+          for(const c of grp.slice(1)){ c.text = ""; c.trans = ""; c.skip = "live"; c.pass = "done"; }
+          prevText = txt; prevTrans = head.trans || "";
+          changed++;
+        }
+      }catch(e){
+        for(const c of grp){ c.pass = "fail"; }
+      }
+      const keep = CFG.keepAudio === "1" || CFG.diar === "1";
+      for(const c of grp){ if(!keep) c.blob = null; c.doneAt = Date.now(); await put("chunks", c); }
+      renderIfOpen(noteId);
+    }
+    syncDirty = true;
+    return changed;
+  } finally { pass2Busy = false; }
+}
+
+/* 녹음이 끝난 뒤 2차를 돈다. 실시간의 마지막 말차례가 앉을 시간을 준 다음이다. */
+async function runSecondPass(noteId){
+  if(CFG.pass2 === "0") return;
+  try{ await liveChain; }catch(e){}
+  await new Promise(r => setTimeout(r, 3500));
+  holdAwake("pass2", true, true);
+  try{
+    const n = await secondPass(noteId, (i, t) => toast("정리 전사 " + (i + 1) + "/" + t + " — 보관한 소리를 다시 받아 적는 중", 4000));
+    if(n) toast("정리 전사를 마쳤습니다 · " + n + "창. 기록과 회의록은 이 글을 씁니다.", 6000);
+  }catch(e){ toast("정리 전사 실패: " + (e.message || e), 6000); }
+  finally{ holdAwake("pass2", false, true); }
 }
 
 /* 네이티브가 남겨 둔 구간 파일을 받아 저장하고 지운다.
@@ -8161,7 +8270,12 @@ async function saveChunk(noteId, s, blob, status, offsetMs, src, durMs){
       /* 이 시간대는 실시간 소켓이 이미 받아 적었다. 파일은 전사하지 않는다.
          소리는 화자 분리에 쓸 때만 남긴다 — 큐가 전사 뒤에 하는 것과 같다. */
       c.status = "done"; c.skip = "live"; c.doneAt = Date.now();
-      c.blob = CFG.diar === "1" ? blob : null;
+      /* 소리는 쥐고 있는다 — 회의가 끝나면 정리 전사(2차, secondPass)가 이 조각들을 50초 창으로 다시
+         받아 적는다. 2차가 끝나면 그쪽에서 놓는다. 2차를 안 하는 모드(대화 등)면 화자 분리용일 때만 남긴다. */
+      /* 회의 모드의 이름은 "live"(기본)·"full"·"trans"·"online" 이다. 대화·파일·글 정리는 뺀다. */
+      const wantPass = CFG.pass2 !== "0" && activeNote && ["live","full","trans","online"].includes(activeNote.mode);
+      if(wantPass){ c.blob = blob; c.pass = "wait"; }
+      else c.blob = CFG.diar === "1" ? blob : null;
     } else {
       /* 실시간이 덮지 못한 구멍이 있다. 파일이 이 시간대를 맡는다. 거기 앉았던 실시간 구간은
          지우고, 그중에 이미 읽어 준 것이 있었으면 두 번 읽지 않게 표시한다. */
@@ -8211,6 +8325,7 @@ async function finishRecording(){
   activeNote = null;
   refreshList();
   autoBackup();   // 저장소가 비워져도 되살릴 수 있게 글자만 내려 둔다
+  if(done) runSecondPass(done.id);   // 보관한 소리를 50초 창으로 다시 받아 적는다 (기다리지 않는다)
 
   /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
      회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
@@ -8638,6 +8753,16 @@ function wireDiar(n, cs){
   };
   const d1 = $("do-diar");   if(d1) d1.onclick = ()=> go(d1);
   const d2 = $("redo-diar"); if(d2) d2.onclick = ()=> go(d2);
+  const p2 = $("do-pass2");
+  if(p2) p2.onclick = async ()=>{
+    p2.disabled = true; p2.textContent = "정리 전사 중…";
+    try{
+      // 소리를 쥔 파일 조각을 모두 2차 대기로 돌린다 — 이미 글이 있어도 다시 적는다
+      for(const c of cs){ if(c.src !== "live" && c.blob){ c.pass = "wait"; await put("chunks", c); } }
+      await runSecondPass(n.id);
+      renderDetail();
+    }catch(e){ toast(e.message || "정리 전사 실패", 6000); p2.disabled = false; p2.textContent = "보관한 소리로 정리 전사 (2차)"; }
+  };
   const sn = $("spk-n");
   if(sn) sn.onchange = async ()=>{
     n.spkCount = Number(sn.value) || 0;
@@ -8919,6 +9044,10 @@ async function renderDetail(){
        : (hasAudio && CFG.eleven ?
         '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
        : ""))+
+      /* 보관한 소리가 있으면 정리 전사(2차)를 손으로도 돌릴 수 있다 — 회의 중 앱이 꺼졌거나,
+         2차가 생기기 전(9/18 이전)에 녹음해 둔 회의. 파일 조각을 모두 다시 받아 적는다. */
+      (hasAudio && ["live","full","trans","online"].includes(n.mode) ?
+        '<button class="bigbtn ghost" id="do-pass2" style="width:100%;margin:8px 0 0">보관한 소리로 정리 전사 (2차)</button>' : "")+
       spkPick+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
         (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸습니다. 이름을 붙이면 문서에도 그 이름으로 나옵니다."+
@@ -8979,7 +9108,7 @@ async function renderDetail(){
   for(const c of cs){
     /* 녹음 중에는 재생을 그리지 않는다. 스피커로 틀면 마이크가 되받아
        그 구간이 통째로 다시 전사된다. */
-    if(c.skip === "live" && !c.text) continue;   // 실시간 구간이 그 시간대를 이미 적었다
+    if((c.skip === "live" || c.skip === "pass") && !c.text) continue;   // 그 시간대의 글은 다른 구간에 있다
     const canPlay = !!c.blob && !recording;
     raw += '<div class="seg '+c.status+'" data-seg="'+c.id+'"><div class="gutter"><span class="mark"></span>'+
       mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+
@@ -10731,6 +10860,7 @@ $("tab-raw").onclick = ()=>{ curTab="raw"; $("tab-raw").classList.add("on"); $("
 $("btn-settings").onclick = ()=>{
   $("s-oai").value=CFG.oai; $("s-stt").value=CFG.stt;
   $("s-live").value = CFG.live === "0" ? "0" : (CFG.liveFast === "1" ? "fast" : "1");
+  $("s-pass2").value = CFG.pass2 === "0" ? "0" : "1";
   $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss; $("s-fixes").value=CFG.fixes||"";
@@ -11080,6 +11210,7 @@ $("s-save").onclick = ()=>{
   CFG.oai=$("s-oai").value.trim();
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
+  CFG.pass2 = $("s-pass2").value;
   CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
