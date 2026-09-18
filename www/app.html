@@ -645,8 +645,8 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
           조용한 동안은 보내지 않아 값이 안 나갑니다. 폰 앱은 9월 17일 이후 APK 가 있어야 합니다.</p></div>
       <div class="field"><label for="s-talklive">대화 모드의 실시간 전사</label>
         <select id="s-talklive">
-          <option value="1">gpt-live-transcribe · 말하는 중에 글이 흐름 · 더 맞음 · $0.017/분</option>
-          <option value="0">회의와 같게 · gpt-transcribe · $0.0045/분</option>
+          <option value="0">보통 · gpt-transcribe · $0.0045/분 (기본)</option>
+          <option value="1">정확도 우선 · gpt-live-transcribe · 말하는 중에 글이 흐름 · $0.017/분</option>
         </select>
         <p class="hint" style="margin-top:6px">폰 대화 소리로 잰 것: 말차례 방식 0.67, 흘림 방식 0.75(통째 전사 기준 낱말 일치).
           글이 끊기지 않고 앞뒤를 기억하며 적습니다. 대화 1시간에 약 $1.</p></div>
@@ -849,6 +849,11 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         말을 알아듣고 반대쪽으로 옮깁니다.</p>
     </div>
     <div class="field" id="talkout-field" style="display:none">
+      <label for="r-talkq">받아쓰기</label>
+      <select id="r-talkq" style="margin-bottom:12px">
+        <option value="0">보통 · gpt-transcribe · 시간당 약 $0.3</option>
+        <option value="1">정확도 우선 · gpt-live-transcribe · 말하는 중에 글이 흐름 · 시간당 약 $1</option>
+      </select>
       <label for="r-talkout">통역 소리를 어디로 보낼까요</label>
       <select id="r-talkout">
         <option value="other">상대 말만 읽기 · 이어폰을 안 나눠도 됩니다</option>
@@ -918,7 +923,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.18-6";
+const APP_VERSION = "2026.09.18-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1037,7 +1042,7 @@ const DEFAULTS = { oai:"", ant:"",
                    talkSpk:"0",                              // 대화 모드에서 내 말의 번역을 폰 스피커로
                    live:"1", liveFast:"0",                   // 실시간 전사(소켓) · 더 빠른 모델
                    pass2:"1",                                // 회의 뒤 정리 전사(2차)
-                   talkLive:"1",                             // 대화 모드는 gpt-live-transcribe 로
+                   talkLive:"0",                             // 대화 모드 정확도 우선(gpt-live-transcribe). 시간당 $1 이라 기본은 끔
                    earMine:"1", earOther:"1",                // 좌우 나눠 들을 때 귀마다 소리 크기
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
@@ -8003,7 +8008,7 @@ async function startRecording(){
     brief: $("r-brief").value.trim(), terms: [],
     wantDiar: modeDoes().diar && $("r-diar").value==="1" };
   if(talk){ CFG.talkA = activeNote.langA; CFG.talkB = activeNote.langB;
-            CFG.talkOut = $("r-talkout").value; }
+            CFG.talkOut = $("r-talkout").value; CFG.talkLive = $("r-talkq").value; }
   // 이 회의에서 고른 것을 기본값으로 삼는다. 다음에도 대개 같기 때문이다.
   CFG.tts = modeDoes().translate ? $("r-tts").value : "0";
   CFG.diar = $("r-diar").value;
@@ -10576,6 +10581,7 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-lang-a").value = CFG.talkA || "Korean";
   $("r-lang-b").value = CFG.talkB || "Vietnamese";
   $("r-talkout").value = CFG.talkOut || "other";
+  $("r-talkq").value = CFG.talkLive === "1" ? "1" : "0";
   renderSeriesPicker(""); renderPeople(); renderSeriesList();
   paintMicPicker();
   setMode("full"); openSheet(); };
