@@ -923,7 +923,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.18-7";
+const APP_VERSION = "2026.09.21-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3206,6 +3206,115 @@ async function makeByPerson(note, fullText, onStep, cache){
 
    사람이 고친 판(human)에서는 이름과 번호를 배운다. "### 솔로몬" 같은 소제목과
    첫 줄의 "44. 2026년 09월 14일" 이다. 다음 기도회에 그대로 쓴다. */
+/* ── 사람이 고친 기도회 기록에서 이름과 틀을 배운다 ──
+
+   9월 21일: 9월 14일에 고쳐 둔 이름이 이번 판에 하나도 안 실렸다. 까닭은 둘이었다.
+     · 배우는 코드가 "### 이름" 한 가지 꼴만 읽었다. 실장님은 "1. 토마스" 처럼 번호로 고쳐 쓰신다.
+       그래서 배운 이름이 0개였고(prayerNames []), 다음 판은 이름을 제 마음대로 다시 지었다(이삭 → 아이작).
+     · 틀 자체를 안 배웠다. 문서는 언제나 앱이 buildPrayerDoc 로 "## 공통 / ### 이름" 꼴로 다시 지었다.
+       고쳐 써도 다음 판이 또 앱 꼴로 나오니 매번 다시 고쳐 쓰게 된다.
+
+   그래서 이름은 네 가지 꼴에서 읽고, 틀(공통 절 머리·사람 머리 모양·글머리 기호·후속 절 머리)도 함께 배운다.
+   배운 틀은 buildPrayerDoc 가 그대로 쓴다. 사람이 고친 판이 다음 판의 본보기가 된다. */
+
+/* 사람 이름 줄인가. 짧고, 문장이 아니고, 절 이름이 아니어야 한다. */
+const PRAYER_SKIP = /공통|개인|지난|후속|기도제목|발언자\s*불명|^나눔\s*\d+$/;
+function prayerNameLine(raw){
+  let s = String(raw || "").trim();
+  if(!s) return "";
+  const m = /^(#{1,6}\s+|\d{1,2}\s*[.)]\s*|>\s*|[-*]\s+|\*\*)/.exec(s);
+  if(!m) return "";
+  s = s.slice(m[0].length).replace(/\*\*$/, "").replace(/[:：]$/, "").trim();
+  if(!s || s.length > 20) return "";
+  if(PRAYER_SKIP.test(s)) return "";
+  if(/[.?!]$/.test(s)) return "";              // 문장이다
+  if(s.split(/\s+/).length > 3) return "";     // 이름치고 길다
+  if(/[가-힣]{2,}(다|요|죠|까)$/.test(s)) return "";   // "…기도한다" 같은 맺음
+  return s;
+}
+
+/* 사람 머리 줄 다음에 항목이 오는가. 이것까지 봐야 목차 줄을 이름으로 잘못 읽지 않는다. */
+function prayerHasItemsAfter(lines, i){
+  for(let k = i + 1; k < Math.min(lines.length, i + 4); k++){
+    const t = lines[k].trim();
+    if(!t) continue;
+    return /^[-*·•]\s+/.test(t);
+  }
+  return false;
+}
+
+/* 사람이 고친 판에서 이름과 틀을 읽는다. { names:[], style:{} } */
+function readPrayerShape(text){
+  const lines = String(text || "").split("\n");
+  const names = [];
+  const style = {};
+  for(let i = 0; i < lines.length; i++){
+    const raw = lines[i], t = raw.trim();
+    if(!t) continue;
+    if(!style.common && /공통/.test(t) && /^([#>*\-]|\d)/.test(t)) style.common = t;
+    else if(!style.personLabel && /개인/.test(t) && /^([#>*\-]|\d)/.test(t) && !prayerHasItemsAfter(lines, i)) style.personLabel = t;
+    else if(!style.follow && /지난/.test(t) && /후속/.test(t)) style.follow = t;
+    const nm = prayerNameLine(t);
+    if(nm && prayerHasItemsAfter(lines, i)){
+      if(!names.includes(nm)) names.push(nm);
+      // 머리 줄과 항목 사이를 띄우는가. 이것까지 맞춰야 고쳐 쓴 판과 같아 보인다.
+      if(style.gap === undefined) style.gap = (lines[i+1] || "").trim() ? "\n" : "\n\n";
+      if(!style.personFmt){
+        if(/^#{4}/.test(t)) style.personFmt = "h4";
+        else if(/^#{3}/.test(t)) style.personFmt = "h3";
+        else if(/^#{2}/.test(t)) style.personFmt = "h2";
+        else if(/^\d{1,2}\s*[.)]/.test(t)) style.personFmt = "num";
+        else if(/^>/.test(t)) style.personFmt = "quote";
+        else if(/^\*\*/.test(t)) style.personFmt = "bold";
+      }
+    }
+    if(!style.bullet){ const b = /^([-*·•])\s+/.exec(t); if(b) style.bullet = b[1] + " "; }
+  }
+  return { names, style };
+}
+
+/* 배운 틀로 사람 머리 줄을 만든다. */
+function prayerHead(style, nm, idx){
+  switch(style && style.personFmt){
+    case "num":   return (idx + 1) + ". " + nm;
+    case "quote": return "> " + nm;
+    case "bold":  return "**" + nm + "**";
+    case "h2":    return "## " + nm;
+    case "h4":    return "#### " + nm;
+    default:      return "### " + nm;
+  }
+}
+
+/* 이 시리즈의 기도회 문서에서 다시 배운다.
+
+   시리즈에 저장된 것이 비어 있어도(9월 14일 이전 판에서 만든 회의) 문서 자체는 남아 있다.
+   사람이 고친 문서(editedAt)를 가장 믿고, 그중 가장 나중 모임 것을 본보기로 삼는다.
+   만들기 직전에 부르므로, 옛 회의만 있는 시리즈도 이번 판부터 곧바로 제 이름과 제 틀로 나온다. */
+async function learnPrayerFromDocs(note){
+  const s = note && note.seriesId ? findSeries(note.seriesId) : null;
+  if(!s) return;
+  let best = null;
+  for(const n of await all("notes")){
+    if(n.seriesId !== s.id || n.id === note.id) continue;
+    for(const d of (n.docs || [])){
+      if(d.form !== "prayer" || !d.body) continue;
+      const human = !!d.editedAt;
+      const at = n.created || 0;
+      if(!best || (human && !best.human) || (human === best.human && at > best.at))
+        best = { human, at, body: d.body };
+    }
+  }
+  if(!best) return;
+  const shape = readPrayerShape(best.body);
+  const all2 = (s.prayerNames || []).slice();
+  for(const nm of shape.names) if(!all2.includes(nm)) all2.push(nm);
+  if(all2.length) s.prayerNames = all2.slice(-30);
+  /* 틀은 사람이 고친 판에서만 배운다. 기계가 쓴 판에서 배우면 제 꼴을 제가 다시 배우는 셈이다. */
+  if(best.human && shape.style.personFmt) s.prayerStyle = shape.style;
+  if(best.human && !s.prayerSample) s.prayerSample = best.body.slice(0, 1200);
+  else if(best.human) s.prayerSample = best.body.slice(0, 1200);
+  saveCfg();
+}
 function rememberPrayer(s, n, body, human){
   const text = String(body || "").slice(0, 4000);
   s.prayerHist = (s.prayerHist || []).filter(h => h.noteId !== n.id);
@@ -3214,12 +3323,13 @@ function rememberPrayer(s, n, body, human){
   s.prayerHist = s.prayerHist.slice(-8);
   s.lastAt = Date.now();
   if(!human) return;
-  const skip = /^(발언자 불명|나눔\s*\d+|공통|사람별|지난)/;
-  const names = [...text.matchAll(/^###\s+(.+)$/gm)].map(m => m[1].trim())
-    .filter(x => x && x.length <= 20 && !skip.test(x));
+  /* 사람이 고친 판이다. 이름과 틀을 여기서 배운다 — 다음 판이 이것을 본보기로 삼는다. */
+  const shape = readPrayerShape(text);
   const all = (s.prayerNames || []).slice();
-  for(const nm of names) if(!all.includes(nm)) all.push(nm);
-  s.prayerNames = all.slice(-30);
+  for(const nm of shape.names) if(!all.includes(nm)) all.push(nm);
+  if(all.length) s.prayerNames = all.slice(-30);
+  if(shape.style.personFmt) s.prayerStyle = shape.style;
+  s.prayerSample = text.slice(0, 1200);
   const first = text.split("\n").find(l => l.trim()) || "";
   const m = /^\s*(\d{1,4})\.\s*\d{4}\s*년/.exec(first);
   if(m) s.prayerNo = { no: +m[1], at: n.created || Date.now() };
@@ -3232,8 +3342,10 @@ function prevPrayer(note){
   const at = note.created || Date.now();
   const hs = (s.prayerHist || []).filter(h => h.noteId !== note.id && h.at < at);
   if(hs.length) return hs[hs.length - 1].body;
-  // 예전 판이 남긴 한 칸. 이번 회의가 녹음되기 전에 저장된 것일 때만 믿는다.
-  if(s.prayerLast && (s.lastAt || 0) < at) return s.prayerLast;
+  /* 옛 판이 남긴 한 칸(prayerLast). 예전에는 "이번 회의가 녹음되기 전에 저장된 것" 만 믿었는데,
+     그 잣대(lastAt)는 이번 회의를 만들 때마다 지금 시각으로 덮여서 한 번 지나면 영영 안 쓰인다.
+     앞선 회의의 기록이 하나도 없을 때만 오는 자리이므로 그냥 쓴다. 없는 것보다 낫다. */
+  if(s.prayerLast) return s.prayerLast;
   return "";
 }
 
@@ -3318,11 +3430,17 @@ ${seg}`;
 function prayerMergePrompt(note, digests){
   const S = docSize(note);
   const last = prevPrayer(note);
+  const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const sample = ser && ser.prayerSample ? ser.prayerSample : "";
   return `아래는 기도회를 구간별로 훑으며 뽑아 둔 기도제목이다. 이것을 하나의 기록으로 정리한다.
 
-${note.ctx ? "상황: "+note.ctx+"\n" : ""}출력 형식은 마크다운. 아래 순서로 낸다.
+${note.ctx ? "상황: "+note.ctx+"\n" : ""}${sample ? `출력 틀은 아래 본보기를 그대로 따른다 — 절 이름, 소제목 기호, 번호 매김, 글머리 기호까지 같게.
+내용은 이번 모임 것으로 채운다. 본보기의 내용을 옮겨 적지 마라.
+"""
+${sample}
+"""
 
-첫 줄: ${prayerHeader(note)}
+` : "출력 형식은 마크다운. 아래 순서로 낸다.\n\n"}첫 줄: ${prayerHeader(note)}
 
 ## 공통 기도제목
 인도자가 함께 기도하자며 내놓은 회사·공동체 제목만. 한 사람이 자기 차례에 말한 것은 그 사람 칸에 둔다.
@@ -3376,20 +3494,34 @@ function parsePrayer(digests){
 /* 첫 줄 → 공통 → 사람마다 "### 이름" → 맨 뒤에 지난 기도제목.
    지난 제목은 화면에서 접혀 보이고, "결론만 보내기" 에는 실리지 않는다. */
 function buildPrayerDoc(parsed, followUp, note){
+  /* 틀은 사람이 고친 지난 판에서 배운 것을 쓴다(prayerStyle). 배운 것이 없으면 예전 꼴 그대로. */
+  const st = (note && note.seriesId && (findSeries(note.seriesId) || {}).prayerStyle) || null;
+  const bul = (st && st.bullet) || "- ";
+  const gap = (st && st.gap) || "\n\n";
   let out = note ? prayerHeader(note) + "\n\n" : "";
-  out += "## 공통 기도제목\n\n";
-  out += parsed.common.length ? parsed.common.map(x=>"- "+x).join("\n") : "없음";
+  out += ((st && st.common) || "## 공통 기도제목") + gap;
+  out += parsed.common.length ? parsed.common.map(x=>bul+x).join("\n") : "없음";
   out += "\n\n";
+  if(st && st.personLabel) out += st.personLabel + gap;
   const names = [...parsed.byName.keys()].filter(n=>n!=="발언자 불명");
-  for(const nm of names)
-    out += "### "+nm+"\n\n" + parsed.byName.get(nm).map(x=>"- "+x).join("\n") + "\n\n";
+  names.forEach((nm, i) => {
+    out += prayerHead(st, nm, i) + gap + parsed.byName.get(nm).map(x=>bul+x).join("\n") + "\n\n";
+  });
   if(parsed.byName.has("발언자 불명"))
-    out += "### 발언자 불명\n\n" + parsed.byName.get("발언자 불명").map(x=>"- "+x).join("\n") + "\n\n";
-  if(followUp) out += followUp.trim() + "\n";
+    out += prayerHead(st, "발언자 불명", names.length) + gap + parsed.byName.get("발언자 불명").map(x=>bul+x).join("\n") + "\n\n";
+  if(followUp){
+    let f = followUp.trim();
+    // 후속 절 머리도 배운 꼴로 바꿔 준다
+    if(st && st.follow) f = f.replace(/^[^\n]*지난[^\n]*후속[^\n]*/, st.follow);
+    out += f + "\n";
+  }
   return out.trim();
 }
 
 async function makePrayer(note, fullText, onStep, cache){
+  /* 시리즈에 저장된 이름·틀이 비어 있어도 지난 문서는 남아 있다. 만들기 직전에 거기서 다시 배운다.
+     9월 14일 이전 판으로 만든 회의만 있는 시리즈도 이번 판부터 제 이름·제 틀로 나온다. */
+  try{ await learnPrayerFromDocs(note); }catch(e){}
   const S = docSize(note);
   const parts = splitParts(fullText, S.seg);
   const outs = [];
