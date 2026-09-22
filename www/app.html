@@ -866,14 +866,17 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <label for="r-talkout">통역 소리를 어디로 보낼까요</label>
       <select id="r-talkout">
         <option value="other">상대 말만 읽기 · 이어폰을 안 나눠도 됩니다</option>
-        <option value="splitL">좌우 나눠 듣기 · 내 쪽 왼쪽</option>
-        <option value="splitR">좌우 나눠 듣기 · 내 쪽 오른쪽</option>
-        <option value="earSpk">내 것은 이어폰, 상대 것은 폰 스피커</option>
+        <option value="earSpk">이어폰 한 짝만 쓸 때 · 상대 말은 내 귀, 내 말은 폰 스피커</option>
+        <option value="splitL">좌우 나눠 듣기 · 내 쪽 왼쪽 · 두 짝을 나눠 낍니다</option>
+        <option value="splitR">좌우 나눠 듣기 · 내 쪽 오른쪽 · 두 짝을 나눠 낍니다</option>
         <option value="both">양쪽 다 읽기 · 예전 방식</option>
       </select>
       <p class="hint" style="margin-top:6px">
         <b>상대 말만 읽기</b> — 상대 말만 귀로 옵니다. 내 말의 번역은 읽지 않고 화면에만 뜨니
         상대에게 보여 주면 됩니다. 내 말을 내가 다시 들을 일이 없어 제일 덜 헷갈립니다.<br>
+        <b>이어폰 한 짝만 쓸 때</b> — 상대 말의 번역은 내 귀로, 내 말의 번역은 폰 스피커로 나갑니다.
+        무선 이어폰은 <b>한 짝만 끼면 좌우를 하나로 합쳐</b> 버리므로, 좌우 나눠 듣기를 골라 두면
+        상대에게 갈 내 말의 번역까지 내 귀로 들어옵니다. 한 짝만 쓰실 때는 이것을 고르십시오.<br>
         <b>좌우 나눠 듣기</b> — 이어폰을 한 짝씩 나눠 끼고 각자 자기 언어만 듣습니다.
         <b>두 짝을 모두 케이스에서 꺼내 귀에 꽂아야</b> 좌우가 갈립니다 —
         한 짝을 케이스에 두면 무선 이어폰이 좌우를 하나로 합쳐 버립니다.<br>
@@ -882,9 +885,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         알려 드립니다. 반대쪽에서 새면 <b>폰의 Dolby Atmos 를 끄세요</b>(설정 → 소리 및 진동 → 음질 및
         음향 효과). 갤럭시에서 확인된 원인입니다. 설정에서 귀마다 소리 크기도 줄일 수 있습니다.<br>
         랩탑(브라우저)에서는 설정의 목소리를 <b>OpenAI</b> 로 골라야 좌우가 갈립니다.<br>
-        <b>내 것은 이어폰, 상대 것은 폰 스피커</b> — 상대 말의 번역은 내 이어폰(양쪽)으로, 내 말의
-        번역은 폰 스피커로 나갑니다. 이어폰 한 짝을 상대에게 줄 필요가 없고, 이어폰이 새어도
-        상관없습니다. 스피커 소리가 마이크로 되들어와도 기록에서 걸러 냅니다.<br>
+        스피커로 나간 소리가 마이크로 되들어와도 기록에서 걸러 냅니다.<br>
         읽어 준 소리가 마이크로 되들어와도 기록에는 섞이지 않게 걸러 줍니다.</p>
     </div>
     <div class="field" id="r-tts-field"><label for="r-tts">통역 읽어주기</label>
@@ -932,7 +933,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.22-2";
+const APP_VERSION = "2026.09.22-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
