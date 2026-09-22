@@ -601,12 +601,13 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
       <div class="field"><label for="s-myen">내가 영어로 말할 때</label>
         <select id="s-myen">
-          <option value="1">내 말로 본다 · 베트남어로 옮겨 스피커로 (기본)</option>
-          <option value="0">상대 말로 본다 · 예전 방식</option>
+          <option value="1">가리지 못하면 내 말로 (기본)</option>
+          <option value="0">가리지 못하면 상대 말로</option>
         </select>
-        <p class="hint" style="margin-top:6px">현장에서 한국어와 영어를 섞어 쓰실 때를 위한 것입니다. 켜 두면 영어로 하신 말도
-          📢 스피커로 베트남어가 나가고, 그 통역이 내 귀로 되돌아오지 않습니다. 대화 모드에서는 말의 방향도 이것으로 갈립니다.
-          상대가 영어로 말하는 자리가 더 많으면 끄십시오.</p></div>
+        <p class="hint" style="margin-top:6px">실장님도 직원도 영어를 씁니다. 글만 봐서는 못 가르므로 <b>소리 크기</b>로 가립니다 —
+          폰이 실장님 손에 있으면 실장님 목소리가 더 크게 담깁니다. 이 회의의 한국어 구간과 베트남어 구간에서 잣대를 스스로
+          만들고, 영어 구간이 어느 쪽에 가까운지 봅니다. 탁자에 폰을 두어 두 목소리가 비슷하게 담기면 가리지 않고 여기서 고른 쪽을
+          따릅니다. 내 말로 갈리면 📢 스피커로 베트남어가 나가고 그 통역이 내 귀로 되돌아오지 않습니다.</p></div>
       <div class="field"><label for="s-earmine">좌우 나눠 들을 때 · 내 쪽 소리 크기</label>
         <select id="s-earmine">
           <option value="1">100%</option><option value="0.7">70%</option>
@@ -931,7 +932,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.22-1";
+const APP_VERSION = "2026.09.22-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1593,7 +1594,7 @@ function junkLine(text){
    베트남 성조 글자가 있으면 베트남어, 크메르 문자면 크메르어.
    한↔베 짝에서는 사실상 틀릴 수가 없다. 아무 표식도 없으면(라틴 글자뿐이면)
    상대 언어로 본다 — 내 말(한국어)은 한글로 확실히 잡히므로, 못 잡은 쪽은 상대다. */
-function detectLang(text, a, b){
+function detectLang(text, a, b, enMine){
   const s = String(text||"");
   const has = {
     Korean:     /[가-힯]/.test(s),
@@ -1614,7 +1615,7 @@ function detectLang(text, a, b){
      상대가 영어로 말할 때도 있다. 그때는 방향이 뒤집혀 화면에 한 줄이 엉뚱하게 뜰 뿐이지만,
      내 말이 직원에게 아예 안 가는 쪽은 대화가 끊긴다. 잃는 것이 큰 쪽을 막는다.
      설정 → 읽어주는 목소리에서 끌 수 있다. */
-  if(CFG.myEn !== "0" && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(String(text || ""))) return a;
+  if(enMine && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(String(text || ""))) return a;
   return b;                            // 표식이 없으면 상대가 말한 것으로 본다
 }
 
@@ -1751,7 +1752,46 @@ function transTarget(note){
 /* 한 구간을 내 말과 상대 말로 가른다. 문장마다 본다.
    한글이 베트남어 글자보다 많으면 내 말. 베트남어 글자가 없고 영어 낱말이 둘 넘으면 내 말.
    베트남어 성조가 있으면 직원 말. "Ok" 같은 짧은 것은 어느 쪽으로도 안 센다. */
-function splitMine(text){
+/* ── 영어는 누가 한 말인가 — 소리 크기로 가린다 ──
+
+   현장에서 실장님은 한국어와 영어를 섞어 쓰시고, 직원도 영어로 말한다. 글만 봐서는 못 가른다.
+   그런데 가를 거리가 하나 있다. 폰은 실장님 손에 있다. 그래서 실장님 목소리가 더 크게 담긴다.
+
+   잣대는 이 회의에서 스스로 만든다. 한국어 구간은 반드시 실장님 말이고 베트남어 구간은 반드시
+   직원 말이다. 그 두 무리의 소리 크기를 모아 가운뎃값을 잡아 두고, 영어 구간이 어느 쪽에
+   가까운지로 가린다. 회의실 탁자에 폰을 두어 두 무리의 크기가 비슷하면(1.25배 안쪽) 가리지
+   않고 설정값을 따른다 — 어설픈 판정보다 한결같은 쪽이 낫다.
+
+   크기는 0~1 로 맞춰 둔다. 구간 파일은 loudness() 가, 실시간은 녹음기가 준 값을 32768 로 나눠 쓴다. */
+let voiceStat = { noteId: "", mine: [], other: [] };
+const rmsMid = a => { if(!a || !a.length) return 0; const b = a.slice().sort((x, y) => x - y); return b[b.length >> 1]; };
+function noteVoice(noteId){
+  if(voiceStat.noteId !== noteId) voiceStat = { noteId, mine: [], other: [] };
+  return voiceStat;
+}
+/* 확실한 구간에서 잣대를 배운다. 한국어면 내 것, 베트남어면 상대 것. */
+function learnVoice(noteId, text, rms){
+  if(!(rms > 0) || !text) return;
+  const han = (text.match(/[가-힣]/g) || []).length;
+  const vi  = (text.match(VIET_RE) || []).length;
+  const v = noteVoice(noteId);
+  if(han >= 4 && han > vi){ v.mine.push(rms); if(v.mine.length > 40) v.mine.shift(); }
+  else if(vi >= 2 && vi > han){ v.other.push(rms); if(v.other.length > 40) v.other.shift(); }
+}
+/* 이 구간의 영어는 내 말인가. 못 가리면 설정값(CFG.myEn)을 따른다. */
+function englishIsMine(noteId, rms){
+  const back = CFG.myEn !== "0";
+  const v = noteVoice(noteId);
+  if(!(rms > 0) || v.mine.length < 3 || v.other.length < 3) return back;
+  const a = rmsMid(v.mine), b = rmsMid(v.other);
+  if(!(a > 0) || !(b > 0)) return back;
+  if(Math.max(a, b) / Math.min(a, b) < 1.25) return back;   // 두 목소리가 비슷하게 담긴다 — 못 가린다
+  const da = Math.abs(Math.log(rms / a)), db = Math.abs(Math.log(rms / b));
+  if(Math.abs(da - db) < 0.12) return back;                 // 가운데다 — 못 가린다
+  return da < db;
+}
+
+function splitMine(text, enMine){
   const mine = [], ko = [];
   for(const s of sentences(text)){
     const han = (s.match(/[가-힣]/g) || []).length;
@@ -1760,7 +1800,7 @@ function splitMine(text){
     if(han && han >= vi){ mine.push(s); ko.push(s); }
     /* 영어 문장. 실장님이 영어로 말씀하시는 일이 잦아 이것도 내 말로 본다("Yes sir" 같은 짧은 것까지).
        설정에서 끄면 예전처럼 한국어만 내 말로 본다. */
-    else if(CFG.myEn !== "0" && !vi && lat >= 6 && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s)) mine.push(s);
+    else if(enMine && !vi && lat >= 6 && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s)) mine.push(s);
   }
   return { mine: mine.join(" ").trim(), ko };
 }
@@ -6939,8 +6979,12 @@ async function absorbText(c, note, raw, before, prompt){
   /* 어느 말로 옮길 것인가.
      보통은 회의에서 정한 언어 하나다. 대화 모드에서는 구간마다 말을
      알아듣고 반대쪽으로 보낸다 — 내가 말하면 상대 언어로, 상대가 말하면 내 언어로. */
+  /* 소리 크기 잣대를 이 구간으로 배우고(한국어·베트남어일 때만), 이 구간의 영어가 누구 것인지 정한다.
+     아래 모든 갈림길이 이 하나를 본다 — 통역 방향, 스피커로 보낼 말, 내 귀로 되돌리지 않을 말. */
+  learnVoice(c.noteId, c.text, c.rms);
+  const enMine = englishIsMine(c.noteId, c.rms);
   const tgt = (note.mode === "talk" && c.text)
-    ? (detectLang(c.text, note.langA, note.langB) === note.langA ? note.langB : note.langA)
+    ? (detectLang(c.text, note.langA, note.langB, enMine) === note.langA ? note.langB : note.langA)
     : transTarget(note);
   if(tgt && c.text){
     /* 앞 구간의 원문만 넘기고 있었다. 통역기는 자기가 앞에서 그 말을 뭐라고
@@ -6992,7 +7036,7 @@ async function absorbText(c, note, raw, before, prompt){
        한국어는 통역해도 글이 거의 같아 문장 하나하나를 견줘 걸러낼 수 있었다(ownKo).
        영어는 옮기면 글이 아주 달라져 그 방법이 안 듣는다. 그래서 구간을 통째로 본다 —
        구간의 대부분이 내 말이면 그 통역은 귀로 보내지 않는다. 스피커로는 그대로 나간다. */
-    const mineNow = spkOn(note) ? splitMine(c.text) : null;
+    const mineNow = spkOn(note) ? splitMine(c.text, enMine) : null;
     const ownKo = mineNow ? mineNow.ko : [];
     if(mineNow && mineNow.mine && normText(mineNow.mine).length >= normText(c.text).length * 0.7) say = false;
     const tStart = Date.now();
@@ -7020,7 +7064,7 @@ async function absorbText(c, note, raw, before, prompt){
   /* 내 말 → 베트남어 → 폰 스피커. 지금 벌어지는 회의일 때만. 실패해도 기록은 이어간다. */
   if(c.text && spkOn(note) && recording && activeNote && activeNote.id === c.noteId
      && (Date.now() - (c.created || 0)) < 90000){
-    const mine = splitMine(c.text).mine;
+    const mine = splitMine(c.text, enMine).mine;
     if(mine){
       try{
         workingAt = Date.now();
@@ -7384,7 +7428,8 @@ function liveOpen(note){
   const L = live = { noteId: note.id, note, ws:null, ready:false, closed:false, retry:0, openedAt:0, next:null, nextReady:null, pre:[],
     sockMs:0, segs:[], covers:[], cover:null, lastAt:-1, quietMs:0, gap:true, ring:[],
     turns:{}, turn:null, cutTurn:null, dip:0, gain:1, loudAvg:0,
-    fast: liveModel(note) === "gpt-live-transcribe", partial:"", pStart:0, deltaAt:0, pT:null, pingT:null };
+    fast: liveModel(note) === "gpt-live-transcribe", partial:"", pStart:0, deltaAt:0, pT:null, pingT:null,
+    rmsLog: [] };
   liveConnect(L);
   if(NATIVE && Native && Native.livePing){
     const ping = () => { if(L.ready && !L.closed){ try{ Native.livePing(); }catch(e){} } };
@@ -7501,6 +7546,9 @@ function liveFrame(L, f){
   }
   if(!L.cover) L.cover = { a: f.atMs, b: f.atMs + f.durMs }; else L.cover.b = f.atMs + f.durMs;
   L.lastAt = f.atMs;
+  /* 말이 있는 조각의 크기만 적어 둔다. 말차례가 앉을 때 그 구간의 가운뎃값을 구해
+     "누가 말했나" 를 가리는 데 쓴다(englishIsMine). */
+  if(!f.quiet && f.rms > 0){ L.rmsLog.push({ at: f.atMs, rms: f.rms }); if(L.rmsLog.length > 900) L.rmsLog.shift(); }
 
   /* 소리 크기를 맞춘다. 상 위의 폰이 받는 소리는 작아서 서버의 말 감지가 놓친다.
      말이 있던 조각의 크기를 따라가며 -22dBFS 근처로 올린다. 여섯 배 넘게는 안 올린다. */
@@ -7697,9 +7745,12 @@ async function liveAbsorb(L, turn, text){
   }
   const startRec = Math.max(0, Math.round(turn.startRec || 0));
   const endRec = Math.max(startRec + 200, Math.round(turn.endRec != null ? turn.endRec : startRec + 200));
+  /* 이 말차례 동안의 소리 크기(가운뎃값). 구간 파일의 loudness() 와 같은 0~1 자로 맞춘다. */
+  const rr = L.rmsLog.filter(x => x.at >= startRec - 200 && x.at <= endRec + 200).map(x => x.rms);
   const c = { id: uid(), noteId: L.noteId, seq: 1000000 + (++liveSeq), blob: null, status: "sent", src: "live",
               live: true, offsetMs: startRec, durMs: endRec - startRec, text: "", trans: "", error: "", retry: 0,
-              created: Date.now(), keepAudio: false, stopAt: turn.stopAt || 0 };
+              created: Date.now(), keepAudio: false, stopAt: turn.stopAt || 0,
+              rms: rr.length ? rmsMid(rr) / 32768 : null };
   const sibs = (await byIndex("chunks","note",L.noteId)).sort(chunkOrder);
   const before = sibs.filter(s => chunkOrder(s, c) < 0);
   CFG.lastTarget = note.target || "";
