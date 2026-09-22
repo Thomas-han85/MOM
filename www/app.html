@@ -599,6 +599,14 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
       <button class="bigbtn ghost" id="s-spktest" style="width:100%;margin:0 0 10px">폰 스피커로 베트남어 시험</button>
       <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
+      <div class="field"><label for="s-myen">내가 영어로 말할 때</label>
+        <select id="s-myen">
+          <option value="1">내 말로 본다 · 베트남어로 옮겨 스피커로 (기본)</option>
+          <option value="0">상대 말로 본다 · 예전 방식</option>
+        </select>
+        <p class="hint" style="margin-top:6px">현장에서 한국어와 영어를 섞어 쓰실 때를 위한 것입니다. 켜 두면 영어로 하신 말도
+          📢 스피커로 베트남어가 나가고, 그 통역이 내 귀로 되돌아오지 않습니다. 대화 모드에서는 말의 방향도 이것으로 갈립니다.
+          상대가 영어로 말하는 자리가 더 많으면 끄십시오.</p></div>
       <div class="field"><label for="s-earmine">좌우 나눠 들을 때 · 내 쪽 소리 크기</label>
         <select id="s-earmine">
           <option value="1">100%</option><option value="0.7">70%</option>
@@ -923,7 +931,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.21-1";
+const APP_VERSION = "2026.09.22-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1033,6 +1041,7 @@ const DEFAULTS = { oai:"", ant:"",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    voice:"device", voiceName:"nova",          // 목소리: 폰 내장 / OpenAI
                    spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
+                   myEn:"1",                                 // 내가 영어로 말한 것도 "내 말" 로 본다
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1",                                // 녹음 중 화면 켜 두기
@@ -1596,6 +1605,16 @@ function detectLang(text, a, b){
   if(has[a] && has[b])  return a;      // 섞였으면 내 쪽으로 — 내가 상대 말을 인용했을 때다
   if(a === "English") return a;        // 라틴뿐인데 짝에 영어가 있으면 영어다
   if(b === "English") return b;
+  /* 한글도 베트남어 성조도 없고 라틴 글자뿐이다 — 영어다.
+
+     예전에는 이것을 "표식이 없으니 상대 말" 로 보냈다. 그런데 실장님은 현장에서 한국어와 영어를
+     섞어 쓰신다. 그 영어가 상대 말로 분류되면 정반대로 돈다 — 내 말이 한국어로 옮겨져 내 귀로
+     되돌아오고, 정작 직원에게 가야 할 베트남어는 안 나간다.
+
+     상대가 영어로 말할 때도 있다. 그때는 방향이 뒤집혀 화면에 한 줄이 엉뚱하게 뜰 뿐이지만,
+     내 말이 직원에게 아예 안 가는 쪽은 대화가 끊긴다. 잃는 것이 큰 쪽을 막는다.
+     설정 → 읽어주는 목소리에서 끌 수 있다. */
+  if(CFG.myEn !== "0" && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(String(text || ""))) return a;
   return b;                            // 표식이 없으면 상대가 말한 것으로 본다
 }
 
@@ -1711,7 +1730,7 @@ function toggleTtsLive(){
 
    현장을 돌며 직원과 말할 때, 직원 말은 내 이어폰으로 들으면 되는데 내 말을 직원에게
    들려줄 길이 없었다. 영어를 잘 못하는 직원이 많아 통역+회의록 모드가 반쪽이었다.
-   구간에서 내 말(한국어, 또는 베트남어 성조가 없는 영어 문장)만 떼어 베트남어로 옮기고
+   구간에서 내 말(한국어와 영어)만 떼어 베트남어로 옮기고
    폰 스피커로 읽는다. 내 이어폰 읽기와 따로 켜고 끈다. 폰 앱에서만 된다 — 이어폰이
    꽂힌 채 스피커로 내보내는 것은 네이티브가 한다. */
 const SPK_BUILD = "2026-09-14";
@@ -1739,7 +1758,9 @@ function splitMine(text){
     const vi  = (s.match(VIET_RE) || []).length;
     const lat = (s.match(/[A-Za-z]/g) || []).length;
     if(han && han >= vi){ mine.push(s); ko.push(s); }
-    else if(!vi && lat >= 8 && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s)) mine.push(s);
+    /* 영어 문장. 실장님이 영어로 말씀하시는 일이 잦아 이것도 내 말로 본다("Yes sir" 같은 짧은 것까지).
+       설정에서 끄면 예전처럼 한국어만 내 말로 본다. */
+    else if(CFG.myEn !== "0" && !vi && lat >= 6 && /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(s)) mine.push(s);
   }
   return { mine: mine.join(" ").trim(), ko };
 }
@@ -1782,7 +1803,8 @@ function toggleSpkLive(){
   CFG.spkVi = CFG.spkVi === "1" ? "0" : "1";
   ttsUnlocked = true;
   saveCfg(); paintLiveToggles();
-  toast(CFG.spkVi === "1" ? "내가 한 한국어·영어를 베트남어로 옮겨 폰 스피커로 읽습니다."
+  toast(CFG.spkVi === "1" ? (CFG.myEn === "0" ? "내가 한 한국어를 베트남어로 옮겨 폰 스피커로 읽습니다."
+                                              : "내가 한 한국어·영어를 베트남어로 옮겨 폰 스피커로 읽습니다.")
                           : "스피커 읽기를 껐습니다.", 3500);
 }
 
@@ -6965,8 +6987,14 @@ async function absorbText(c, note, raw, before, prompt){
 
     /* 문장 하나가 끝날 때마다 그 자리에서 읽고 자막에 올린다.
        통역기에 보낸 것은 구간 전체 한 덩이 그대로다. 기다리지 않을 뿐이다. */
-    /* 스피커로 내 말을 옮겨 줄 때는 내가 한 한국어가 내 귀로 되돌아오지 않게 한다. */
-    const ownKo = spkOn(note) ? splitMine(c.text).ko : [];
+    /* 스피커로 내 말을 옮겨 줄 때는 내가 한 말이 내 귀로 되돌아오지 않게 한다.
+
+       한국어는 통역해도 글이 거의 같아 문장 하나하나를 견줘 걸러낼 수 있었다(ownKo).
+       영어는 옮기면 글이 아주 달라져 그 방법이 안 듣는다. 그래서 구간을 통째로 본다 —
+       구간의 대부분이 내 말이면 그 통역은 귀로 보내지 않는다. 스피커로는 그대로 나간다. */
+    const mineNow = spkOn(note) ? splitMine(c.text) : null;
+    const ownKo = mineNow ? mineNow.ko : [];
+    if(mineNow && mineNow.mine && normText(mineNow.mine).length >= normText(c.text).length * 0.7) say = false;
     const tStart = Date.now();
     let partial = "", firstAt = 0;
     const onSent = t0 => {
@@ -11024,6 +11052,7 @@ $("btn-settings").onclick = ()=>{
   $("s-pass2").value = CFG.pass2 === "0" ? "0" : "1";
   $("s-talklive").value = CFG.talkLive === "0" ? "0" : "1";
   $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
+  $("s-myen").value = CFG.myEn === "0" ? "0" : "1";
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss; $("s-fixes").value=CFG.fixes||"";
   $("s-livesum").value=CFG.liveSum || "1";
@@ -11373,7 +11402,7 @@ $("s-save").onclick = ()=>{
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
   CFG.pass2 = $("s-pass2").value; CFG.talkLive = $("s-talklive").value;
-  CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value;
+  CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value; CFG.myEn=$("s-myen").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
