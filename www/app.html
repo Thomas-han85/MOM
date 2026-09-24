@@ -947,7 +947,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.24-4";
+const APP_VERSION = "2026.09.24-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1858,24 +1858,64 @@ function paintLiveToggles(){
 
    브라우저가 그것을 거부하는 일이 있다. 그때는 바뀐 척하지 않고 그대로 알린다 — 바뀐 줄 알고
    시험하면 두 조건이 같은 소리가 되어 비교가 통째로 헛것이 된다. */
+/* 마이크를 새로 열어 갈아 끼운다. 녹음은 이어지고 구간 하나만 그 자리에서 닫힌다.
+
+   applyConstraints 로 열려 있는 마이크의 손질만 바꾸려 했는데 엣지가 거부했다(9/24 실측).
+   그래서 새로 연다. 시계(webFeed.recMs)는 이어 받아야 구간 시각이 어긋나지 않는다.
+   갈아 끼우는 0.3초 동안 실시간 소켓에 소리가 안 간다 — liveFrame 이 1.5초까지는 구멍으로 안 본다. */
+async function swapMic(raw){
+  const base = { echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw };
+  let ns = null;
+  try{
+    if(CFG.micId)
+      ns = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({ deviceId:{ exact: CFG.micId } }, base) }).catch(() => null);
+    if(!ns) ns = await navigator.mediaDevices.getUserMedia({ audio: base });
+  }catch(e){ return false; }
+
+  micSwapping = true;
+  try{
+    clearTimeout(recTimer);
+    try{ if(rec && rec.state === "recording") rec.stop(); }catch(e){}
+    await new Promise(r => setTimeout(r, 250));   // 닫히던 조각이 저장될 틈
+    const keepMs = webFeed ? webFeed.recMs : webOffset;
+    const old = stream;
+    stream = ns;
+    liveWebFeed(stream);                          // 안에서 옛 것을 먼저 놓는다
+    if(webFeed) webFeed.recMs = keepMs;           // 시계는 이어 간다
+    if(old) old.getTracks().forEach(t => t.stop());
+  } finally { micSwapping = false; }
+  if(recording && !paused) nextSegment();
+  return true;
+}
+
 async function toggleMicRaw(){
   if(NATIVE){ toast("폰은 마이크를 손질하지 않습니다. 이 단추는 노트북에서만 씁니다.", 4000); return; }
   const want = CFG.micRaw === "1" ? "0" : "1";
   const raw = want === "1";
-  const t = stream && stream.getAudioTracks ? stream.getAudioTracks()[0] : null;
-  if(t){
-    try{ await t.applyConstraints({ echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw }); }
-    catch(e){}
-    const s = t.getSettings ? t.getSettings() : {};
-    const on = !!(s.noiseSuppression || s.echoCancellation || s.autoGainControl);
-    if(on === raw){
-      toast("이 브라우저는 녹음 중에 마이크 손질을 못 바꿉니다. 녹음을 끝내고 다시 시작해 주세요.", 8000);
-      return;
+  const btn = $("l-mic");
+  if(btn){ btn.disabled = true; btn.textContent = "🎙 바꾸는 중…"; }
+  try{
+    if(recording && mode !== "online"){
+      /* 먼저 열려 있는 마이크에 그냥 부탁해 본다. 되면 조각을 끊지 않아도 된다. */
+      const t = stream && stream.getAudioTracks ? stream.getAudioTracks()[0] : null;
+      let ok = false;
+      if(t){
+        try{ await t.applyConstraints({ echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw }); }catch(e){}
+        const s = t.getSettings ? t.getSettings() : {};
+        ok = !!(s.noiseSuppression || s.echoCancellation || s.autoGainControl) !== raw;
+      }
+      if(!ok && !(await swapMic(raw))){
+        toast("마이크를 다시 열지 못했습니다. 녹음을 끝내고 설정에서 바꿔 주세요.", 8000);
+        return;
+      }
     }
+    CFG.micRaw = want; saveCfg();
+    toast(raw ? "마이크를 원음 그대로 받습니다. 스피커로 읽어 주면 되울 수 있으니 이어폰을 쓰세요."
+              : "마이크 손질을 켰습니다 · 에코 제거·잡음 억제·자동 음량", 4500);
+  } finally {
+    if(btn) btn.disabled = false;
+    paintLiveToggles();
   }
-  CFG.micRaw = want; saveCfg(); paintLiveToggles();
-  toast(raw ? "마이크를 원음 그대로 받습니다. 스피커로 읽어 주면 되울 수 있으니 이어폰을 쓰세요."
-            : "마이크 손질을 켰습니다 · 에코 제거·잡음 억제·자동 음량", 4500);
 }
 
 function toggleSpkLive(){
@@ -8578,6 +8618,7 @@ function nextSegment(){
                       Math.max(0, Math.round(segEnd - segStart)));
       webOffset = segEnd;
     }
+    if(micSwapping) return;   // 마이크를 갈아 끼우는 중이다. 다음 조각은 그쪽에서 연다
     if(recording){ if(!paused) nextSegment(); } else finishRecording();
   };
   rec.start();
@@ -8585,6 +8626,7 @@ function nextSegment(){
                         mode === "talk" ? 9000 : +CFG.chunk);
 }
 
+let micSwapping = false;   // 마이크를 갈아 끼우는 중. 조각 회전을 그쪽에서 맡는다
 let trimTick = 0;
 async function saveChunk(noteId, s, blob, status, offsetMs, src, durMs){
   // 스무 조각마다 한 번씩 자리를 살핀다. 매번 재면 느려진다.
