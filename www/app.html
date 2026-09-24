@@ -938,7 +938,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.24-1";
+const APP_VERSION = "2026.09.24-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7056,6 +7056,7 @@ async function absorbText(c, note, raw, before, prompt){
         firstAt = Date.now(); latAdd("first", firstAt - tStart);
         if(c.stopAt && say && live) latAdd("live", firstAt - c.stopAt);   // 말이 멎고 귀에 들리기까지
       }
+      t0 = applyFixes(t0);      // 통역이 다시 틀리게 쓴 이름도 바로잡는다
       partial += (partial ? " " : "") + t0;
       c.trans = partial;
       renderIfOpen(c.noteId);
@@ -7063,7 +7064,10 @@ async function absorbText(c, note, raw, before, prompt){
     };
 
     workingAt = Date.now();
-    c.trans = await translateChunk(c.text, tgt, pair, note.ctx, onSent);
+    /* 고침 사전은 전사문에만 걸고 있었다. 그런데 통역기가 옳게 받아쓴 이름을 제 마음대로 다시
+       바꿔 쓰는 일이 있다(Thiên Phú → Thien Phu). 옮긴 글에도 한 번 더 건다. 워들리의 Replace 가
+       전사·번역 양쪽에 걸리는 것과 같은 까닭이다. */
+    c.trans = applyFixes(await translateChunk(c.text, tgt, pair, note.ctx, onSent));
     latAdd("trans", Date.now() - tStart);
     lat.calls++;
     noteRatio(tgt, c.text.length, (c.trans||"").length);
@@ -7079,8 +7083,8 @@ async function absorbText(c, note, raw, before, prompt){
       try{
         workingAt = Date.now();
         let said = false;
-        c.transVi = await translateChunk(mine, "Vietnamese", "", note.ctx,
-          s => { said = true; speakOut(s, "vi-VN", c.id); });
+        c.transVi = applyFixes(await translateChunk(mine, "Vietnamese", "", note.ctx,
+          s => { said = true; speakOut(applyFixes(s), "vi-VN", c.id); }));
         if(!said && c.transVi) speakOut(c.transVi, "vi-VN", c.id);
         renderIfOpen(c.noteId);
       }catch(e){ /* 스피커 쪽 실패는 조용히 넘긴다 */ }
@@ -8448,6 +8452,27 @@ ${chunk.slice(-4000)}`, 300);
   finally{ sumBusy = false; }
 }
 
+/* 소리가 어떻게 담기고 있는지 — 녹음 중에 알린다.
+
+   워들리(행사용 통역 서비스)가 "주최자가 만질 수 있는 가장 큰 지렛대는 소리 품질" 이라고 못 박는다.
+   마이크를 사람마다 달고, 멀리 두지 말고, 겹쳐 말하지 말라고 한다. 우리는 폰 하나로 받으니 그중
+   할 수 있는 것은 하나다 — **폰을 말하는 사람 가까이 두는 것.** 그런데 사람은 소리가 작게 담기는 줄
+   모른 채 회의를 다 하고 나서야 전사가 엉망인 것을 본다.
+
+   우리는 이미 구간마다 소리 크기를 재고 있다(learnVoice 가 한국어·베트남어 무리로 나눠 모은다).
+   그 두 값을 견주면 "상대가 너무 멀다" 를 회의 중에 말해 줄 수 있다. 고칠 수 있을 때 알리는 것이
+   끝나고 나서 사과하는 것보다 낫다. */
+function soundWarn(){
+  const v = voiceStat;
+  if(!activeNote || v.noteId !== activeNote.id) return "";
+  const mine = rmsMid(v.mine), other = rmsMid(v.other);
+  if(v.mine.length >= 3 && mine > 0 && mine < 0.02)
+    return "소리가 작게 담깁니다 · 폰을 가까이 두세요";
+  if(v.mine.length >= 3 && v.other.length >= 3 && mine > 0 && other > 0 && other / mine < 0.35)
+    return "상대 목소리가 작게 담깁니다 · 폰을 상대 쪽으로 옮기세요";
+  return "";
+}
+
 function paintShelf(){
   const el = $("liveshelf");
   if(!el) return;
@@ -8460,6 +8485,7 @@ function paintShelf(){
   if(!CFG.oai){        kind = "warn"; txt = "열쇠가 없어 전사가 멈춰 있습니다 · 녹음은 저장됩니다"; }
   else if(!navigator.onLine){ kind = "warn"; txt = "연결이 끊겼습니다 · 지금은 통역이 나가지 않습니다"; }
   else if(stale){      kind = "warn"; txt = "녹음이 멈춘 것 같습니다 · 눌러서 확인해 주세요"; }
+  else if(soundWarn()){ kind = "warn"; txt = soundWarn(); }
   else if(liveSum.length){
     const last = liveSum[liveSum.length - 1];
     num = String(liveSum.length);
