@@ -770,6 +770,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
   <div class="ltog" id="l-tog">
     <button id="l-ear">🎧 내 귀 읽기</button>
     <button id="l-spk">📢 내 말→베트남어</button>
+    <button id="l-mic">🎙 마이크 손질</button>
   </div>
   <span class="ldot" id="l-dot"></span>
   <span class="lt" id="l-timer">00:00</span>
@@ -946,7 +947,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.24-3";
+const APP_VERSION = "2026.09.24-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1825,11 +1826,15 @@ function splitMine(text, enMine){
 function paintLiveToggles(){
   const tog = $("l-tog"); if(!tog) return;
   const tr = modeDoes().translate, talk = mode === "talk";
-  const ear = $("l-ear"), spk = $("l-spk");
+  const ear = $("l-ear"), spk = $("l-spk"), mic = $("l-mic");
   const showEar = tr, showSpk = tr && spkAvail();
+  /* 마이크 손질은 브라우저에서만 고른다. 폰 앱은 녹음기가 손질을 안 거치므로 고를 것이 없다.
+     소리를 담는 방식이라 통역을 켜든 말든 보인다 — 회의록만 쓰는 자리에서도 전사 품질에 걸린다. */
+  const showMic = !NATIVE && mode !== "online" && mode !== "file" && mode !== "text";
   ear.style.display = showEar ? "" : "none";
   spk.style.display = showSpk ? "" : "none";
-  tog.style.display = (showEar || showSpk) ? "" : "none";
+  if(mic) mic.style.display = showMic ? "" : "none";
+  tog.style.display = (showEar || showSpk || showMic) ? "" : "none";
   const earOn = CFG.tts === "1" && !ttsSuspended;
   ear.textContent = "🎧 내 귀 읽기 " + (earOn ? "켬" : "끔");
   ear.classList.toggle("on", earOn);
@@ -1837,9 +1842,42 @@ function paintLiveToggles(){
   const spkNow = talk ? CFG.talkSpk === "1" : CFG.spkVi === "1";
   spk.textContent = (talk ? "📢 내 말→상대 말 스피커 " : "📢 내 말→베트남어 ") + (spkNow ? "켬" : "끔");
   spk.classList.toggle("on", spkNow);
+  if(mic){
+    const rawNow = CFG.micRaw === "1";
+    mic.textContent = "🎙 마이크 " + (rawNow ? "원음" : "손질 켬");
+    mic.classList.toggle("on", rawNow);
+  }
   if($("livebar").classList.contains("on"))
-    document.documentElement.style.setProperty("--botfurn", (showEar || showSpk) ? "170px" : "118px");
+    document.documentElement.style.setProperty("--botfurn", (showEar || showSpk || showMic) ? "170px" : "118px");
 }
+/* 녹음 중에 마이크 손질을 켜고 끈다.
+
+   브라우저는 마이크를 열 때 통화용 손질(에코 제거·잡음 억제·자동 음량)을 건다. 받아쓰기에는
+   해로울 수 있는데, 어느 쪽이 나은지는 같은 자리에서 번갈아 해 봐야 안다. 그래서 녹음을 끊지 않고
+   바꾼다 — applyConstraints 는 열려 있는 마이크의 손질만 바꾼다.
+
+   브라우저가 그것을 거부하는 일이 있다. 그때는 바뀐 척하지 않고 그대로 알린다 — 바뀐 줄 알고
+   시험하면 두 조건이 같은 소리가 되어 비교가 통째로 헛것이 된다. */
+async function toggleMicRaw(){
+  if(NATIVE){ toast("폰은 마이크를 손질하지 않습니다. 이 단추는 노트북에서만 씁니다.", 4000); return; }
+  const want = CFG.micRaw === "1" ? "0" : "1";
+  const raw = want === "1";
+  const t = stream && stream.getAudioTracks ? stream.getAudioTracks()[0] : null;
+  if(t){
+    try{ await t.applyConstraints({ echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw }); }
+    catch(e){}
+    const s = t.getSettings ? t.getSettings() : {};
+    const on = !!(s.noiseSuppression || s.echoCancellation || s.autoGainControl);
+    if(on === raw){
+      toast("이 브라우저는 녹음 중에 마이크 손질을 못 바꿉니다. 녹음을 끝내고 다시 시작해 주세요.", 8000);
+      return;
+    }
+  }
+  CFG.micRaw = want; saveCfg(); paintLiveToggles();
+  toast(raw ? "마이크를 원음 그대로 받습니다. 스피커로 읽어 주면 되울 수 있으니 이어폰을 쓰세요."
+            : "마이크 손질을 켰습니다 · 에코 제거·잡음 억제·자동 음량", 4500);
+}
+
 function toggleSpkLive(){
   if(!spkAvail()){ toast("폰 앱(APK)에서만 됩니다.", 4000); return; }
   if(CFG.spkVi !== "1" && ttsBuild !== null && (!ttsBuild || ttsBuild < SPK_BUILD)){
@@ -10911,6 +10949,7 @@ $("updbar-x").onclick  = ()=> $("updbar").classList.remove("on");
 $("l-mark").onclick  = markMoment;
 $("l-ear").onclick = toggleTtsLive;
 $("l-spk").onclick = toggleSpkLive;
+$("l-mic").onclick = toggleMicRaw;
 $("l-pause").onclick = togglePause;
 $("l-dim").onclick = ()=>{
   setDim(true);
