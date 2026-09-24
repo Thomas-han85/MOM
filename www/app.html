@@ -599,6 +599,14 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-ttstest" style="width:100%;margin:0 0 10px">소리 시험</button>
       <button class="bigbtn ghost" id="s-spktest" style="width:100%;margin:0 0 10px">폰 스피커로 베트남어 시험</button>
       <button class="bigbtn ghost" id="s-ttspan" style="width:100%;margin:0 0 10px">좌우 나눠 듣기 시험</button>
+      <div class="field"><label for="s-micraw">노트북 마이크 손질</label>
+        <select id="s-micraw">
+          <option value="0">손질 켬 · 에코 제거·잡음 억제·자동 음량 (기본)</option>
+          <option value="1">원음 그대로 · 받아쓰기에 나을 수 있음 · 이어폰 쓸 때만</option>
+        </select>
+        <p class="hint" style="margin-top:6px">브라우저는 마이크를 통화용으로 손질해 줍니다. 귀에는 좋지만 받아쓰기에는
+          작은 말을 지우고 소리를 뭉갤 수 있습니다. 폰 앱은 이 손질을 안 거칩니다. 원음으로 두면 노트북 스피커로 읽어 줄 때
+          그 소리가 마이크로 되돌아 울 수 있으니 <b>이어폰을 쓰실 때만</b> 바꾸세요. 폰에는 해당 없습니다.</p></div>
       <div class="field"><label for="s-myen">내가 영어로 말할 때</label>
         <select id="s-myen">
           <option value="1">가리지 못하면 내 말로 (기본)</option>
@@ -938,7 +946,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.24-2";
+const APP_VERSION = "2026.09.24-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1049,6 +1057,7 @@ const DEFAULTS = { oai:"", ant:"",
                    voice:"device", voiceName:"nova",          // 목소리: 폰 내장 / OpenAI
                    spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
                    myEn:"1",                                 // 내가 영어로 말한 것도 "내 말" 로 본다
+                   micRaw:"0",                               // 노트북 마이크를 손보지 않고 원음 그대로 받을지
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
                    eleven:"", diar:"0", keepAudio:"0",       // 화자 분리
                    awake:"1",                                // 녹음 중 화면 켜 두기
@@ -8200,7 +8209,12 @@ async function startRecording(){
     catch(e){ toast(e.message || "회의 소리를 가져오지 못했다."); return; }
   }
   else if(!NATIVE){
-    const base = { echoCancellation:true, noiseSuppression:true, autoGainControl:true };
+    /* 브라우저는 마이크를 열 때 통화용 손질(에코 제거·잡음 억제·자동 음량)을 기본으로 켠다.
+       사람 귀에는 좋지만 받아쓰기에는 해로울 수 있다 — 작은 말을 지우고 소리를 뭉갠다.
+       폰 앱은 이 손질을 안 거친다. 어느 쪽이 나은지는 재 봐야 알아서 고를 수 있게 열어 둔다.
+       손질을 끄면 노트북 스피커로 읽어 줄 때 그 소리가 마이크로 되돌아 울 수 있다 — 이어폰을 쓰면 없다. */
+    const raw = CFG.micRaw === "1";
+    const base = { echoCancellation: !raw, noiseSuppression: !raw, autoGainControl: !raw };
     stream = null;
     try{
       // 고른 마이크가 있으면 그것으로. 없어졌으면(이어폰을 뺐다든지) 기본으로 돌아간다.
@@ -11140,6 +11154,7 @@ $("btn-settings").onclick = ()=>{
   $("s-talklive").value = CFG.talkLive === "0" ? "0" : "1";
   $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
   $("s-myen").value = CFG.myEn === "0" ? "0" : "1";
+  $("s-micraw").value = CFG.micRaw === "1" ? "1" : "0";
   $("s-doc").value=CFG.doc; $("s-trans").value=CFG.trans; $("s-vision").value=CFG.vision;
   $("s-chunk").value=CFG.chunk; $("s-gloss").value=CFG.gloss; $("s-fixes").value=CFG.fixes||"";
   $("s-livesum").value=CFG.liveSum || "1";
@@ -11489,7 +11504,7 @@ $("s-save").onclick = ()=>{
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
   CFG.pass2 = $("s-pass2").value; CFG.talkLive = $("s-talklive").value;
-  CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value; CFG.myEn=$("s-myen").value;
+  CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value; CFG.myEn=$("s-myen").value; CFG.micRaw=$("s-micraw").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
