@@ -604,9 +604,10 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
           <option value="0">손질 켬 · 에코 제거·잡음 억제·자동 음량 (기본)</option>
           <option value="1">원음 그대로 · 받아쓰기에 나을 수 있음 · 이어폰 쓸 때만</option>
         </select>
-        <p class="hint" style="margin-top:6px">브라우저는 마이크를 통화용으로 손질해 줍니다. 귀에는 좋지만 받아쓰기에는
-          작은 말을 지우고 소리를 뭉갤 수 있습니다. 폰 앱은 이 손질을 안 거칩니다. 원음으로 두면 노트북 스피커로 읽어 줄 때
-          그 소리가 마이크로 되돌아 울 수 있으니 <b>이어폰을 쓰실 때만</b> 바꾸세요. 폰에는 해당 없습니다.</p></div>
+        <p class="hint" style="margin-top:6px">브라우저는 마이크를 통화용으로 손질해 줍니다(에코 제거·잡음 억제·자동 음량).
+          <b>노트북 내장 마이크에는 손질 켬이 맞습니다</b> — 9월 25일에 원음으로 바꿨더니 소리가 9배 작아져 전사가 무너졌습니다.
+          내장 마이크는 신호가 약해서 자동 음량이 받쳐 줘야 합니다. 원음은 <b>외장 마이크를 쓰실 때</b> 값이 있습니다.
+          바꾼 뒤 15초 동안 소리가 너무 작으면 앱이 스스로 되돌립니다. 폰에는 해당 없습니다.</p></div>
       <div class="field"><label for="s-myen">내가 영어로 말할 때</label>
         <select id="s-myen">
           <option value="1">가리지 못하면 내 말로 (기본)</option>
@@ -947,7 +948,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.24-5";
+const APP_VERSION = "2026.09.25-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1910,8 +1911,20 @@ async function toggleMicRaw(){
       }
     }
     CFG.micRaw = want; saveCfg();
-    toast(raw ? "마이크를 원음 그대로 받습니다. 스피커로 읽어 주면 되울 수 있으니 이어폰을 쓰세요."
+    toast(raw ? "마이크를 원음 그대로 받습니다. 15초쯤 지켜보다가 소리가 너무 작으면 되돌립니다."
               : "마이크 손질을 켰습니다 · 에코 제거·잡음 억제·자동 음량", 4500);
+    /* 원음으로 바꾸면 자동 음량이 받쳐 주던 것이 사라진다. 노트북 내장 마이크는 신호가 약해서
+       소리가 통째로 죽는 일이 있다(9월 25일 실측: 5678 → 358). 그러면 전사가 무너지는데 사람은
+       회의가 끝나고서야 안다. 잠깐 지켜보다가 너무 작으면 스스로 되돌린다. */
+    if(raw && recording) setTimeout(async () => {
+      if(CFG.micRaw !== "1" || !recording || !live || !live.ready) return;
+      if(!(live.loudAvg > 0) || live.loudAvg >= 900) return;
+      if(await swapMic(false)){
+        CFG.micRaw = "0"; saveCfg(); paintLiveToggles();
+        toast("원음으로는 소리가 너무 작게 담겨(" + Math.round(live.loudAvg) + ") 손질을 다시 켰습니다. "
+            + "이 마이크는 자동 음량이 받쳐 줘야 합니다.", 9000);
+      }
+    }, 15000);
   } finally {
     if(btn) btn.disabled = false;
     paintLiveToggles();
@@ -8555,6 +8568,15 @@ ${chunk.slice(-4000)}`, 300);
    그 두 값을 견주면 "상대가 너무 멀다" 를 회의 중에 말해 줄 수 있다. 고칠 수 있을 때 알리는 것이
    끝나고 나서 사과하는 것보다 낫다. */
 function soundWarn(){
+  /* 소리가 작은 것부터 본다. 말이 무슨 언어든 상관없이 잡힌다.
+
+     9월 25일: 노트북 마이크를 원음으로 바꾸자 소리가 9배 작아져(loudAvg 5678 → 358) 전사가
+     통째로 무너졌다. 그런데 경고가 안 떴다 — 그때 경고는 한국어 구간이 셋 넘게 쌓여야 떴는데
+     그 회의는 영어·베트남어 자리였다. 언어를 안 가리는 잣대를 앞에 세운다. 소리가 작은 것은
+     한국어로 말하든 베트남어로 말하든 똑같이 나쁘다. */
+  const L = live;
+  if(L && L.ready && L.loudAvg > 0 && L.loudAvg < 900)
+    return "소리가 작게 담깁니다 · 마이크를 가까이 두거나 🎙 손질을 켜세요";
   const v = voiceStat;
   if(!activeNote || v.noteId !== activeNote.id) return "";
   const mine = rmsMid(v.mine), other = rmsMid(v.other);
