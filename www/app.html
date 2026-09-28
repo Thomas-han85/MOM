@@ -93,6 +93,22 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
 .note .badge{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:20px;
   background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600}
 .note .badge.off{background:var(--off-soft);color:var(--warn)}
+/* 목록에서 지우기. ⋯ 는 줄 오른쪽, 여러 개 고를 때는 왼쪽에 네모가 선다 */
+.noterow{position:relative}
+.noterow .note{padding-right:56px}
+.notemore{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:44px;height:44px;
+  border:0;background:none;color:var(--muted);font-size:20px;line-height:1}
+.noterow.pick .notemore{display:none}
+.noterow.pick .note{padding-left:48px}
+.noterow.pick .note::before{content:"";position:absolute;left:17px;top:50%;width:18px;height:18px;margin-top:-9px;
+  border:1.5px solid var(--muted);border-radius:5px}
+.noterow.pick.on .note{background:var(--accent-soft)}
+.noterow.pick.on .note::before{background:var(--accent);border-color:var(--accent)}
+.pickbar{position:sticky;top:0;z-index:5;display:flex;gap:8px;align-items:center;padding:10px 18px;
+  background:var(--paper);border-bottom:1px solid var(--rule);font-size:14px}
+.pickbar span{flex:1}
+.pickbar button{padding:8px 14px;border-radius:9px;border:1px solid var(--rule);background:var(--card);font-size:14px}
+.pickbar button.danger{background:var(--danger);color:#fff;border-color:var(--danger)}
 
 .empty{padding:70px 34px;text-align:center;color:var(--muted);font-size:14px;line-height:1.7}
 .empty strong{display:block;color:var(--ink);font-size:16px;font-weight:600;margin-bottom:8px}
@@ -950,7 +966,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.28-2";
+const APP_VERSION = "2026.09.28-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -8959,6 +8975,7 @@ async function importFiles(files){
    화면
    ===================================================================== */
 let openId = null, curTab = "doc";
+let listPick = null;       // 여러 개 골라 지우는 중이면 고른 회의 번호들(Set)
 let listFolder = "";      // 목록에서 지금 고른 폴더. 빈 문자열이면 전체
 let retitleDone = false;  // 이미 있는 회의의 이름을 한 번 다시 지었는가
 
@@ -9091,14 +9108,33 @@ async function refreshList(){
     if(held) badge = '<span class="badge off">전사 대기 '+held+'</span>';
     else if(left) badge = '<span class="badge">전사 중 '+left+'</span>';
     else if(bad) badge = '<span class="badge off">실패 '+bad+'</span>';
-    html += '<button class="note" data-id="'+n.id+'"><b>'+esc(n.title)+'</b>'+
+    html += '<div class="noterow'+(listPick ? " pick" : "")+(listPick && listPick.has(n.id) ? " on" : "")+'" data-row="'+n.id+'">'+
+      '<button class="note" data-id="'+n.id+'"><b>'+esc(n.title)+'</b>'+
       '<span>'+timeLabel(n.created)+' · '+
       (n.mode==="text" ? "텍스트" : Math.max(1,Math.round(n.duration/60000))+"분")+
       (n.seriesId && findSeries(n.seriesId) ? ' · '+esc(findSeries(n.seriesId).name) : '')+
-      '</span>'+badge+'</button>';
+      '</span>'+badge+'</button>'+
+      '<button class="notemore" data-more="'+n.id+'" aria-label="지우기" title="지우기">⋯</button></div>';
   }
-  box.innerHTML = chipRow + (html || '<div class="empty">이 폴더에는 아직 회의가 없습니다.</div>');
-  box.querySelectorAll(".note").forEach(b=>b.onclick=()=>openNote(b.dataset.id));
+  const bar = listPick
+    ? '<div class="pickbar"><span id="pick-n">' + listPick.size + '개 골랐습니다</span>' +
+      '<button class="danger" id="pick-del">지우기</button><button id="pick-x">그만</button></div>' : "";
+  box.innerHTML = bar + chipRow + (html || '<div class="empty">이 폴더에는 아직 회의가 없습니다.</div>');
+  box.querySelectorAll(".note").forEach(b=>{
+    b.onclick = ()=> listPick ? togglePick(b.dataset.id) : openNote(b.dataset.id);
+    // 길게 누르기(폰)·오른쪽 단추(노트북)로도 연다
+    b.oncontextmenu = e => { e.preventDefault(); if(!listPick) noteMore(b.dataset.id); };
+  });
+  box.querySelectorAll("[data-more]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); noteMore(b.dataset.more); });
+  if(listPick){
+    $("pick-x").onclick = ()=>{ listPick = null; refreshList(); };
+    $("pick-del").onclick = ()=>{
+      const ids = [...listPick];
+      if(!ids.length){ toast("지울 회의를 눌러 고르세요."); return; }
+      confirmSheet(ids.length + "개 회의를 지웁니다", "전사문·녹음·문서가 모두 사라집니다. 되돌릴 수 없습니다.",
+                   "지운다", ()=> deleteNotes(ids));
+    };
+  }
   box.querySelectorAll("[data-fd]").forEach(b=>b.onclick=()=>{ listFolder = b.dataset.fd; refreshList(); });
 }
 
@@ -10709,13 +10745,44 @@ async function deleteDoc(n, id){
   toast(n.docs.length ? "문서를 지웠습니다. 나머지 "+n.docs.length+"개는 그대로입니다." : "문서를 지웠습니다. 전사문은 남아 있습니다.", 4000);
 }
 
-async function deleteNote(){
-  const cs = await byIndex("chunks","note",openId);
-  for(const c of cs) await del("chunks", c.id);
-  await del("notes", openId);
-  markDeleted(openId);   // 다른 기기에서 되살아나지 않게 지운 사실을 남긴다
-  openId=null; show("v-list"); refreshList(); toast("지웠습니다.");
+async function deleteNote(){ await deleteNotes([openId]); }
+
+/* 회의를 지운다(하나든 여럿이든). 녹음 중인 회의는 건드리지 않는다. */
+async function deleteNotes(ids){
+  const busy = recording && activeNote ? activeNote.id : null;
+  let n = 0;
+  for(const id of ids){
+    if(id === busy){ toast("녹음 중인 회의는 멈춘 뒤에 지울 수 있습니다.", 5000); continue; }
+    const cs = await byIndex("chunks","note",id);
+    for(const c of cs) await del("chunks", c.id);
+    await del("notes", id);
+    markDeleted(id);   // 다른 기기에서 되살아나지 않게 지운 사실을 남긴다
+    n++;
+  }
+  listPick = null;
+  if(openId && ids.includes(openId) && openId !== busy){ openId = null; show("v-list"); }
+  refreshList();
+  if(n) toast(n > 1 ? n + "개를 지웠습니다." : "지웠습니다.");
   syncDrive(false);
+}
+
+/* 목록 줄의 ⋯ — 회의를 열지 않고 지운다. 예전에는 열어서 「보내기」 맨 아래까지 가야 했다. */
+async function noteMore(id){
+  const n = await get("notes", id); if(!n) return;
+  sheet(n.title, [
+    { label:"이 회의 지우기", sub:"전사문·녹음·문서가 모두 사라집니다. 되돌릴 수 없습니다.", danger:true,
+      go: ()=> confirmSheet("회의를 지웁니다", "「" + n.title + "」 이(가) 모두 사라집니다. 되돌릴 수 없습니다.",
+                            "지운다", ()=> deleteNotes([id])) },
+    { label:"여러 개 골라 지우기", sub:"목록에서 눌러 고른 뒤 한꺼번에 지웁니다.",
+      go: ()=>{ listPick = new Set([id]); refreshList(); } }
+  ]);
+}
+function togglePick(id){
+  if(!listPick) return;
+  if(listPick.has(id)) listPick.delete(id); else listPick.add(id);
+  const row = document.querySelector('[data-row="' + id + '"]');
+  if(row) row.classList.toggle("on", listPick.has(id));
+  const t = $("pick-n"); if(t) t.textContent = listPick.size + "개 골랐습니다";
 }
 
 /* =====================================================================
