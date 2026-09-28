@@ -132,6 +132,8 @@ input,textarea,select{font-family:inherit;font-size:16px;color:var(--ink)}
   display:flex;align-items:center;justify-content:center;
   color:var(--muted);font-size:11px;background:none;border:0}
 .seg.playing .play{color:var(--accent)}
+.seg .cut{opacity:.55}
+.seg .uncut{margin-left:6px;font-size:12px;padding:2px 8px;border:1px solid var(--rule);border-radius:7px;background:none;color:var(--muted)}
 .seg.playing .mark{box-shadow:0 0 0 3px var(--accent-soft)}
 .seg .mark{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--muted)}
 .seg.done .mark{background:var(--accent);border-color:var(--accent)}
@@ -948,7 +950,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.28-1";
+const APP_VERSION = "2026.09.28-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -6493,9 +6495,10 @@ async function packNote(n, u){
   const cs = (await byIndex("chunks","note",n.id)).sort(chunkOrder);
   return { v:1, u: u || 0, note: Object.assign({}, n),
     /* 2차가 비운 실시간 구간(skip:"pass")도 보낸다 — 받는 쪽이 제 것의 글을 비워야 같은 말이 두 번 남지 않는다 */
-    chunks: cs.filter(c=>c.text||c.trans||c.skip==="pass").map(c=>({
+    /* 사람이 지운 말(skip:"cut")도 보낸다 — 받는 쪽도 지우고, 되살릴 글(cut)도 함께 간다 */
+    chunks: cs.filter(c=>c.text||c.trans||c.skip==="pass"||c.skip==="cut").map(c=>Object.assign({
       id:c.id, seq:c.seq, offsetMs:c.offsetMs, text:c.text||"", trans:c.trans||"",
-      transVi:c.transVi||"", doneAt:c.doneAt||0, status:"done", skip:c.skip||"" })) };
+      transVi:c.transVi||"", doneAt:c.doneAt||0, status:"done", skip:c.skip||"" }, c.cut ? { cut:c.cut } : {})) };
 }
 async function unpackNote(p){
   if(!p || !p.note) return;
@@ -8020,6 +8023,11 @@ async function secondPass(noteId, onStep){
       const last = grp[grp.length - 1];
       const b = last.offsetMs + (last.durMs || chunkSec(last) * 1000);
       const lives = cs.filter(c => c.src === "live" && c.offsetMs != null && c.offsetMs < b && c.offsetMs + (c.durMs || 0) > a);
+      // 사람이 지운 말이 걸린 창은 다시 받아 적지 않는다 — 지운 말이 되돌아온다
+      if(lives.some(c => c.skip === "cut") || grp.some(c => c.skip === "cut")){
+        for(const c of grp){ c.pass = "kept"; if(!(CFG.keepAudio === "1" || CFG.diar === "1")) c.blob = null; await put("chunks", c); }
+        continue;
+      }
       const liveText = lives.map(c => c.text || "").join(" ");
       try{
         const { blob } = await mergeAudio(grp);
@@ -9113,6 +9121,24 @@ async function openNote(id){
   scrollTo(0,0);
 }
 
+/* 한 말을 지운다(대화 중에도). 글은 c.cut 에 옮겨 두어 되살릴 수 있고, 회의록·내보내기·동기화는
+   c.text 가 빈 구간을 건너뛰므로 따로 손댈 곳이 없다. 회의 뒤 정리 전사가 그 시간대를 다시
+   받아 적으면 지운 말이 돌아오므로, 정리 전사는 지운 말이 걸린 창을 건드리지 않는다. */
+async function cutChunk(id, on){
+  const c = await get("chunks", id); if(!c) return;
+  if(on){
+    if(c.skip === "cut") return;
+    c.cut = { text:c.text||"", trans:c.trans||"", transVi:c.transVi||"", skip:c.skip||"" };
+    c.text = ""; c.trans = ""; c.transVi = ""; c.skip = "cut";
+  } else {
+    if(c.skip !== "cut" || !c.cut) return;
+    c.text = c.cut.text; c.trans = c.cut.trans; c.transVi = c.cut.transVi; c.skip = c.cut.skip;
+    delete c.cut;
+  }
+  await put("chunks", c); syncDirty = true;
+  toast(on ? "지웠습니다. 잘못 눌렀으면 그 자리의 「되살리기」." : "되살렸습니다.");
+  renderIfOpen(c.noteId);
+}
 function renderIfOpen(id){ if(openId===id) renderDetail().then(followLive); }
 
 /* 예전에는 노트마다 정리본이 하나뿐이었다. 그것을 문서 목록의 첫 장으로 옮긴다.
@@ -9516,11 +9542,20 @@ async function renderDetail(){
   for(const c of cs){
     /* 녹음 중에는 재생을 그리지 않는다. 스피커로 틀면 마이크가 되받아
        그 구간이 통째로 다시 전사된다. */
+    if(c.skip === "cut"){
+      // 사람이 지운 말. 자리만 남겨 두어 잘못 눌렀으면 바로 되살린다
+      raw += '<div class="seg done" data-seg="'+c.id+'"><div class="gutter"><span class="mark"></span>'+
+        mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+'</div><div class="body">'+
+        '<div class="pending">지운 말<button class="uncut" data-uncut="'+c.id+'">되살리기</button></div></div></div>';
+      continue;
+    }
     if((c.skip === "live" || c.skip === "pass") && !c.text) continue;   // 그 시간대의 글은 다른 구간에 있다
     const canPlay = !!c.blob && !recording;
     raw += '<div class="seg '+c.status+'" data-seg="'+c.id+'"><div class="gutter"><span class="mark"></span>'+
       mmss(c.offsetMs != null ? c.offsetMs : c.seq*(+CFG.chunk))+
       (canPlay ? '<button class="play" data-play="'+c.id+'" aria-label="이 구간 다시 듣기">▶</button>' : "")+
+      (c.status==="done" && (c.text || c.trans || c.transVi)
+        ? '<button class="play cut" data-cut="'+c.id+'" aria-label="이 말 지우기">✕</button>' : "")+
       '</div><div class="body">';
     if(c.status==="done"){
       raw += '<div class="orig'+(c.text?"":" pending")+'">'+
@@ -9545,6 +9580,8 @@ async function renderDetail(){
   raw += '</div>';
   $("pane-raw").innerHTML = raw;
   $("pane-raw").querySelectorAll("[data-retry]").forEach(b=>b.onclick=()=>retryChunk(b.dataset.retry));
+  $("pane-raw").querySelectorAll("[data-cut]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); cutChunk(b.dataset.cut, true); });
+  $("pane-raw").querySelectorAll("[data-uncut]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); cutChunk(b.dataset.uncut, false); });
   wirePlay(cs);
   wireDiar(n, cs);
   }
