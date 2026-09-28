@@ -966,7 +966,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.28-3";
+const APP_VERSION = "2026.09.28-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1101,6 +1101,9 @@ if(!CFG.trans)  CFG.trans  = "gpt-4o-mini";
 if(CFG.stt === "gpt-4o-transcribe-diarize"){ CFG.stt = "gpt-4o-transcribe"; try{ saveCfg(); }catch(e){} }
 if(!CFG.vision) CFG.vision = "gpt-4o-mini";
 if(!Array.isArray(CFG.series)) CFG.series = [];
+/* 기도제목 한 줄이 이름으로 배워진 것을 걷어 낸다(9/28 "아내가 지치지 않도록"). 이름은 이렇게 맺지 않는다. */
+CFG.series.forEach(s => { if(Array.isArray(s.prayerNames))
+  s.prayerNames = s.prayerNames.filter(nm => !/(도록|하게|[,，])$/.test(String(nm).trim())); });
 /* 시리즈와 참석자에 "언제 고쳤는지" 를 찍는다.
 
    두 기기가 같은 시리즈를 고쳤을 때 어느 쪽을 남길지 정하려면 이 값이 있어야 한다.
@@ -1255,6 +1258,15 @@ function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d
        문장이 조금 덜 매끄러워지는 대신 없는 말이 지어지지 않는다.
      - 회의 맥락은 짧게 자른다. 길수록 되뱉을 거리가 늘어난다.
    고유명사 목록은 남긴다. 낱말 나열이라 문장으로 되뱉히는 일이 드물다. */
+/* 전사에 넘길 고유명사 — 시리즈 용어, 이 모임에 늘 오는 사람 이름, 이 회의 용어 순이다.
+   이름은 예전에 회의록을 쓸 때만 썼다. 9/28 기도회는 시리즈 용어가 0개라 전사가 이름을 하나도
+   몰랐고("백자민 소장님"), 그래서 요약이 사람을 뒤바꿔 붙였다. 이 회의 용어는 맨 뒤 —
+   sttPrompt 가 뒤에서 40개만 남기므로 방금 손으로 넣은 낱말이 가장 확실히 살아야 한다. */
+function sttTerms(note){
+  const ser = note && note.seriesId ? findSeries(note.seriesId) : null;
+  return [...((ser && ser.terms) || []), ...knownPrayerNames(note), ...((note && note.terms) || [])];
+}
+
 function sttPrompt(ctxHint, terms){
   const uniq = terms && terms.length
     ? Array.from(new Map(terms.map(t=>[String(t).toLowerCase(), t])).values()) : [];
@@ -3431,6 +3443,17 @@ function prayerHasItemsAfter(lines, i){
   return false;
 }
 
+/* "- 이름" 꼴은 아래 항목이 한 단 들여 써 있을 때만 이름이다. 같은 단이면 기도제목 한 줄이다 —
+   9월 28일 고친 판의 "- 아내가 지치지 않도록" 을 사람 이름으로 배웠다. */
+function prayerIndentAfter(lines, i){
+  const ind = s => /^\s*/.exec(s)[0].replace(/\t/g, "  ").length;
+  for(let k = i + 1; k < Math.min(lines.length, i + 4); k++){
+    if(!lines[k].trim()) continue;
+    return ind(lines[k]) > ind(lines[i]);
+  }
+  return false;
+}
+
 /* 사람이 고친 판에서 이름과 틀을 읽는다. { names:[], style:{} } */
 function readPrayerShape(text){
   const lines = String(text || "").split("\n");
@@ -3443,7 +3466,7 @@ function readPrayerShape(text){
     else if(!style.personLabel && /개인/.test(t) && /^([#>*\-]|\d)/.test(t) && !prayerHasItemsAfter(lines, i)) style.personLabel = t;
     else if(!style.follow && /지난/.test(t) && /후속/.test(t)) style.follow = t;
     const nm = prayerNameLine(t);
-    if(nm && prayerHasItemsAfter(lines, i)){
+    if(nm && prayerHasItemsAfter(lines, i) && (!/^[-*]\s/.test(t) || prayerIndentAfter(lines, i))){
       if(!names.includes(nm)) names.push(nm);
       // 머리 줄과 항목 사이를 띄우는가. 이것까지 맞춰야 고쳐 쓴 판과 같아 보인다.
       if(style.gap === undefined) style.gap = (lines[i+1] || "").trim() ? "\n" : "\n\n";
@@ -7296,11 +7319,7 @@ async function drain(){
              - 꼬리를 짧게 보낸다. 400자는 통째로 되뱉기 좋은 길이다.
              - 되뇜이 시작되면 꼬리를 아예 끊는다. 불씨를 뺀다.
              - 돌아온 말이 보낸 프롬프트 안에 들어 있으면 되뱉은 것으로 보고 버린다. */
-        const ser = note.seriesId ? findSeries(note.seriesId) : null;
-        /* 시리즈 용어를 앞에, 이 회의 용어를 뒤에 둔다. 지시문은 뒤에서 40개만
-           남기므로(sttPrompt), 순서가 반대면 시리즈가 찬 회의에서 방금 손으로 넣은
-           낱말이 통째로 잘려 나간다. 지금 넣은 것이 가장 확실히 살아남아야 한다. */
-        const terms = [...((ser && ser.terms) || []), ...(note.terms||[])];
+        const terms = sttTerms(note);
 
         /* 되뇜이 이어지면 길잡이 글을 아예 끊는다. 불씨를 뺀다. */
         const spiral = before.slice(-2).filter(s=>s.skip==="prompt").length >= 2;
@@ -7527,8 +7546,7 @@ function liveOn(noteId){ return !!(live && live.noteId === noteId && !live.close
 
 /* 소켓에 알려 줄 것 — 회의 맥락, 고유명사, 오갈 말. 파일 경로의 sttChunk 와 같은 재료다. */
 function liveSession(note){
-  const ser = note.seriesId ? findSeries(note.seriesId) : null;
-  const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
+  const terms = sttTerms(note);
   const uniq = Array.from(new Map(terms.map(t => [String(t).toLowerCase(), String(t)])).values());
   const kw = uniq.map(t => t.replace(/[<>\r\n]/g, " ").trim()).filter(Boolean).slice(-300);
   const two = { Vietnamese:"vi", English:"en", Khmer:"km", Korean:"ko", Japanese:"ja", Chinese:"zh", Thai:"th", Indonesian:"id" };
@@ -7889,8 +7907,7 @@ async function liveAbsorb(L, turn, text){
   const sibs = (await byIndex("chunks","note",L.noteId)).sort(chunkOrder);
   const before = sibs.filter(s => chunkOrder(s, c) < 0);
   CFG.lastTarget = note.target || "";
-  const ser = note.seriesId ? findSeries(note.seriesId) : null;
-  const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
+  const terms = sttTerms(note);
   const prompt = sttPrompt(note.ctx, terms);       // 되뱉기 판정에 파일 경로와 같은 잣대를 쓴다
   await put("chunks", c);
   try{
@@ -8019,8 +8036,7 @@ async function secondPass(noteId, onStep){
     const cs = (await byIndex("chunks","note",noteId)).sort(chunkOrder);
     const files = cs.filter(c => c.src !== "live" && c.blob && c.pass === "wait");
     if(!files.length) return 0;
-    const ser = note.seriesId ? findSeries(note.seriesId) : null;
-    const terms = [...((ser && ser.terms) || []), ...(note.terms || [])];
+    const terms = sttTerms(note);
     const prompt = sttPrompt(note.ctx, terms);
     const tgt = transTarget(note);
     // 파일 조각 경계에서 50초 안팎으로 묶는다
