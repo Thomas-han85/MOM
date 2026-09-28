@@ -966,7 +966,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.28-4";
+const APP_VERSION = "2026.09.28-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1264,7 +1264,19 @@ function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d
    sttPrompt 가 뒤에서 40개만 남기므로 방금 손으로 넣은 낱말이 가장 확실히 살아야 한다. */
 function sttTerms(note){
   const ser = note && note.seriesId ? findSeries(note.seriesId) : null;
-  return [...((ser && ser.terms) || []), ...knownPrayerNames(note), ...((note && note.terms) || [])];
+  return [...glossTerms(), ...((ser && ser.terms) || []), ...knownPrayerNames(note), ...((note && note.terms) || [])];
+}
+
+/* 용어집의 표기도 전사에 넘긴다. "적산 = bóc tách khối lượng = quantity takeoff" 의 세 쪽이 다 낱말이다 —
+   한 회의에서 세 언어가 오가니 어느 쪽으로 말할지 모른다. 예전에는 통역에만 썼다.
+   모든 회의에 걸리는 것이라 맨 앞에 둔다. 넘칠 때 먼저 잘려 나가는 자리다(뒤에서 300개). */
+function glossTerms(){
+  const out = [];
+  String(CFG.gloss || "").split("\n").forEach(l => l.split("=").forEach(x => {
+    const t = x.trim();
+    if(t && t.length < 40) out.push(t);
+  }));
+  return out;
 }
 
 function sttPrompt(ctxHint, terms){
@@ -9848,6 +9860,7 @@ async function renderDetail(){
     docEditing = ""; docEditBuf = null;
     await put("notes", n);
     renderDetail(); syncDrive(false);
+    if(!vl2 && n.seriesId) learnTermsFromEdit(n.id, val).catch(()=>{});   // 뒤에서 돈다. 실패해도 고친 글은 이미 저장됐다
     toast(toSeries ? "고쳤습니다. 다음 회의가 이 고친 회의록을 이어받습니다."
                    : "고쳤습니다.", 4500);
   };
@@ -10879,16 +10892,38 @@ async function primeTerms(noteId, brief){
   n.terms = terms;
   await put("notes", n);
   liveRefresh(noteId);
-  if(n.seriesId){
-    const s = findSeries(n.seriesId);
-    if(s){
-      const seen = new Set((s.terms||[]).map(x=>x.toLowerCase()));
-      const merged = (s.terms||[]).slice();
-      for(const t of terms) if(!seen.has(t.toLowerCase())){ merged.push(t); seen.add(t.toLowerCase()); }
-      s.terms = merged.slice(-TERM_CAP); saveCfg();
-    }
-  }
+  const s = n.seriesId ? findSeries(n.seriesId) : null;
+  if(s){ mergeSeriesTerms(s, terms); saveCfg(); }
   toast("사전 자료에서 고유명사 " + terms.length + "개를 인식에 반영했습니다.");
+}
+
+/* 시리즈 사전에 낱말을 더한다. 겹치면 건너뛰고, 넘치면 오래된 것부터 버린다. 더한 개수를 돌려준다. */
+function mergeSeriesTerms(s, terms){
+  const seen = new Set((s.terms||[]).map(x=>String(x).toLowerCase()));
+  const merged = (s.terms||[]).slice();
+  let added = 0;
+  for(const t of terms) if(!seen.has(t.toLowerCase())){ merged.push(t); seen.add(t.toLowerCase()); added++; }
+  s.terms = merged.slice(-TERM_CAP);
+  return added;
+}
+
+/* 사람이 고친 문서에서 고유명사를 배운다 — 어떤 꼴의 문서든.
+
+   예전에는 「회의록」을 만들 때만 전사문에서 낱말을 긁어 시리즈에 쌓았다. 기도회·요약 꼴은 하나도
+   안 쌓아서 기도회 시리즈의 사전이 0개였고, 9/28 전사가 젬파크·드림빌·BOD·벤자민을 모두 깨뜨렸다.
+   전사문에서 긁지 않고 사람이 고친 글에서 뽑는다. 거기에는 바로잡힌 표기만 있다 — 잘못 들린 말이
+   사전에 올라 스스로를 강화하는 고리가 생기지 않는다. 고칠 때 한 번, gpt-4o-mini 로 1원 안쪽이다. */
+async function learnTermsFromEdit(noteId, text){
+  const n = await get("notes", noteId);
+  const s = n && n.seriesId ? findSeries(n.seriesId) : null;
+  if(!s) return;
+  const cut = text.indexOf("---CARRY---");
+  const terms = await extractTerms(cut >= 0 ? text.slice(0, cut) : text);
+  if(!terms.length) return;
+  const added = mergeSeriesTerms(s, terms);
+  if(!added) return;
+  saveCfg(); syncDirty = true; syncDrive(false);   // 저장 직후의 맞춤이 아직 돌면 건너뛰므로 표시를 남긴다
+  toast("고친 글에서 고유명사 " + added + "개를 「" + s.name + "」 전사에 반영했습니다.", 4500);
 }
 
 /* =====================================================================
