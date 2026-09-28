@@ -948,7 +948,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.25-1";
+const APP_VERSION = "2026.09.28-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2827,6 +2827,8 @@ ${brief}
   다른 언어 한 줄이나 자막 투 문구는 전사 오류이니 무시해라. 여러 언어가 섞여 있으면
   같은 내용이 통역으로 두 번 나온 것일 수 있다. 한 번만 반영해라.
 - 숫자·날짜·금액은 들리는 대로 정확히 옮기고 바꾸지 마라.
+- 누가 누구에게 하라·하지 말라고 한 말(지시·당부·주의)은 하나도 빠뜨리지 마라.
+  "다 먹여라", "~는 필요 없다", "~만 주의하라" 같은 말은 짧게 지나가도 이 자리의 핵심이다.
 
 출력 형식
 
@@ -7989,7 +7991,8 @@ let pass2Busy = false;
 async function secondPass(noteId, onStep){
   if(pass2Busy) return 0;
   const note = await get("notes", noteId); if(!note) return 0;
-  if(!["live", "full", "trans", "online"].includes(note.mode)) return 0;   // 기본 회의 모드의 이름이 "live" 다
+  // 기본 회의 모드의 이름이 "live" 다. "doc"(회의록만)은 실시간이 없어 녹음 전체를 이 길로 받아 적는다
+  if(!["live", "full", "trans", "online", "doc"].includes(note.mode)) return 0;
   if(!CFG.oai || !navigator.onLine) return 0;
   pass2Busy = true;
   let changed = 0;
@@ -8036,7 +8039,7 @@ async function secondPass(noteId, onStep){
             const pair = prevText ? (prevTrans ? prevText.slice(-200) + "\n→ " + prevTrans.slice(-200) : prevText.slice(-200)) : "";
             try{ head.trans = await translateChunk(txt, tgt, pair, note.ctx, null); }catch(e){ head.trans = ""; }
           }
-          for(const c of grp.slice(1)){ c.text = ""; c.trans = ""; c.skip = "live"; c.pass = "done"; }
+          for(const c of grp.slice(1)){ c.text = ""; c.trans = ""; c.skip = "live"; c.pass = "done"; c.status = "done"; }
           prevText = txt; prevTrans = head.trans || "";
           changed++;
         }
@@ -8044,7 +8047,8 @@ async function secondPass(noteId, onStep){
         for(const c of grp){ c.pass = "fail"; }
       }
       const keep = CFG.keepAudio === "1" || CFG.diar === "1";
-      for(const c of grp){ if(!keep) c.blob = null; c.doneAt = Date.now(); await put("chunks", c); }
+      // 실패한 창은 소리를 남긴다 — 회의록만 모드는 그 소리로 조각별 전사를 다시 한다
+      for(const c of grp){ if(!keep && c.pass !== "fail") c.blob = null; c.doneAt = Date.now(); await put("chunks", c); }
       renderIfOpen(noteId);
     }
     syncDirty = true;
@@ -9394,7 +9398,20 @@ async function renderDetail(){
   };
   const gn = $("go-now");
   if(gn) gn.onclick = async ()=>{
-    for(const c of cs) if(c.status==="held"){ c.status="pending"; await put("chunks",c); }
+    /* 회의록만 모드는 조각(15초 안팎)을 하나씩 보내지 않고 50초 창으로 묶어 gpt-transcribe 에 보낸다.
+       9/27 병원 기록이 조각마다 설정의 모델(gpt-4o-transcribe)로 가서 의학 낱말이 줄줄이 깨졌다.
+       9/18 A/B 에서 gpt-transcribe 통째가 가장 나았다 — 값은 같거나 싸다. 실패한 창만 예전 길로 간다. */
+    if(n.mode === "doc" && CFG.oai && navigator.onLine){
+      gn.disabled = true; gn.textContent = "전사 중…";
+      for(const c of cs) if(c.status==="held" && c.blob){ c.pass = "wait"; await put("chunks",c); }
+      holdAwake("pass2", true, true);
+      try{
+        await secondPass(n.id, (i, t) => { gn.textContent = "전사 " + (i + 1) + "/" + t; });
+      }catch(e){ toast("묶어 전사 실패, 조각별로 전사합니다: " + (e.message || e), 6000); }
+      finally{ holdAwake("pass2", false, true); }
+    }
+    const left = (await byIndex("chunks","note",n.id)).filter(c=>c.status==="held");
+    for(const c of left){ c.status="pending"; await put("chunks",c); }
     renderDetail(); drain();
   };
 
