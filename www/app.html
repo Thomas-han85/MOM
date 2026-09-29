@@ -696,9 +696,9 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
           기록을 고칩니다. 자막·통역은 그대로고, 회의록은 이 글로 만듭니다. 대화 모드에는 하지 않습니다.</p></div>
       <div class="field"><label for="s-stt">전사 · 구간 파일과 불러온 음성</label>
         <select id="s-stt">
+          <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 기본 · 용어와 언어를 따로 받습니다</option>
           <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
-          <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 용어를 따로 넣어 줍니다</option>
-          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 정확도 우선</option>
+          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분</option>
           <option value="whisper-1">whisper-1 · $0.006/분</option>
         </select>
         <p class="hint" style="margin-top:6px"><b>gpt-transcribe</b> 는 고유명사와 회의 언어(한·베·영)를
@@ -966,7 +966,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.28-5";
+const APP_VERSION = "2026.09.29-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1068,7 +1068,7 @@ const DEFAULTS = { oai:"", ant:"",
                       Gem Park → Zenpad, Kim Oanh → Kim 1, 이자율 14% → 40%.
                       원문이 그렇게 적히면 회의록에서 되살릴 방법이 없다.
                       시간당 $0.18 더 든다. 회의록 한 장이 틀리는 값보다 싸다. */
-                   stt:"gpt-4o-transcribe",   // 전사
+                   stt:"gpt-transcribe",      // 전사(예비 경로 — 소켓이 못 붙을 때·파일 불러오기)
                    doc:"gpt-4o-mini",              // 회의록
                    trans:"gpt-4o-mini",            // 통역
                    vision:"gpt-4o-mini",           // 사진·스캔 읽기
@@ -1099,6 +1099,10 @@ if(!CFG.trans)  CFG.trans  = "gpt-4o-mini";
    현장 용어가 깨지고 영어로 샌다(9/9 PMU 회의 115구간 중 93구간). 누가 말했는지는
    회의 뒤 2차 패스가 한다. 저장돼 있던 값은 정확도 우선 모델로 되돌린다. */
 if(CFG.stt === "gpt-4o-transcribe-diarize"){ CFG.stt = "gpt-4o-transcribe"; try{ saveCfg(); }catch(e){} }
+/* 9/18 A/B: gpt-4o-transcribe 는 앞을 자르고 조용하면 지어냈다. 소켓이 죽은 회의(9/29 세 건)가
+   전부 이 모델로 가서 무너졌다. 예비 경로도 gpt-transcribe 로 — 더 싸고($0.0045/0.006) 용어와
+   언어 목록을 따로 받는다. 한 번만 옮긴다(sttMig) — 설정에서 도로 고르면 그대로 둔다. */
+if(CFG.sttMig !== "1"){ if(CFG.stt === "gpt-4o-transcribe") CFG.stt = "gpt-transcribe"; CFG.sttMig = "1"; try{ saveCfg(); }catch(e){} }
 if(!CFG.vision) CFG.vision = "gpt-4o-mini";
 if(!Array.isArray(CFG.series)) CFG.series = [];
 /* 기도제목 한 줄이 이름으로 배워진 것을 걷어 낸다(9/28 "아내가 지치지 않도록"). 이름은 이렇게 맺지 않는다. */
@@ -7586,6 +7590,14 @@ function liveSession(note){
                           silence_duration_ms: talk ? 600 : 550 } } } };
 }
 
+/* 소켓이 왜 안 붙었는지 회의에 남긴다. note 는 동기화 pack 에 실리므로 다른 기기에서도 보인다. */
+function liveFailNote(L){
+  if(!activeNote || activeNote.id !== L.noteId) return;
+  const f = activeNote.liveFail || (activeNote.liveFail = {});
+  f.at = Date.now(); f.n = L.fails || 1; f.msg = L.failMsg || "";
+  try{ put("notes", activeNote); }catch(e){}
+}
+
 function liveOpen(note){
   if(!liveWanted() || !note || !modeDoes().live) return;
   if(NATIVE && nativeStale()){ toast("실시간 전사는 새 APK 가 있어야 합니다. 그때까지는 예전처럼 구간 파일로 전사합니다.", 8000); return; }
@@ -7608,7 +7620,7 @@ function liveConnect(L){
   catch(e){ liveDown(L); return; }
   L.ws = ws; L.ready = false; L.sockMs = 0; L.segs = []; L.turn = null; L.cutTurn = null;
   L.turns = {}; L.partial = ""; L.pStart = 0; L.gap = true; L.ring = [];
-  L.openedAt = Date.now();
+  L.openedAt = Date.now(); L.errAttempt = false;
   ws.onopen = () => { try{ ws.send(JSON.stringify({ type:"session.update", session: liveSession(L.note) })); }catch(e){} };
   ws.onmessage = ev => { if(L.ws !== ws) return; let e; try{ e = JSON.parse(ev.data); }catch(x){ return; } liveEvent(L, e); };
   ws.onclose = () => { if(L.ws !== ws) return; liveDown(L); };
@@ -7647,6 +7659,7 @@ function liveSwitch(L){
 
 /* 소켓이 죽었다. 덮은 시간을 마무리하고, 녹음 중이면 조금 기다렸다 다시 연다. */
 function liveDown(L){
+  const wasReady = L.ready;
   L.ready = false; L.ws = null;
   if(L.pingT && L.closed){ clearInterval(L.pingT); L.pingT = null; }
   /* 글이 아직 안 온 말차례는 잃는다. 그 시작까지 덮은 시간을 물려 파일이 다시 적게 한다. */
@@ -7657,6 +7670,17 @@ function liveDown(L){
   L.turns = {}; L.turn = null; L.cutTurn = null;
   liveCoverEnd(L);
   if(live !== L || L.closed || L.dead || !recording) return;
+  /* 이번 시도에서 한 번도 못 붙고 죽었다. 서버 오류(위 error 에서 셈)가 아니면 연결 자체가
+     안 닿는 것이다 — 이유를 남기고 계속 다시 붙는다. put 이 잦지 않게 1·5·10…번째만 적는다. */
+  if(!wasReady){
+    if(!L.errAttempt){
+      L.fails = (L.fails || 0) + 1;
+      if(!L.failMsg) L.failMsg = "연결이 닿지 않습니다 — 이 자리 네트워크가 소켓(wss)을 막는지 의심";
+    }
+    L.errAttempt = false;
+    if(L.fails === 1 || L.fails % 5 === 0) liveFailNote(L);
+    paintShelf();
+  }
   const wait = Math.min(15000, 1000 * Math.pow(2, L.retry++));
   setTimeout(() => { if(live === L && !L.closed && recording) liveConnect(L); }, wait);
 }
@@ -7779,15 +7803,38 @@ function liveEvent(L, e){
   const t = e.type;
   if(t === "session.updated"){
     L.ready = true; L.retry = 0; L.gap = true; L.ring = []; L.lastAt = -1;
+    L.failMsg = "";
+    /* 실패하다 붙었으면 회의에 남긴 기록에 「다시 붙었다」를 적는다. 셈(fails)은 진단용으로 남긴다. */
+    if(L.fails && activeNote && activeNote.id === L.noteId && activeNote.liveFail){
+      activeNote.liveFail.recoveredAt = Date.now();
+      try{ put("notes", activeNote); }catch(e){}
+    }
     const pre = L.pre; L.pre = [];
     for(const f of pre) liveFrame(L, f);   // 열리기 전에 모아 둔 조각부터
     paintStrips(); renderIfOpen(L.noteId);   // "듣고 있습니다" 안내가 실시간 것으로 바뀌게
     return;
   }
   if(t === "error"){
-    const m = (e.error && e.error.message) || "";
-    /* 열쇠·모델·설정이 틀린 것은 다시 연다고 낫지 않는다. 이 녹음 동안은 파일 경로로 간다. */
-    if(!L.ready){ L.dead = true; L.closed = true; toast("실시간 전사를 열지 못했습니다 · " + m.slice(0, 120) + " — 이번에는 구간 파일로 전사합니다.", 9000); try{ L.ws && L.ws.close(); }catch(x){} }
+    const err = e.error || {};
+    const m = (err.message || "") + "";
+    /* 열자마자 온 오류. 예전에는 무조건 이번 녹음 내내 포기했다 — 서버가 잠깐 낸 오류에도
+       85분을 통째로 구간 파일로 갔다(9/25 54분 대화, 9/29 세 건). 이제 다시 열어도 안 낫는
+       것(열쇠·모델·요금·잘못된 설정)만 포기하고, 나머지는 소켓을 닫아 liveDown 의 재시도에
+       맡긴다. 이유는 회의에 남긴다 — 「그날 왜 나빴나」를 짐작이 아니라 기록으로 알기 위해. */
+    if(!L.ready){
+      L.errAttempt = true;
+      L.fails = (L.fails || 0) + 1;
+      L.failMsg = ((err.code || err.type || "") + " " + m).trim().slice(0, 160);
+      liveFailNote(L);
+      const perm = /api.?key|authenticat|model_not_found|does not exist|insufficient_quota|billing|unknown_parameter|invalid_request_error|invalid_value|permission|account/i
+        .test((err.code || "") + " " + (err.type || "") + " " + m);
+      if(perm){
+        L.dead = true; L.closed = true;
+        toast("실시간 전사를 열 수 없습니다 · " + m.slice(0, 120) + " — 이번 녹음은 구간 파일로 전사합니다.", 9000);
+      }
+      try{ L.ws && L.ws.close(); }catch(x){}
+      paintShelf();
+    }
     return;
   }
   if(t === "input_audio_buffer.speech_started"){
@@ -8072,7 +8119,10 @@ async function secondPass(noteId, onStep){
         for(const c of grp){ c.pass = "kept"; if(!(CFG.keepAudio === "1" || CFG.diar === "1")) c.blob = null; await put("chunks", c); }
         continue;
       }
-      const liveText = lives.map(c => c.text || "").join(" ");
+      /* 소켓이 죽어 파일이 맡았던 창은 실시간 구간이 없다 — 그때는 이미 적힌 파일 글이 잣대다.
+         2차가 그 절반도 못 적으면(kept) 있던 글을 지우지 않고 남긴다. */
+      const liveText = lives.length ? lives.map(c => c.text || "").join(" ")
+                                    : grp.map(c => c.text || "").join(" ");
       try{
         const { blob } = await mergeAudio(grp);
         const raw = await sttChunk(blob, prompt, terms, "gpt-transcribe");
@@ -8655,6 +8705,12 @@ function paintShelf(){
   if(!CFG.oai){        kind = "warn"; txt = "열쇠가 없어 전사가 멈춰 있습니다 · 녹음은 저장됩니다"; }
   else if(!navigator.onLine){ kind = "warn"; txt = "연결이 끊겼습니다 · 지금은 통역이 나가지 않습니다"; }
   else if(stale){      kind = "warn"; txt = "녹음이 멈춘 것 같습니다 · 눌러서 확인해 주세요"; }
+  /* 소켓이 안 붙으면 특이사항 줄에 밀리지 않고 계속 보인다. 예전에는 9초 토스트 한 번이라
+     회의 시작 때 놓치면 끝까지 몰랐다(9/29 세 건). */
+  else if(live && activeNote && live.noteId === activeNote.id && live.dead){
+    kind = "warn"; txt = "실시간 전사를 포기했습니다(" + (live.failMsg || "설정 오류").slice(0, 80) + ") · 이번 녹음은 구간 파일로 — 자막·통역이 늦습니다"; }
+  else if(live && activeNote && live.noteId === activeNote.id && !live.closed && !live.ready && (live.fails || 0) >= 2){
+    kind = "warn"; txt = "실시간 전사가 안 붙습니다(" + live.fails + "번 실패) · 계속 다시 시도합니다 — 그동안 구간 파일로 전사"; }
   else if(soundWarn()){ kind = "warn"; txt = soundWarn(); }
   else if(liveSum.length){
     const last = liveSum[liveSum.length - 1];
@@ -8728,6 +8784,11 @@ async function saveChunk(noteId, s, blob, status, offsetMs, src, durMs){
          지우고, 그중에 이미 읽어 준 것이 있었으면 두 번 읽지 않게 표시한다. */
       const ev = await liveEvict(noteId, offsetMs, offsetMs + durMs);
       if(ev.spoken) c.spoken = true;
+      /* 소켓이 붙어 있어야 하는데 못 붙은 시간대다(9/29 세 건이 통째로 이랬다). 파일로 바로
+         전사해 자막은 내보내되, 소리를 쥐고 2차 대기로 둔다 — 회의가 끝나면 정리 전사가
+         50초 창으로 다시 받아 적어 기록을 고친다. 2차가 끝나면 소리는 그쪽에서 놓는다. */
+      const holdPass = CFG.pass2 !== "0" && activeNote && ["live","full","trans","online"].includes(activeNote.mode);
+      if(holdPass && live && live.noteId === noteId && !live.ready){ c.keepAudio = true; c.pass = "wait"; }
     }
   }
   await put("chunks", c);
@@ -9581,6 +9642,12 @@ async function renderDetail(){
   })();
 
   let raw = diarBar + (n.script && scriptView ? nameBox : "") + '<div class="script">';
+  /* 실시간 소켓이 안 붙었던 회의는 그 사실과 이유를 기록 위에 남긴다 — 품질이 왜 그랬는지 나중에 안다 */
+  if(n.liveFail && n.liveFail.n)
+    raw += '<div style="margin:0 0 10px;padding:9px 12px;border:1px solid var(--rule);border-radius:9px;font-size:12.5px;color:var(--muted)">'+
+      (n.liveFail.recoveredAt ? '이 회의는 실시간 전사가 ' + n.liveFail.n + '번 실패한 뒤 다시 붙었습니다'
+                              : '이 회의는 실시간 전사가 안 붙어 구간 파일로 전사됐습니다(' + n.liveFail.n + '번 시도)')+
+      (n.liveFail.msg ? ' · ' + esc(n.liveFail.msg.slice(0, 120)) : '')+'</div>';
   if(n.script && scriptView){
     let prev = "";
     for(const t of n.script){
