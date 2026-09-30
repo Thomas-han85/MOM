@@ -966,7 +966,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.30-1";
+const APP_VERSION = "2026.09.30-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1175,8 +1175,44 @@ function saveCfg(){
   stampEdits();
   const body = JSON.stringify(CFG);
   store.set("meetnote_cfg", body);
-  // 되살릴 거리가 있을 때만 여벌을 갱신한다. 빈 설정이 여벌을 덮으면 안전망이 사라진다.
-  if(cfgWorthKeeping(CFG)) try{ store.set(CFG_BAK, body); }catch(e){}
+  /* 되살릴 거리가 있을 때만 여벌을 갱신한다. 빈 설정이 여벌을 덮으면 안전망이 사라진다.
+     로컬스토리지 여벌은 깨진 값에 대비한 것이고, IndexedDB 여벌은 로컬스토리지가 통째로
+     사라지는 것에 대비한 것이다(9/29 에 실제로 그랬다). 둘은 막는 사고가 다르다. */
+  if(cfgWorthKeeping(CFG)){
+    try{ store.set(CFG_BAK, body); }catch(e){}
+    cfgMirror(body);
+  }
+}
+
+/* 설정 여벌을 IndexedDB 에 둔다. 저장이 잦으므로 몰아서 한 번만 쓴다. */
+let cfgMirrorT = 0;
+function cfgMirror(body){
+  if(!db) return;                       // 아직 안 열렸다. 다음 저장 때 실린다
+  clearTimeout(cfgMirrorT);
+  cfgMirrorT = setTimeout(() => {
+    try{ putRaw("meta", { k:"cfg", at: Date.now(), body }); }catch(e){}
+  }, 1500);
+}
+
+/* 로컬스토리지가 통째로 사라졌는지 보고, 그렇다면 IndexedDB 여벌로 되살린다.
+
+   9월 29일 15:01 에 이 일이 났다. 엣지 프로필의 `Local Storage` 폴더가 사라져(leveldb 로그:
+   "Creating DB ... since it was missing") 설정이 전부 기본값이 됐고, 회의 기록(IndexedDB)만 남았다.
+   그때 앱은 기본값을 그대로 저장했다 — 그래서 다음 부팅에는 "온전한 빈 설정" 으로 보여
+   깨진 값 판정(cfgReadOK)에 걸리지 않는다. 그래서 잣대를 값의 내용으로 잡는다.
+   이쪽이 비었고 여벌에 쓸 거리가 있을 때만 되살린다. 일부러 다 비우신 경우에도 되살아나므로
+   조용히 하지 않고 알린다 — 다시 비우고 저장하시면 그대로 남는다. */
+async function cfgRecover(){
+  if(cfgWorthKeeping(CFG)) return 0;            // 이쪽에 쓸 것이 있다. 손대지 않는다
+  let rec = null;
+  try{ rec = await get("meta", "cfg"); }catch(e){ return 0; }
+  if(!rec || !rec.body) return 0;
+  let d = null;
+  try{ d = JSON.parse(rec.body); }catch(e){ return 0; }
+  if(!cfgWorthKeeping(d)) return 0;
+  Object.assign(CFG, d);
+  saveCfg();
+  return rec.at || 1;
 }
 
 /* =====================================================================
@@ -1227,14 +1263,22 @@ function paintDim(){
 let db;
 function openDB(){
   return new Promise((res,rej)=>{
-    const r = indexedDB.open("meetnote", 1);
+    /* 판 2: 설정 여벌본을 둘 "meta" 칸을 더했다. 9/29 에 로컬스토리지가 통째로 사라졌을 때
+       이 IndexedDB 는 멀쩡히 남아 있었다 — 여벌본은 살아남는 쪽에 둬야 한다.
+       이미 있는 칸은 건드리지 않는다(있는 자료는 그대로 간다). */
+    const r = indexedDB.open("meetnote", 2);
     r.onupgradeneeded = e => {
       const d = e.target.result;
-      const n = d.createObjectStore("notes",{keyPath:"id"});
-      n.createIndex("created","created");
-      const c = d.createObjectStore("chunks",{keyPath:"id"});
-      c.createIndex("note","noteId");
-      c.createIndex("status","status");
+      if(!d.objectStoreNames.contains("notes")){
+        const n = d.createObjectStore("notes",{keyPath:"id"});
+        n.createIndex("created","created");
+      }
+      if(!d.objectStoreNames.contains("chunks")){
+        const c = d.createObjectStore("chunks",{keyPath:"id"});
+        c.createIndex("note","noteId");
+        c.createIndex("status","status");
+      }
+      if(!d.objectStoreNames.contains("meta")) d.createObjectStore("meta",{keyPath:"k"});
     };
     r.onsuccess = e => { db = e.target.result; res(db); };
     r.onerror = () => rej(r.error);
@@ -12033,6 +12077,9 @@ function paintUpdBar(){
 (async ()=>{
   applyTheme();          // 첫 그림이 그려지기 전에 빛깔부터 맞춘다
   await openDB();
+  /* 로컬스토리지가 사라졌으면 여기서 되살린다. 전사·통역이 열쇠를 찾기 전에 해야 한다. */
+  let cfgBack = 0;
+  try{ cfgBack = await cfgRecover(); }catch(e){}
   await askPersist();          // 함부로 비우지 말라고 안드로이드에 요청
   trimAudio();                 // 지난번에 쌓인 녹음이 있으면 정리한다
   // 앱이 죽었다 살아난 경우 sent 상태로 멈춘 청크를 되살린다
@@ -12040,7 +12087,9 @@ function paintUpdBar(){
   setMode("live"); paintStrips(); await refreshList(); drain();
   /* 설정이 없거나 깨져서 여벌본으로 되살렸다면 알린다. 조용히 넘기면 무엇이 바뀐지 모른다. */
   saveCfgLate();   // 부팅 때 정한 이관·되살린 설정을 이제 저장한다(여기선 bare·cfgSnap 이 살아 있다)
-  if(cfgRestored) toast("설정이 비어 있어 여벌본으로 되살렸습니다 · 열쇠와 용어집을 설정에서 확인해 주세요", 10000);
+  if(cfgBack) toast("설정이 비어 있어 이 기기의 여벌본으로 되살렸습니다(" + timeLabel(cfgBack) + " 것) · "
+                  + "일부러 비우신 것이면 다시 비우고 저장해 주세요", 12000);
+  else if(cfgRestored) toast("설정이 비어 있어 여벌본으로 되살렸습니다 · 열쇠와 용어집을 설정에서 확인해 주세요", 10000);
   else if(!cfgReadOK) toast("설정을 읽지 못했습니다 · 이번에는 저장하지 않습니다. 앱을 다시 열어 보시고, 그래도 비어 있으면 폰에서 「설정 옮기기」로 가져오세요", 12000);
   // 여기까지 왔으면 정상 기동이다. 부트로더의 감시 플래그를 푼다.
   if(window.__mnBootOK) window.__mnBootOK();
