@@ -966,7 +966,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.09.29-1";
+const APP_VERSION = "2026.09.30-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1092,17 +1092,54 @@ const DEFAULTS = { oai:"", ant:"",
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
                    costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
-try{ Object.assign(CFG, JSON.parse(store.get("meetnote_cfg")||"{}")); }catch(e){}
+
+/* 설정을 읽을 때 "못 읽었다" 와 "아직 없다" 를 가른다.
+
+   9월 30일 랩탑에서 설정이 통째로 비어 있었다 — 열쇠·구글 시크릿·용어집·고침 사전·시리즈가
+   전부 기본값이고 회의 기록(IndexedDB)만 남아 있었다. 이 구조가 그것을 만들 수 있다.
+   값이 있는데 못 읽으면(깨진 JSON·저장소가 잠깐 막힘) CFG 가 기본값으로 남고, 그 뒤에
+   부팅 때 도는 이관이 saveCfg() 를 불러 **기본값을 저장해 버린다.** 잠깐의 읽기 실패가
+   영구적인 소실로 굳는 것이다. 그래서 두 가지를 둔다.
+     · 읽기가 실패한 부팅에서는 이관이 저장하지 않는다(cfgSafe).
+     · 쓸모 있는 설정은 여벌본을 따로 둔다. 본체가 없거나 깨졌을 때만 그것으로 되살린다.
+       일부러 지운 것(연결 끊기·열쇠 비우기)은 온전한 JSON 이라 되살아나지 않는다. */
+const CFG_BAK = "meetnote_cfg_bak";
+let cfgReadOK = true, cfgRestored = 0, cfgMigrated = false;
+(() => {
+  let raw = null;
+  try{ raw = store.get("meetnote_cfg"); }catch(e){ cfgReadOK = false; }
+  if(raw){
+    try{ Object.assign(CFG, JSON.parse(raw)); }
+    catch(e){ cfgReadOK = false; }
+  }
+  if(cfgReadOK && raw) return;                     // 온전히 읽었다
+  /* 본체가 없거나 깨졌다. 여벌본이 있으면 그것을 쓴다. */
+  let bak = null;
+  try{ bak = store.get(CFG_BAK); }catch(e){}
+  if(!bak) return;
+  try{
+    const d = JSON.parse(bak);
+    if(d && typeof d === "object"){ Object.assign(CFG, d); cfgRestored = Date.now(); cfgReadOK = true; }
+  }catch(e){}
+})();
+/* 이관·정리가 저장해도 되는 부팅인가. 읽기가 실패했으면 손대지 않는다 — 다음 부팅에 살아날 수 있다. */
+const cfgSafe = () => cfgReadOK;
+
+/* 되살릴 거리가 있는 설정만 여벌로 둔다. 빈 설정을 여벌로 두면 진짜 설정을 덮는다. */
+function cfgWorthKeeping(c){
+  return !!(c && (c.oai || c.gcsec || String(c.gloss||"").trim() || String(c.fixes||"").trim()
+                  || (c.series||[]).length || (c.people||[]).length));
+}
 if(!Array.isArray(CFG.people)) CFG.people = [];
 if(!CFG.trans)  CFG.trans  = "gpt-4o-mini";
 /* 화자 분리 모델은 전사 옵션에서 뺐다. 용어집·맥락 힌트를 못 받아 회의 중 전사를 맡기면
    현장 용어가 깨지고 영어로 샌다(9/9 PMU 회의 115구간 중 93구간). 누가 말했는지는
    회의 뒤 2차 패스가 한다. 저장돼 있던 값은 정확도 우선 모델로 되돌린다. */
-if(CFG.stt === "gpt-4o-transcribe-diarize"){ CFG.stt = "gpt-4o-transcribe"; try{ saveCfg(); }catch(e){} }
+if(CFG.stt === "gpt-4o-transcribe-diarize") CFG.stt = "gpt-4o-transcribe";
 /* 9/18 A/B: gpt-4o-transcribe 는 앞을 자르고 조용하면 지어냈다. 소켓이 죽은 회의(9/29 세 건)가
    전부 이 모델로 가서 무너졌다. 예비 경로도 gpt-transcribe 로 — 더 싸고($0.0045/0.006) 용어와
    언어 목록을 따로 받는다. 한 번만 옮긴다(sttMig) — 설정에서 도로 고르면 그대로 둔다. */
-if(CFG.sttMig !== "1"){ if(CFG.stt === "gpt-4o-transcribe") CFG.stt = "gpt-transcribe"; CFG.sttMig = "1"; try{ saveCfg(); }catch(e){} }
+if(CFG.sttMig !== "1" && cfgSafe()){ if(CFG.stt === "gpt-4o-transcribe") CFG.stt = "gpt-transcribe"; CFG.sttMig = "1"; cfgMigrated = true; }
 if(!CFG.vision) CFG.vision = "gpt-4o-mini";
 if(!Array.isArray(CFG.series)) CFG.series = [];
 /* 기도제목 한 줄이 이름으로 배워진 것을 걷어 낸다(9/28 "아내가 지치지 않도록"). 이름은 이렇게 맺지 않는다. */
@@ -1127,9 +1164,19 @@ function stampEdits(){
   }
   if(any) CFG.sharedU = now;
 }
+/* 부팅 때 정한 이관을 여기서 저장한다.
+
+   예전에는 이관 줄이 그 자리에서 saveCfg() 를 불렀다. 그런데 saveCfg → stampEdits 가 쓰는
+   bare·cfgSnap 이 아래에서 선언된 const 라, 그 호출은 언제나 ReferenceError 로 끝나고
+   try{}catch{} 가 삼켰다. 이관이 한 번도 저장되지 않아 부팅마다 다시 돌았다. */
+function saveCfgLate(){ if(cfgMigrated || cfgRestored){ cfgMigrated = false; try{ saveCfg(); }catch(e){} } }
+
 function saveCfg(){
   stampEdits();
-  store.set("meetnote_cfg", JSON.stringify(CFG));
+  const body = JSON.stringify(CFG);
+  store.set("meetnote_cfg", body);
+  // 되살릴 거리가 있을 때만 여벌을 갱신한다. 빈 설정이 여벌을 덮으면 안전망이 사라진다.
+  if(cfgWorthKeeping(CFG)) try{ store.set(CFG_BAK, body); }catch(e){}
 }
 
 /* =====================================================================
@@ -11991,6 +12038,10 @@ function paintUpdBar(){
   // 앱이 죽었다 살아난 경우 sent 상태로 멈춘 청크를 되살린다
   for(const c of await all("chunks")) if(c.status==="sent"){ c.status="pending"; await put("chunks",c); }
   setMode("live"); paintStrips(); await refreshList(); drain();
+  /* 설정이 없거나 깨져서 여벌본으로 되살렸다면 알린다. 조용히 넘기면 무엇이 바뀐지 모른다. */
+  saveCfgLate();   // 부팅 때 정한 이관·되살린 설정을 이제 저장한다(여기선 bare·cfgSnap 이 살아 있다)
+  if(cfgRestored) toast("설정이 비어 있어 여벌본으로 되살렸습니다 · 열쇠와 용어집을 설정에서 확인해 주세요", 10000);
+  else if(!cfgReadOK) toast("설정을 읽지 못했습니다 · 이번에는 저장하지 않습니다. 앱을 다시 열어 보시고, 그래도 비어 있으면 폰에서 「설정 옮기기」로 가져오세요", 12000);
   // 여기까지 왔으면 정상 기동이다. 부트로더의 감시 플래그를 푼다.
   if(window.__mnBootOK) window.__mnBootOK();
   wireUpdateUI();
