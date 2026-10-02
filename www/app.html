@@ -600,6 +600,12 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
           <option value="onyx">onyx · 남성</option>
           <option value="echo">echo · 남성</option>
         </select></div>
+      <div class="field"><label for="s-ttsmodel">OpenAI 음성 모델</label>
+        <input id="s-ttsmodel" type="text" autocomplete="off" placeholder="gpt-4o-mini-tts">
+        <p class="hint" style="margin-top:6px">OpenAI 가 <b>2027년 1월 6일</b>에 <code>gpt-4o-mini-tts</code>·<code>tts-1</code>·<code>tts-hd</code>
+          를 닫습니다(2026-10-02 공지). 대체 모델이 정해지면 코드를 고치지 않고 이 칸만 바꾸면 됩니다.
+          비워 두면 <code>gpt-4o-mini-tts</code> 를 씁니다. 모델이 없어지면 앱이 스스로 폰 내장 목소리로 돌아갑니다 —
+          실장님은 내장 목소리를 쓰시니 이 칸과 무관합니다. 전사·통역·회의록은 다른 모델이라 영향 없습니다.</p></div>
       <div class="field"><label for="s-ttsrate">읽기 속도</label>
         <select id="s-ttsrate">
           <option value="0.8">0.8배 · 천천히</option>
@@ -697,10 +703,13 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <div class="field"><label for="s-stt">전사 · 구간 파일과 불러온 음성</label>
         <select id="s-stt">
           <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 기본 · 용어와 언어를 따로 받습니다</option>
-          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈</option>
-          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분</option>
-          <option value="whisper-1">whisper-1 · $0.006/분</option>
+          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe · $0.003/분 · 가장 쌈 · 2027-02-26 종료</option>
+          <option value="gpt-4o-transcribe">gpt-4o-transcribe · $0.006/분 · 2027-02-26 종료</option>
+          <option value="whisper-1">whisper-1 · $0.006/분 · 2027-02-26 종료</option>
         </select>
+        <p class="hint" style="margin-top:6px"><b>2027년 2월 26일</b>에 OpenAI 가 <code>whisper-1</code>·<code>gpt-4o-transcribe</code>·
+          <code>gpt-4o-mini-transcribe</code> 를 닫습니다(2026-08-26 공지). 공식 대체가 지금 기본값인
+          <code>gpt-transcribe</code> 입니다 — 그대로 두시면 됩니다. 종료 표시가 붙은 것을 고르면 그날부터 전사가 멈춥니다.</p>
         <p class="hint" style="margin-top:6px"><b>gpt-transcribe</b> 는 고유명사와 회의 언어(한·베·영)를
           따로 된 칸으로 받습니다. 현장 용어가 자꾸 깨지거나 다른 나라 말이 섞이면 이걸 먼저 써 보세요.</p></div>
       <div class="field"><label for="s-trans">통역</label>
@@ -966,7 +975,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.01-1";
+const APP_VERSION = "2026.10.02-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1075,6 +1084,7 @@ const DEFAULTS = { oai:"", ant:"",
                    chunk:"30000", gloss:"", fixes:"", people:[], series:[], stream:"1",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    voice:"device", voiceName:"nova",          // 목소리: 폰 내장 / OpenAI
+                   ttsModel:"",                              // OpenAI 음성 모델. 비면 gpt-4o-mini-tts
                    spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
                    myEn:"1",                                 // 내가 영어로 말한 것도 "내 말" 로 본다
                    micRaw:"0",                               // 노트북 마이크를 손보지 않고 원음 그대로 받을지
@@ -2549,7 +2559,9 @@ function speakTrans(text, target, pan, gid, gain){
   ttsLast = text;
   noteSpoken(text);   // 마이크가 이 소리를 되주워도 회의 내용으로 세지 않게 적어 둔다
   ttsQueue.push({ text, lang: TTS_LANG[target] || "ko-KR", pan: pan || 0, gid: gid || "", gain: gain || 1, queuedAt: Date.now() });
-  if(cloudVoiceOn()){ const jb = ttsQueue[ttsQueue.length - 1]; jb.audio = cloudFetch(jb.text).catch(() => null); }
+  if(cloudVoiceOn()){ const jb = ttsQueue[ttsQueue.length - 1];
+    /* 까닭을 그 일감에 적어 둔다. 예전에는 그냥 null 로 삼켜, 모델이 없어져도 "조용히 안 읽어주는" 꼴이 됐다. */
+    jb.audio = cloudFetch(jb.text).catch(e => { jb.audioErr = e; return null; }); }
   /* 밀린 것을 버리는 단위가 발화에서 구간으로 바뀐다.
 
      예전에는 한 구간이 발화 하나였다. 이제 한 구간이 문장 여러 개로 나뉘어 들어온다.
@@ -2579,7 +2591,7 @@ function speakTrans(text, target, pan, gid, gain){
    첫 소리까지 1.7~2초(9월 17일 실측)라 큐에 넣는 순간 미리 받아 둔다(j.audio).
    폰 스피커로 보내는 것(out:"speaker")은 나갈 곳을 고를 수 있는 네이티브가 계속 맡는다.
    ===================================================================== */
-let cloudCtx = null, cloudSrc = null;
+let cloudCtx = null, cloudSrc = null, ttsGoneTold = false;
 function cloudVoiceOn(){ return CFG.voice === "openai" && !!CFG.oai && !!(window.AudioContext || window.webkitAudioContext); }
 function cloudCtxGet(){
   if(!cloudCtx){
@@ -2592,16 +2604,35 @@ function cloudCtxGet(){
 async function cloudFetch(text){
   const r = await fetchT("https://api.openai.com/v1/audio/speech", { method:"POST",
     headers:{ "Content-Type":"application/json", Authorization:"Bearer " + CFG.oai },
-    body: JSON.stringify({ model:"gpt-4o-mini-tts", voice: CFG.voiceName || "nova", input: text,
+    body: JSON.stringify({ model: TTS_MODEL(), voice: CFG.voiceName || "nova", input: text,
       response_format:"pcm", speed: Math.max(0.5, Math.min(2, parseFloat(CFG.ttsRate) || 1)) }) }, 30000);
-  if(!r.ok) throw new Error("음성 " + r.status);
+  /* 까닭을 함께 올린다. "모델이 없어졌다" 와 "잠깐 안 된다" 는 할 일이 다르다. */
+  if(!r.ok){
+    let why = "";
+    try{ why = (await r.text()).slice(0, 200); }catch(e){}
+    const err = new Error("음성 " + r.status + (why ? " · " + why : ""));
+    err.status = r.status; err.body = why;
+    throw err;
+  }
   return await r.arrayBuffer();   // 24kHz 16bit 모노
 }
+
+/* 쓸 음성 모델. OpenAI 가 2027-01-06 에 gpt-4o-mini-tts 를 닫는다(2026-10-02 공지).
+   대체 모델이 아직 문서에 없으므로 이름을 설정 칸으로 빼 두었다 — 정해지면 거기만 고친다. */
+function TTS_MODEL(){ return (CFG.ttsModel || "").trim() || "gpt-4o-mini-tts"; }
+
+/* 이 실패가 "그 모델이 이제 없다" 인가. 그렇다면 다시 걸어도 소용없으니 내장 목소리로 옮긴다. */
+function ttsModelGone(e){
+  const t = String((e && (e.body || e.message)) || "");
+  return (e && e.status === 404) || /model_not_found|does not exist|has been (deprecated|retired|shut)|unsupported_model|no longer available/i.test(t);
+}
 /* 큐의 일감 하나를 튼다. pan -1 왼쪽 / 0 가운데 / +1 오른쪽, gain 0.05~1. 끝나면 done. */
-function cloudSpeak(j, done){
+function cloudSpeak(j, done, onFail){
+  const fail = e => { if(onFail) onFail(e || j.audioErr); else done(); };
   const p = j.audio || cloudFetch(j.text);
   p.then(pcm => {
-    if(!pcm || !ttsBusy){ done(); return; }
+    if(!ttsBusy){ done(); return; }
+    if(!pcm){ fail(j.audioErr); return; }
     const ac = cloudCtxGet(); if(!ac){ done(); return; }
     const n = pcm.byteLength >> 1, dv = new DataView(pcm);
     const buf = ac.createBuffer(2, Math.max(1, n), 24000);
@@ -2615,7 +2646,7 @@ function cloudSpeak(j, done){
     src.onended = () => { if(cloudSrc === src) cloudSrc = null; done(); };
     cloudSrc = src;
     try{ src.start(); }catch(e){ done(); }
-  }, () => done());
+  }, e => fail(e));
 }
 function cloudStop(){ const s = cloudSrc; cloudSrc = null; if(s){ try{ s.onended = null; s.stop(); }catch(e){} } }
 
@@ -2629,9 +2660,30 @@ function ttsPump(){
     if(!ttsBusy) return;
     ttsBusy = false; ttsPump();
   };
-  if(cloudVoiceOn() && j.out !== "speaker"){
+  /* OpenAI 목소리가 안 되면 그 줄을 버리지 않고 폰·브라우저 내장 목소리로 읽는다.
+
+     예전에는 받기가 실패하면 그 줄을 조용히 건너뛰었다 — 오류도 안 뜨고 소리만 안 났다.
+     OpenAI 가 2027-01-06 에 gpt-4o-mini-tts 를 닫으면 회의 중에 갑자기 아무 말도 안 읽어주는데
+     까닭을 알 길이 없는 꼴이 된다. 모델이 없어진 것이면 설정을 내장 목소리로 아예 옮기고 알린다.
+     좌우 나눔은 내장 목소리로는 안 되므로 가운데로 들린다 — 조용한 것보다 낫다. */
+  if(cloudVoiceOn() && j.out !== "speaker" && !j.viaDevice){
     ttsWatch = setTimeout(done, Math.max(12000, j.text.length * 200));
-    cloudSpeak(j, done);
+    cloudSpeak(j, done, e => {
+      if(ttsWatch){ clearTimeout(ttsWatch); ttsWatch = null; }
+      if(ttsModelGone(e)){
+        CFG.voice = "device"; saveCfg();
+        if(!ttsGoneTold){
+          ttsGoneTold = true;
+          toast("OpenAI 음성 모델(" + TTS_MODEL() + ")을 쓸 수 없어 내장 목소리로 바꿨습니다 · "
+              + "설정 → 읽어주는 목소리에서 새 모델 이름을 넣으면 다시 씁니다", 12000);
+        }
+      }
+      if(!ttsBusy) return;
+      ttsBusy = false;
+      j.viaDevice = true; j.audio = null; j.audioErr = null;
+      ttsQueue.unshift(j);      // 그 줄을 맨 앞에 되돌려 내장 목소리로 읽는다
+      ttsPump();
+    });
     return;
   }
   if(NativeTts){
@@ -2644,15 +2696,21 @@ function ttsPump(){
       .then(r => { if(r && r.spoken === false) done(); }, done);
     return;
   }
-  const u = new SpeechSynthesisUtterance(j.text);
-  u.lang = j.lang;
-  u.rate = parseFloat(CFG.ttsRate) || 1;
-  // 언어가 맞는 음성을 고른다. 온디바이스(localService) 우선.
-  const vs = speechSynthesis.getVoices()
-    .filter(v => v.lang && v.lang.toLowerCase().startsWith(j.lang.slice(0,2).toLowerCase()));
-  if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
-  u.onend = u.onerror = done;
-  try{ speechSynthesis.speak(u); }catch(e){ done(); }
+  /* 브라우저 내장 음성. 없는 기기도 있다 — TTS_OK 는 웹 오디오만 있어도 참이라
+     OpenAI 목소리에서 여기로 되돌아왔을 때 이 자리가 없을 수 있다. 그때 터지면
+     ttsBusy 가 참으로 남아 그 뒤로 영영 아무것도 읽지 않는다. 반드시 done() 으로 빠진다. */
+  try{
+    if(!HAS_WEB_TTS || typeof SpeechSynthesisUtterance !== "function"){ done(); return; }
+    const u = new SpeechSynthesisUtterance(j.text);
+    u.lang = j.lang;
+    u.rate = parseFloat(CFG.ttsRate) || 1;
+    // 언어가 맞는 음성을 고른다. 온디바이스(localService) 우선.
+    const vs = speechSynthesis.getVoices()
+      .filter(v => v.lang && v.lang.toLowerCase().startsWith(j.lang.slice(0,2).toLowerCase()));
+    if(vs.length) u.voice = vs.find(v=>v.localService) || vs[0];
+    u.onend = u.onerror = done;
+    speechSynthesis.speak(u);
+  }catch(e){ done(); }
 }
 function ttsStop(){
   if(ttsWatch){ clearTimeout(ttsWatch); ttsWatch = null; }
@@ -11696,6 +11754,7 @@ $("btn-settings").onclick = ()=>{
   $("s-stream").value=CFG.stream || "1";
   $("s-ttsrate").value=CFG.ttsRate;
   $("s-voice").value=CFG.voice || "device"; $("s-voicename").value=CFG.voiceName || "nova";
+  $("s-ttsmodel").value=CFG.ttsModel || "";
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
   $("s-awake").value=CFG.awake || "1";
@@ -12044,6 +12103,7 @@ $("s-save").onclick = ()=>{
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
   CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
   CFG.voice=$("s-voice").value; CFG.voiceName=$("s-voicename").value;
+  CFG.ttsModel=$("s-ttsmodel").value.trim();
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
   CFG.eleven=$("s-eleven").value.trim();
