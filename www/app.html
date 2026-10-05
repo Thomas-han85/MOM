@@ -975,7 +975,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.05-2";
+const APP_VERSION = "2026.10.05-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7413,6 +7413,11 @@ async function absorbText(c, note, raw, before, prompt){
        바꿔 쓰는 일이 있다(Thiên Phú → Thien Phu). 옮긴 글에도 한 번 더 건다. 워들리의 Replace 가
        전사·번역 양쪽에 걸리는 것과 같은 까닭이다. */
     c.trans = applyFixes(await translateChunk(c.text, tgt, pair, note.ctx, onSent));
+    /* 회의에서 고른 언어로 말한 구간은 통역이 원문을 그대로 돌려준다 — 지시문이 "이미 그 언어인
+       부분은 그대로 두라" 고 시키기 때문이다. 그것을 그대로 두면 화면에 같은 글이 두 번 찍힌다.
+       한국어 회의를 통역 대상 한국어로 맞춰 녹음하면 **모든 줄이 두 겹**이 된다(10/5 div2 주간회의).
+       같으면 비운다 — 내보내기와 회의록에도 두 번 실리지 않게. */
+    if(nearSame(c.trans, c.text)) c.trans = "";
     latAdd("trans", Date.now() - tStart);
     lat.calls++;
     noteRatio(tgt, c.text.length, (c.trans||"").length);
@@ -8346,6 +8351,7 @@ async function secondPassRun(noteId, onStep){
           if(tgt && txt){
             const pair = prevText ? (prevTrans ? prevText.slice(-200) + "\n→ " + prevTrans.slice(-200) : prevText.slice(-200)) : "";
             try{ head.trans = await translateChunk(txt, tgt, pair, note.ctx, null); }catch(e){ head.trans = ""; }
+            if(nearSame(head.trans, txt)) head.trans = "";   // 원문과 같은 통역은 두 번 찍지 않는다
           }
           for(const c of grp.slice(1)){ c.text = ""; c.trans = ""; c.skip = "live"; c.pass = "done"; c.status = "done"; }
           prevText = txt; prevTrans = head.trans || "";
@@ -9967,7 +9973,8 @@ async function renderDetail(){
     if(c.status==="done"){
       raw += '<div class="orig'+(c.text?"":" pending")+'">'+
         esc(c.text || SKIP_WHY[c.skip] || (c.quiet ? "(조용함)" : c.echo ? "(같은 말이라 건너뜀)" : "(무음)"))+'</div>';
-      if(c.trans) raw += '<div class="trans">'+esc(c.trans)+'</div>';
+      /* 이미 저장된 회의(10/5 이전)는 원문과 같은 통역이 들어 있다. 화면에서는 겹쳐 그리지 않는다. */
+      if(c.trans && !nearSame(c.trans, c.text)) raw += '<div class="trans">'+esc(c.trans)+'</div>';
       if(c.transVi) raw += '<div class="trans vi">📢 '+esc(c.transVi)+'</div>';
     } else if(c.status==="failed"){
       raw += '<div class="errline">'+esc(c.error||"실패")+
