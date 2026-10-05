@@ -975,7 +975,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.02-1";
+const APP_VERSION = "2026.10.05-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -8256,7 +8256,7 @@ function liveWebStop(){
    대화 모드·파일 불러오기·글 정리는 하지 않는다 — 대화는 자막이 곧 기록이고, 파일은 이미 통째로 적었다.
    2차가 실시간보다 훨씬 짧게 나온 창(절반 미만)은 실시간을 남긴다. 통째로 놓친 창을 빈칸으로 바꾸지 않는다.
    ===================================================================== */
-let pass2Busy = false, pass2Run = null;
+let pass2Busy = false, pass2Run = null, pass2Note = "";
 
 /* 이미 정리 전사가 돌고 있으면 기다렸다가 이어서 한다.
 
@@ -8271,10 +8271,10 @@ async function secondPass(noteId, onStep){
   }
   /* 잠금은 여기서 바로 건다. 아래 secondPassRun 은 노트를 읽느라 await 를 두 번 지나고서야
      잠그기 때문에, 그 틈에 두 번째 누름이 들어오면 같은 창을 두 벌 전사한다(값도 두 배). */
-  pass2Busy = true;
+  pass2Busy = true; pass2Note = noteId;   // 어느 회의 것인지 남긴다 — 다른 회의의 단추를 잠그지 않게
   const run = (async () => {
     try{ return await secondPassRun(noteId, onStep); }
-    finally{ pass2Busy = false; }
+    finally{ pass2Busy = false; pass2Note = ""; }
   })();
   pass2Run = run;
   return await run;
@@ -8354,8 +8354,24 @@ async function secondPassRun(noteId, onStep){
 }
 
 /* 녹음이 끝난 뒤 2차를 돈다. 실시간의 마지막 말차례가 앉을 시간을 준 다음이다. */
+/* 이 회의의 정리 전사가 돌고 있거나 곧 돈다. 회의록 만들기가 이것을 보고 기다린다. */
+let pass2Queued = "", pass2Chain = null;
+function pass2Pending(noteId){
+  if(!noteId) return false;
+  return pass2Queued === noteId || (pass2Busy && pass2Note === noteId);
+}
+
 async function runSecondPass(noteId){
   if(CFG.pass2 === "0") return;
+  /* 녹음을 멈춘 뒤 3.5초를 기다리므로, 그 틈에 회의록 만들기를 누르면 정리 전 글로 만들어진다.
+     그래서 기다리기 전에 먼저 깃발을 세운다. */
+  pass2Queued = noteId;
+  renderIfOpen(noteId);
+  try{ await (pass2Chain = runSecondPassGo(noteId)); }
+  finally{ pass2Queued = ""; pass2Chain = null; renderIfOpen(noteId); }
+}
+
+async function runSecondPassGo(noteId){
   try{ await liveChain; }catch(e){}
   await new Promise(r => setTimeout(r, 3500));
   holdAwake("pass2", true, true);
@@ -10028,8 +10044,8 @@ async function renderDetail(){
         'font-size:14px;line-height:1.5;resize:vertical">'+esc(n.brief||"")+'</textarea>'+
       '</div>'+
       draftHint(n, fm, sz, rawLen0) +
-      '<button class="bigbtn" id="gen"'+(doneAll?"":" disabled")+'>'+
-        DOC_FORMS[fm].label+' 만들기</button>';
+      '<button class="bigbtn" id="gen"'+((doneAll && !pass2Pending(n.id))?"":" disabled")+'>'+
+        (pass2Pending(n.id) ? "정리 전사 중… 끝나면 만들 수 있습니다" : DOC_FORMS[fm].label+" 만들기")+'</button>';
   } else if(cur){
     // 번역본이 있으면 언어 탭을 띄우고, 고른 언어의 본문을 보여준다.
     const langs = ["__src__", ...Object.keys(cur.i18n||{})];
@@ -10090,7 +10106,8 @@ async function renderDetail(){
         '</div>'+
       '</div>'+
       '<button class="bigbtn" id="doc-edit-go">고쳐 쓰기</button>'+
-      '<button class="bigbtn ghost" id="regen" style="margin-top:0">이 문서 다시 만들기</button>'+
+      '<button class="bigbtn ghost" id="regen" style="margin-top:0"'+(pass2Pending(n.id)?" disabled":"")+'>'+
+        (pass2Pending(n.id) ? "정리 전사 중…" : "이 문서 다시 만들기")+'</button>'+
       '<button class="bigbtn ghost" id="deldoc" style="margin-top:0">이 문서 지우기</button>');
   } else {
     doc = '<div class="empty">문서가 없습니다.</div>';
@@ -10221,6 +10238,19 @@ async function renderDetail(){
 }
 
 async function genMinutes(n, cs, btn, target){
+  /* 정리 전사가 돌고 있으면 기다린다.
+
+     기다리지 않으면 회의록이 **정리 전 글**로 만들어진다. 실시간 자막은 통째 전사의 57% 밖에
+     못 적으므로(9/18 실측) 애써 2차를 돌린 보람이 없어진다. 눌러도 "정리 전사" 알림만 계속
+     뜨던 것이 이 상태였다. 기다린 뒤에는 구간을 **다시 읽어야** 한다 — 넘겨받은 cs 는
+     2차가 글을 갈아 끼우기 전의 것이다. */
+  if(pass2Pending(n.id)){
+    btn.disabled = true; btn.textContent = "정리 전사를 기다립니다…";
+    try{ await (pass2Chain || pass2Run); }catch(e){}
+    try{ cs = (await byIndex("chunks","note",n.id)).sort(chunkOrder); }catch(e){}
+    const fresh = await get("notes", n.id);
+    if(fresh) n = fresh;
+  }
   /* 화자 분리를 마쳤으면 그 스크립트를 쓴다. 누가 말했는지 추정할 필요가 없어진다. */
   const full = (n.script && n.script.length)
     ? n.script.map(t=>"["+mmss(t.t)+"] "+spkName(n, t.spk)+": "+t.text).join("\n")
