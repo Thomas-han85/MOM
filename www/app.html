@@ -975,7 +975,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.05-1";
+const APP_VERSION = "2026.10.05-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7058,6 +7058,17 @@ function wordsToTurns(words){
   return turns.map(t=>({ spk:t.spk, t:t.t, text:t.text.trim() })).filter(t=>t.text);
 }
 
+/* 화자 분리를 켜고 녹음했는데 못 한 까닭. 아무 말도 없이 단추만 안 보이던 자리다. */
+function diarWhyNot(n, hasAudio){
+  if(n.script) return "";
+  const asked = !!n.wantDiar || !!n.diarFail;
+  if(!asked) return "";
+  if(!CFG.eleven) return "화자 분리를 켜고 녹음했지만 ElevenLabs 열쇠가 없어 못 갈랐습니다 · 설정 → API 열쇠";
+  if(!hasAudio) return "화자 분리를 켜고 녹음했지만 보관한 소리가 없습니다 · 전사가 끝나고 지워졌습니다";
+  if(n.diarFail && n.diarFail.msg) return "화자 분리 실패 · " + n.diarFail.msg;
+  return "";
+}
+
 async function runDiarize(note, onStep){
   if(!CFG.eleven) throw new Error("ElevenLabs 키가 없습니다. 설정에서 넣어 주세요.");
   const cs = (await byIndex("chunks","note",note.id)).sort(chunkOrder);
@@ -9084,8 +9095,23 @@ async function finishRecording(){
     try{
       await runDiarize(done, msg => { const e=$("diar-note"); if(e) e.textContent = msg; });
       toast("화자를 갈랐습니다.");
+      delete done.diarFail; await put("notes", done);
       if(openId===done.id) renderDetail();
-    }catch(e){ toast("화자 분리 실패: "+(e.message||e), 6000); }
+    }catch(e){
+      /* 왜 못 갈랐는지 회의에 남긴다. 토스트는 사라지고, 나중에 보면 까닭을 알 길이 없었다. */
+      done.diarFail = { at: Date.now(), msg: String(e.message || e).slice(0, 200) };
+      try{ await put("notes", done); }catch(x){}
+      toast("화자 분리 실패: "+(e.message||e), 8000);
+      if(openId===done.id) renderDetail();
+    }
+  } else if(done && done.wantDiar && !CFG.eleven){
+    /* 켜고 녹음했는데 열쇠가 없다. 예전에는 **아무 말 없이 넘어갔다** — 상세 화면에도 단추가
+       안 보일 뿐이어서, 켜 두고도 안 되는 줄만 알고 한 달을 보내게 됐다. */
+    done.diarFail = { at: Date.now(), msg: "ElevenLabs 열쇠가 없어 화자를 가르지 못했습니다" };
+    try{ await put("notes", done); }catch(x){}
+    toast("화자 분리를 켜 두셨지만 ElevenLabs 열쇠가 없어 못 갈랐습니다 · "
+        + "설정 → API 열쇠에 넣으면 이 회의 상세에서 「화자 분리 하기」로 돌릴 수 있습니다", 12000);
+    if(openId===done.id) renderDetail();
   } else if(!modeDoes().live){
     toast("녹음을 저장했습니다. 전사하려면 노트에서 '지금 전사'를 눌러 주세요.");
   }
@@ -9851,7 +9877,8 @@ async function renderDetail(){
         '<button class="chip" id="redo-diar">다시 분리</button></div>'
        : (hasAudio && CFG.eleven ?
         '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
-       : ""))+
+       : (diarWhyNot(n, hasAudio) ?
+        '<div class="strip warn" style="margin:0"><span class="dot"></span>'+esc(diarWhyNot(n, hasAudio))+'</div>' : "")))+
       /* 보관한 소리가 있으면 정리 전사(2차)를 손으로도 돌릴 수 있다 — 회의 중 앱이 꺼졌거나,
          2차가 생기기 전(9/18 이전)에 녹음해 둔 회의. 파일 조각을 모두 다시 받아 적는다. */
       (hasAudio && ["live","full","trans","online"].includes(n.mode) ?
