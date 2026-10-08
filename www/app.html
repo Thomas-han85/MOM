@@ -525,6 +525,12 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-cost-now" style="width:100%;margin:0 0 14px">지금 확인</button>
       <div class="field"><label for="s-budget">월 한도 · 달러 · 비워 두면 알리지 않습니다</label>
         <input id="s-budget" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 20"></div>
+      <div class="field"><label for="s-topup-at">마지막 충전일 · 그날 이후 쓴 돈을 셉니다</label>
+        <input id="s-topup-at" type="date"></div>
+      <div class="field"><label for="s-topup-usd">충전액 · 달러</label>
+        <input id="s-topup-usd" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 100"></div>
+      <p class="hint">OpenAI 는 남은 잔액을 알려주지 않습니다. 충전한 날과 금액을 넣어 두면
+        <b>그날 이후 쓴 돈</b>을 더해 <b>남은 돈을 어림</b>해 보여 드립니다. 다시 충전하시면 이 두 칸만 고치면 됩니다.</p>
       <p class="hint">한도의 80% 와 100% 에서 첫 화면에 한 줄로 알립니다. 녹음이나 회의록을 막지는 않습니다.
         청구액을 보려면 아래 <b>열쇠</b> 칸에 OpenAI 관리자 열쇠가 있어야 합니다.</p>
     </div>
@@ -975,7 +981,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.08-2";
+const APP_VERSION = "2026.10.08-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1100,6 +1106,7 @@ const DEFAULTS = { oai:"", ant:"",
                    talkLive:"0",                             // 대화 모드 정확도 우선(gpt-live-transcribe). 시간당 $1 이라 기본은 끔
                    earMine:"1", earOther:"1",                // 좌우 나눠 들을 때 귀마다 소리 크기
                    oaiAdmin:"", budgetUsd:"",                // 쓴 돈 보기와 월 한도(달러)
+                   topupAt:"", topupUsd:"",                  // 마지막 충전일·충전액 — 잔액 어림에 쓴다
                    costCache:null, budgetWarned:"" };
 let CFG = Object.assign({}, DEFAULTS);
 
@@ -11630,7 +11637,12 @@ async function fetchOpenAICost(){
   /* 여섯 달치를 가져와 달별로 묶는다. 이번 달만 보면 "지난달보다 늘었나" 를 알 수 없다.
      응답은 날짜별 통이고 한 번에 다 오지 않으므로 next_page 를 따라간다. */
   const d0 = new Date(); d0.setDate(1); d0.setHours(0,0,0,0); d0.setMonth(d0.getMonth() - 5);
-  const start = Math.floor(d0.getTime() / 1000);
+  /* 충전일이 여섯 달보다 앞이면 거기까지 거슬러 가져온다 — 안 그러면 "충전 뒤 쓴 돈" 이 모자라게 나온다.
+     열여덟 달에서 끊는다. 그보다 옛 충전은 어차피 잔액 셈에 뜻이 없다. */
+  const tu = topupStart();
+  const floor18 = Date.now() - 18 * 30 * 24 * 3600 * 1000;
+  const from = Math.max(floor18, Math.min(d0.getTime(), tu || d0.getTime()));
+  const start = Math.floor(from / 1000);
   const base = "https://api.openai.com/v1/organization/costs"
              + "?start_time=" + start + "&bucket_width=1d&limit=180";
 
@@ -11649,7 +11661,7 @@ async function fetchOpenAICost(){
   }
 
   const mStart = monthStart();
-  let total = 0; const days = [], byMonth = {};
+  let total = 0, sinceTopup = 0; const days = [], byMonth = {};
   for(const b of buckets){
     let sum = 0;
     for(const it of (b.results || [])){
@@ -11662,11 +11674,22 @@ async function fetchOpenAICost(){
     const dt = new Date(at);
     const mk = dt.getFullYear() + "-" + pad(dt.getMonth() + 1);
     byMonth[mk] = (byMonth[mk] || 0) + sum;
+    if(tu && at >= tu) sinceTopup += sum;
     if(at >= mStart){ total += sum; days.push({ at, usd: sum }); }
   }
   days.sort((a,b)=> b.at - a.at);
   const months = Object.keys(byMonth).sort().reverse().slice(0, 6).map(k => ({ k, usd: byMonth[k] }));
-  return { usd: total, days: days.slice(0, 7), months };
+  return { usd: total, days: days.slice(0, 7), months,
+           sinceTopup: tu ? sinceTopup : null, from: from };
+}
+
+/* 마지막 충전일 0시. 안 넣었으면 0. */
+function topupStart(){
+  const v = (CFG.topupAt || "").trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v)) return 0;
+  const [y, m, d] = v.split("-").map(Number);
+  const t = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+  return isFinite(t) ? t : 0;
 }
 
 /* ElevenLabs 사용량. 여기는 금액이 아니라 "쓴 양" 이 기준이다.
@@ -11742,18 +11765,41 @@ function paintCosts(c, note){
     }
 
     /* 잔액. OpenAI 는 **충전 잔액을 알려주는 길이 없다** — 사용액만 준다(2026-10 확인).
-       그래서 지어내지 않고, 실장님이 정해 둔 월 한도에서 쓴 만큼을 뺀 값을 보여 준다.
-       진짜 충전 잔액은 플랫폼 대시보드에서만 볼 수 있다는 것도 함께 적는다. */
+       그래서 지어내지 않는다. 대신 충전한 날과 금액을 받아 두고 그 뒤로 쓴 돈을 빼서 어림한다.
+       실장님 말씀대로 "충전일 대비 사용액" 이 사실상 잔액이다. */
+    const tuAt = topupStart(), tuUsd = Number(CFG.topupUsd) || 0;
+    if(tuAt && c.oai.sinceTopup != null){
+      const used = c.oai.sinceTopup;
+      h += '<div style="margin-top:12px"><h4>충전 뒤 쓴 돈</h4>';
+      h += '<div class="row"><span>충전 ' + esc(dayLabel(tuAt)) + '</span><b>'
+         + (tuUsd ? usdS(tuUsd) : "금액 미입력") + '</b></div>';
+      h += '<div class="row"><span>그 뒤 쓴 돈</span><b>' + usdS(used) + '</b></div>';
+      if(tuUsd){
+        const left = tuUsd - used;
+        const pct = Math.min(100, Math.max(0, Math.round(used / tuUsd * 100)));
+        h += '<div class="row"><span>남은 돈(어림)</span><b class="' + (left <= 0 ? "bad" : "") + '">'
+           + usdS(left) + '</b></div>';
+        h += '<div class="bar' + (pct >= 100 ? " over" : "") + '"><i style="width:' + pct + '%"></i></div>';
+      }
+      /* 가져온 기간보다 충전일이 앞이면 덜 센 것이다. 모자란 값을 잔액이라고 보여 주면 안 된다. */
+      if(c.oai.from && tuAt < c.oai.from)
+        h += '<p class="hint bad" style="margin-top:6px">충전일이 가져올 수 있는 기간(' + esc(dayLabel(c.oai.from))
+           + ')보다 앞섭니다. 그 전에 쓴 것은 빠져 있어 <b>남은 돈이 실제보다 많게</b> 보입니다.</p>';
+      h += '</div>';
+    } else {
+      h += '<div class="row" style="margin-top:10px"><span>남은 돈(어림)</span>'
+         + '<b>충전일과 충전액을 넣으면 보입니다</b></div>';
+    }
+
     const lim0 = Number(CFG.budgetUsd) || 0;
     if(lim0){
       const left = lim0 - (c.oai.usd || 0);
       h += '<div class="row" style="margin-top:10px"><span>이번 달 한도 잔액</span>'
          + '<b class="' + (left < 0 ? "bad" : "") + '">' + usdS(left) + ' / ' + usdS(lim0) + '</b></div>';
-    } else {
-      h += '<div class="row" style="margin-top:10px"><span>이번 달 한도 잔액</span><b>월 한도를 넣으면 보입니다</b></div>';
     }
     h += '<p class="hint" style="margin-top:6px">충전해 둔 <b>실제 잔액</b>은 OpenAI 가 API 로 알려주지 않습니다 '
-       + '(사용액만 줍니다). platform.openai.com → Billing 에서 보셔야 합니다.</p>';
+       + '(사용액만 줍니다). 위 숫자는 충전일 이후 사용액으로 <b>어림한 값</b>이고, 정확한 잔액은 '
+       + 'platform.openai.com → Billing 에서 보셔야 합니다.</p>';
   }
   h += '</div>';
 
@@ -11889,6 +11935,7 @@ $("btn-settings").onclick = ()=>{
   $("s-eleven").value=CFG.eleven||"";
   $("s-oaiadmin").value=CFG.oaiAdmin||"";
   $("s-budget").value=CFG.budgetUsd||"";
+  $("s-topup-at").value=CFG.topupAt||""; $("s-topup-usd").value=CFG.topupUsd||"";
   paintSync(lastSync ? "맞췄습니다 · "+timeLabel(lastSync) : "");
   paintStorage();
   paintCosts(CFG.costCache);   // 저장해 둔 값을 먼저 띄우고
@@ -12237,6 +12284,8 @@ $("s-save").onclick = ()=>{
   CFG.theme=$("s-theme").value;
   CFG.oaiAdmin=$("s-oaiadmin").value.trim();
   // 한도를 바꿨으면 지난번 경고 기록을 지운다. 새 기준으로 다시 알려야 한다.
+  CFG.topupAt = $("s-topup-at").value.trim();
+  CFG.topupUsd = $("s-topup-usd").value.trim();
   const nb = $("s-budget").value.trim();
   if(nb !== (CFG.budgetUsd||"")) CFG.budgetWarned = "";
   CFG.budgetUsd = nb;
