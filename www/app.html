@@ -525,12 +525,15 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       <button class="bigbtn ghost" id="s-cost-now" style="width:100%;margin:0 0 14px">지금 확인</button>
       <div class="field"><label for="s-budget">월 한도 · 달러 · 비워 두면 알리지 않습니다</label>
         <input id="s-budget" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 20"></div>
-      <div class="field"><label for="s-topup-at">마지막 충전일 · 그날 이후 쓴 돈을 셉니다</label>
+      <div class="field"><label for="s-topup-at">잔액 확인일 · 이날 이후 쓴 돈을 뺍니다</label>
         <input id="s-topup-at" type="date"></div>
-      <div class="field"><label for="s-topup-usd">충전액 · 달러</label>
-        <input id="s-topup-usd" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 100"></div>
-      <p class="hint">OpenAI 는 남은 잔액을 알려주지 않습니다. 충전한 날과 금액을 넣어 두면
-        <b>그날 이후 쓴 돈</b>을 더해 <b>남은 돈을 어림</b>해 보여 드립니다. 다시 충전하시면 이 두 칸만 고치면 됩니다.</p>
+      <div class="field"><label for="s-topup-usd">그때 잔액 · 달러</label>
+        <input id="s-topup-usd" type="number" inputmode="decimal" step="1" min="0" placeholder="예: 118"></div>
+      <p class="hint">OpenAI 는 남은 잔액을 알려주지 않아 <b>기준점</b>을 받아 셈합니다.
+        platform.openai.com → Billing 에서 <b>지금 잔액</b>을 한 번 보고, 그 숫자와 오늘 날짜를 넣어 주세요.
+        충전하실 때 넣으시면 <b>충전하고 난 뒤의 잔액</b>을 넣으시면 됩니다 —
+        「충전액」이 아니라 「그 시점의 잔액」이라야 충전 전에 남아 있던 돈까지 맞습니다.
+        어긋난다 싶으면 Billing 을 다시 보고 두 칸만 새로 넣으면 그때부터 다시 맞습니다.</p>
       <p class="hint">한도의 80% 와 100% 에서 첫 화면에 한 줄로 알립니다. 녹음이나 회의록을 막지는 않습니다.
         청구액을 보려면 아래 <b>열쇠</b> 칸에 OpenAI 관리자 열쇠가 있어야 합니다.</p>
     </div>
@@ -981,7 +984,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.08-3";
+const APP_VERSION = "2026.10.08-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -11661,7 +11664,7 @@ async function fetchOpenAICost(){
   }
 
   const mStart = monthStart();
-  let total = 0, sinceTopup = 0; const days = [], byMonth = {};
+  let total = 0, sinceTopup = 0, dayOfBase = 0; const days = [], byMonth = {};
   for(const b of buckets){
     let sum = 0;
     for(const it of (b.results || [])){
@@ -11675,12 +11678,13 @@ async function fetchOpenAICost(){
     const mk = dt.getFullYear() + "-" + pad(dt.getMonth() + 1);
     byMonth[mk] = (byMonth[mk] || 0) + sum;
     if(tu && at >= tu) sinceTopup += sum;
+    if(tu && at >= tu && at < tu + 86400000) dayOfBase += sum;   // 기준일 당일치 — 얼마나 애매한지 밝히려고
     if(at >= mStart){ total += sum; days.push({ at, usd: sum }); }
   }
   days.sort((a,b)=> b.at - a.at);
   const months = Object.keys(byMonth).sort().reverse().slice(0, 6).map(k => ({ k, usd: byMonth[k] }));
   return { usd: total, days: days.slice(0, 7), months,
-           sinceTopup: tu ? sinceTopup : null, from: from };
+           sinceTopup: tu ? sinceTopup : null, dayOfBase: tu ? dayOfBase : 0, from: from };
 }
 
 /* 마지막 충전일 0시. 안 넣었으면 0. */
@@ -11770,8 +11774,8 @@ function paintCosts(c, note){
     const tuAt = topupStart(), tuUsd = Number(CFG.topupUsd) || 0;
     if(tuAt && c.oai.sinceTopup != null){
       const used = c.oai.sinceTopup;
-      h += '<div style="margin-top:12px"><h4>충전 뒤 쓴 돈</h4>';
-      h += '<div class="row"><span>충전 ' + esc(dayLabel(tuAt)) + '</span><b>'
+      h += '<div style="margin-top:12px"><h4>잔액 어림</h4>';
+      h += '<div class="row"><span>기준 ' + esc(dayLabel(tuAt)) + ' 잔액</span><b>'
          + (tuUsd ? usdS(tuUsd) : "금액 미입력") + '</b></div>';
       h += '<div class="row"><span>그 뒤 쓴 돈</span><b>' + usdS(used) + '</b></div>';
       if(tuUsd){
@@ -11783,12 +11787,19 @@ function paintCosts(c, note){
       }
       /* 가져온 기간보다 충전일이 앞이면 덜 센 것이다. 모자란 값을 잔액이라고 보여 주면 안 된다. */
       if(c.oai.from && tuAt < c.oai.from)
-        h += '<p class="hint bad" style="margin-top:6px">충전일이 가져올 수 있는 기간(' + esc(dayLabel(c.oai.from))
+        h += '<p class="hint bad" style="margin-top:6px">기준일이 가져올 수 있는 기간(' + esc(dayLabel(c.oai.from))
            + ')보다 앞섭니다. 그 전에 쓴 것은 빠져 있어 <b>남은 돈이 실제보다 많게</b> 보입니다.</p>';
+      /* OpenAI 청구액은 **하루 단위로만** 준다(bucket_width 는 1d 만 됨). 그래서 기준일 당일은
+         잔액을 본 시각의 앞뒤를 가를 수 없다. 당일치를 전부 빼는 쪽으로 둔다 —
+         남은 돈이 실제보다 적게 보이는 쪽이 안전하다. 그 사실을 숨기지 않고 적는다. */
+      if(c.oai.dayOfBase)
+        h += '<p class="hint" style="margin-top:6px">기준일 당일에 쓴 ' + usdS(c.oai.dayOfBase)
+           + ' 는 전부 뺐습니다. 청구액이 하루 단위로만 와서 잔액을 본 시각의 앞뒤를 가를 수 없습니다 — '
+           + '그만큼 <b>남은 돈이 실제보다 적게</b> 보일 수 있습니다. 잔액을 <b>하루 일을 마친 뒤</b>에 보고 넣으시면 이 오차가 없습니다.</p>';
       h += '</div>';
     } else {
       h += '<div class="row" style="margin-top:10px"><span>남은 돈(어림)</span>'
-         + '<b>충전일과 충전액을 넣으면 보입니다</b></div>';
+         + '<b>잔액 확인일과 그때 잔액을 넣으면 보입니다</b></div>';
     }
 
     const lim0 = Number(CFG.budgetUsd) || 0;
