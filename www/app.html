@@ -984,7 +984,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.08-4";
+const APP_VERSION = "2026.10.09-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1870,9 +1870,32 @@ function noteSpoken(text){
      회의록이 앱 자기 말로 덮이던 사고로 되돌아간다. */
   spokenLog = spokenLog.filter(s=>s.at > cut).slice(-400);
 }
+/* 되울림은 글자가 똑같이 돌아오지 않는다.
+
+   앱이 스피커로 낸 소리가 마이크로 되들어와 다시 받아 적히면 낱말이 깨진다. 10월 8일 현장에서
+   "Hãy gặp nhau tại Cheo" 가 "Hãy gặp nhau tại treo" 로, "Bổ sung và thành phần giao hàng" 이
+   "Bổ suyt và thành phần giao hàng" 으로 돌아왔다. nearSame 은 거의 똑같아야 참이라 이런 것을
+   **하나도 못 걸렀고**, 그 문장이 상대 말로 둔갑해 다시 한국어로 옮겨져 실장님 귀로 갔다.
+   그래서 낱말 겹침으로도 본다.
+
+   창은 짧게 둔다(2분). 되울림은 몇 초 안에 돌아온다 — 길게 잡으면 사람이 같은 말을 되풀이한 것까지
+   지운다. 글자가 거의 같은 것은 예전처럼 10분까지 본다(고리가 길게 도는 일이 있었다). */
+function echoTokens(s){
+  return anDeAccent(String(s || "")).toLowerCase()
+    .replace(/[^0-9a-z가-힣\s]/g, " ").split(/\s+/).filter(w => w.length >= 2);
+}
+function echoLike(heard, said){
+  const h = echoTokens(heard), k = echoTokens(said);
+  if(h.length < 3 || k.length < 3) return false;
+  const bag = new Set(k);
+  let hit = 0;
+  for(const w of h) if(bag.has(w)) hit++;
+  return hit / h.length >= 0.6;
+}
 function spokenLately(text){
-  const cut = Date.now() - 600000;
-  return spokenLog.some(s=> s.at > cut && nearSame(text, s.text));
+  const now = Date.now(), cut = now - 600000, fuzz = now - 120000;
+  return spokenLog.some(s => (s.at > cut  && nearSame(text, s.text))
+                          || (s.at > fuzz && echoLike(text, s.text)));
 }
 
 /* 되울림이 거듭되면 읽어주기를 스스로 멈춘다.
