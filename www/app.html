@@ -615,6 +615,16 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
           를 닫습니다(2026-10-02 공지). 대체 모델이 정해지면 코드를 고치지 않고 이 칸만 바꾸면 됩니다.
           비워 두면 <code>gpt-4o-mini-tts</code> 를 씁니다. 모델이 없어지면 앱이 스스로 폰 내장 목소리로 돌아갑니다 —
           실장님은 내장 목소리를 쓰시니 이 칸과 무관합니다. 전사·통역·회의록은 다른 모델이라 영향 없습니다.</p></div>
+      <div class="field"><label for="s-spkpush">상대에게 말하기 단추 · 회의 모드</label>
+        <select id="s-spkpush">
+          <option value="hold">꾹 누르고 말하기 · 떼면 멈춤</option>
+          <option value="toggle">눌러서 켜고, 다시 눌러 끔</option>
+        </select>
+        <p class="hint" style="margin-top:6px">녹음 중 아래 막대의 📢 단추입니다. <b>누른 동안 하신 말만</b>
+          베트남어로 옮겨 폰 스피커로 내보냅니다. 안 누르면 스피커는 조용하고 자막·통역·기록은 그대로 돕니다.
+          예전처럼 앱이 「누가 한 말인지」 추측하지 않습니다 — 그 추측이 현장에서 무너져 직원 말이
+          스피커로 나가고 그 소리가 다시 들어오는 고리가 돌았습니다(10월 8일).
+          마주 앉은 둘이 하는 자리는 <b>대화 모드</b>가 따로 있고 거기서는 예전처럼 저절로 갈라 줍니다.</p></div>
       <div class="field"><label for="s-ttsrate">읽기 속도</label>
         <select id="s-ttsrate">
           <option value="0.8">0.8배 · 천천히</option>
@@ -984,7 +994,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.09-1";
+const APP_VERSION = "2026.10.09-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1094,7 +1104,8 @@ const DEFAULTS = { oai:"", ant:"",
                    tts:"0", ttsRate:"1", ttsLang:"ko-KR",     // 통역 읽어주기
                    voice:"device", voiceName:"nova",          // 목소리: 폰 내장 / OpenAI
                    ttsModel:"",                              // OpenAI 음성 모델. 비면 gpt-4o-mini-tts
-                   spkVi:"0",                                // 내 말을 베트남어로 옮겨 폰 스피커에
+                   spkVi:"0",                                // (옛 값) 추측으로 내 말을 가리던 방식 — 이제 안 쓴다
+                   spkPush:"hold",                           // 상대에게 말하기 단추: hold 꾹 누르기 / toggle 켜고 끄기
                    myEn:"1",                                 // 내가 영어로 말한 것도 "내 말" 로 본다
                    micRaw:"0",                               // 노트북 마이크를 손보지 않고 원음 그대로 받을지
                    gcid:"", gcsec:"",                        // 구글 드라이브 연동
@@ -1933,7 +1944,8 @@ function toggleTtsLive(){
    꽂힌 채 스피커로 내보내는 것은 네이티브가 한다. */
 const SPK_BUILD = "2026-09-14";
 function spkAvail(){ return !!(NativeTts && NATIVE); }
-function spkOn(note){ return CFG.spkVi === "1" && spkAvail() && !!note && note.mode !== "talk" && transTarget(note) !== ""; }
+/* 회의 모드에서 「상대에게 말하기」를 쓸 수 있는 자리인가. 켜고 끄는 것은 단추(관문)가 한다. */
+function spkOn(note){ return spkAvail() && !!note && note.mode !== "talk" && transTarget(note) !== ""; }
 
 /* 이 회의의 구간을 어느 말로 옮기나. 옮기지 않으면 "".
 
@@ -2020,9 +2032,17 @@ function paintLiveToggles(){
   ear.textContent = "🎧 내 귀 읽기 " + (earOn ? "켬" : "끔");
   ear.classList.toggle("on", earOn);
   /* 대화 모드에서는 내 말을 상대 언어로 옮겨 스피커로 읽는다(talkSpk). 회의 모드의 현장용(spkVi)과 따로 센다. */
-  const spkNow = talk ? CFG.talkSpk === "1" : CFG.spkVi === "1";
-  spk.textContent = (talk ? "📢 내 말→상대 말 스피커 " : "📢 내 말→베트남어 ") + (spkNow ? "켬" : "끔");
-  spk.classList.toggle("on", spkNow);
+  if(talk){
+    const spkNow = CFG.talkSpk === "1";
+    spk.textContent = "📢 내 말→상대 말 스피커 " + (spkNow ? "켬" : "끔");
+    spk.classList.toggle("on", spkNow);
+  }else{
+    /* 회의 모드는 단추가 곧 관문이다. 지금 열려 있는지를 그대로 보인다. */
+    const open = !!spkGateOn;
+    spk.textContent = open ? "📢 상대에게 말하는 중…"
+      : ((CFG.spkPush || "hold") === "toggle" ? "📢 상대에게 말하기 (눌러서 켬)" : "📢 꾹 누르고 말하기");
+    spk.classList.toggle("on", open);
+  }
   if(mic){
     const rawNow = CFG.micRaw === "1";
     mic.textContent = "🎙 마이크 " + (rawNow ? "원음" : "손질 켬");
@@ -2111,6 +2131,43 @@ async function toggleMicRaw(){
   }
 }
 
+/* ── 누르면서 말하기 ──
+
+   10월 8일 현장에서 꼬인 뿌리는 "이 문장이 누구 말인가" 를 앱이 **추측**한 것이었다
+   (splitMine: 한국어면 내 말, 영어는 목소리 크기로 가림). 실장님도 직원도 영어를 쓰는
+   자리에서는 그 추측이 무너지고, 직원 말이 베트남어로 스피커에 나가고 앱이 낸 소리가
+   다시 들어와 고리가 돌았다.
+
+   추측을 없앤다. **단추를 누른 동안 말한 것만** 내 말로 본다. 사실이라 틀릴 수 없다.
+   시각은 elapsed()(녹음 시작부터의 ms)로 잰다 — 구간의 offsetMs 와 같은 시계다.
+   앞뒤로 여유를 둔다. 사람은 누르면서 말을 시작하고, 떼고 나서 말끝이 남는다. */
+let spkGate = [];        // 닫힌 구간 [{a,b}]
+let spkGateOn = 0;       // 열려 있으면 연 시각(ms), 아니면 0
+const SPK_PRE = 600, SPK_POST = 1200;
+
+function spkGateReset(){ spkGate = []; spkGateOn = 0; }
+function spkGateOpen(){
+  if(spkGateOn || !recording) return;
+  spkGateOn = Math.max(0, elapsed() - SPK_PRE);
+  paintLiveToggles();
+}
+function spkGateClose(){
+  if(!spkGateOn) return;
+  spkGate.push({ a: spkGateOn, b: elapsed() + SPK_POST });
+  spkGateOn = 0;
+  if(spkGate.length > 500) spkGate = spkGate.slice(-500);
+  paintLiveToggles();
+}
+/* 이 구간의 소리가 단추가 열려 있던 때와 겹치는가. 절반 넘게 겹쳐야 내 말로 본다 —
+   스치듯 겹친 것까지 내 말로 보면 상대 말이 스피커로 나간다. */
+function spkGateCovers(a, b){
+  if(!(b > a)) return false;
+  const wins = spkGate.concat(spkGateOn ? [{ a: spkGateOn, b: elapsed() + SPK_POST }] : []);
+  let hit = 0;
+  for(const w of wins){ const s0 = Math.max(a, w.a), e0 = Math.min(b, w.b); if(e0 > s0) hit += e0 - s0; }
+  return hit > (b - a) * 0.5;
+}
+
 function toggleSpkLive(){
   if(!spkAvail()){ toast("폰 앱(APK)에서만 됩니다.", 4000); return; }
   if(CFG.spkVi !== "1" && ttsBuild !== null && (!ttsBuild || ttsBuild < SPK_BUILD)){
@@ -2126,12 +2183,17 @@ function toggleSpkLive(){
                               : "내 말 스피커 읽기를 껐습니다.", 3500);
     return;
   }
-  CFG.spkVi = CFG.spkVi === "1" ? "0" : "1";
-  ttsUnlocked = true;
-  saveCfg(); paintLiveToggles();
-  toast(CFG.spkVi === "1" ? (CFG.myEn === "0" ? "내가 한 한국어를 베트남어로 옮겨 폰 스피커로 읽습니다."
-                                              : "내가 한 한국어·영어를 베트남어로 옮겨 폰 스피커로 읽습니다.")
-                          : "스피커 읽기를 껐습니다.", 3500);
+  /* 회의 모드(1:다). 「켜고 끄기」로 고르셨으면 여기서 관문을 연다/닫는다.
+     「꾹 누르기」는 손가락을 떼는 순간을 알아야 하므로 pointerdown/up 에서 처리한다. */
+  if((CFG.spkPush || "hold") === "toggle"){
+    ttsUnlocked = true;
+    if(spkGateOn){ spkGateClose(); toast("상대에게 말하기를 껐습니다.", 2000); }
+    else { spkGateOpen(); toast("상대에게 말하기 — 다시 누를 때까지 내 말을 베트남어로 스피커에 내보냅니다.", 4000); }
+    return;
+  }
+  toast("「꾹 누르기」로 되어 있습니다. 말씀하시는 동안 이 단추를 누르고 계세요. "
+      + "설정 → 읽어주는 목소리에서 「켜고 끄기」로 바꿀 수 있습니다.", 6000);
+  return;
 }
 
 /* 내 말을 옮긴 베트남어를 폰 스피커로 읽는다. 이어폰 쪽 큐와 한 줄로 서서 번갈아 나온다. */
@@ -7444,9 +7506,11 @@ async function absorbText(c, note, raw, before, prompt){
        한국어는 통역해도 글이 거의 같아 문장 하나하나를 견줘 걸러낼 수 있었다(ownKo).
        영어는 옮기면 글이 아주 달라져 그 방법이 안 듣는다. 그래서 구간을 통째로 본다 —
        구간의 대부분이 내 말이면 그 통역은 귀로 보내지 않는다. 스피커로는 그대로 나간다. */
-    const mineNow = spkOn(note) ? splitMine(c.text, enMine) : null;
-    const ownKo = mineNow ? mineNow.ko : [];
-    if(mineNow && mineNow.mine && normText(mineNow.mine).length >= normText(c.text).length * 0.7) say = false;
+    /* 「상대에게 말하기」 단추가 덮은 구간은 내가 한 말이다 — 추측이 아니라 사실이다.
+       그 통역은 스피커로 나가므로 내 귀로는 보내지 않는다. 화면과 기록에는 그대로 남는다. */
+    const gated = spkOn(note) && spkGateCovers(c.offsetMs || 0, (c.offsetMs || 0) + (c.durMs || chunkSec(c) * 1000));
+    const ownKo = [];
+    if(gated) say = false;
     const tStart = Date.now();
     let partial = "", firstAt = 0;
     const onSent = t0 => {
@@ -7481,7 +7545,11 @@ async function absorbText(c, note, raw, before, prompt){
   /* 내 말 → 베트남어 → 폰 스피커. 지금 벌어지는 회의일 때만. 실패해도 기록은 이어간다. */
   if(c.text && spkOn(note) && recording && activeNote && activeNote.id === c.noteId
      && (Date.now() - (c.created || 0)) < 90000){
-    const mine = splitMine(c.text, enMine).mine;
+    /* 예전에는 splitMine 으로 "어느 문장이 내 말인가" 를 추측했다. 실장님도 직원도 영어를 쓰는
+       자리에서 그 추측이 무너져(10/8 현장) 직원 말이 베트남어로 스피커에 나가고 되울림 고리가 돌았다.
+       이제 단추가 덮은 구간만, 그 구간을 통째로 내보낸다. */
+    const mine = spkGateCovers(c.offsetMs || 0, (c.offsetMs || 0) + (c.durMs || chunkSec(c) * 1000))
+               ? c.text : "";
     if(mine){
       try{
         workingAt = Date.now();
@@ -8781,7 +8849,7 @@ async function startRecording(){
     try{ if(Native.clearCache) await Native.clearCache(); }catch(e){}
     recStartAt = Date.now();
     // 지난 회의의 되울림 기록은 이번 회의와 상관없다
-    spokenLog = []; ttsEchoes = 0; ttsSuspended = false; ttsWarned = false;
+    spokenLog = []; ttsEchoes = 0; ttsSuspended = false; ttsWarned = false; spkGateReset();
 
     nativeSub = await Native.addListener("chunk", async ev => {
       await takeChunk(noteId, status, ev);
@@ -8792,7 +8860,11 @@ async function startRecording(){
     try{
       /* 대화 모드는 호흡이 다르다. 30초를 기다렸다 통역하면 대화가 안 된다.
          짧게 끊고, 말이 멎는 자리도 더 민감하게 잡는다. */
-      const ch = mode === "talk" ? 9000 : +CFG.chunk;
+      /* 회의 모드도 대화처럼 짧게 끊는다. 소켓이 도는 동안에는 차이가 없지만, 소켓이 못 붙으면
+         구간 파일이 닫혀야 전사되므로 30초는 그만큼 늦다(9/29 세 건이 그랬다). 값은 그대로다 —
+         전사도 2차도 분당 과금이라 조각 길이와 무관하다. 짧아서 거칠어지는 몫은 2차가 메운다.
+         회의록만(doc) 모드는 실시간이 없어 길게 묶는 편이 낫다 — 설정값을 그대로 쓴다. */
+      const ch = (mode === "talk" || ["full","trans","online"].includes(mode)) ? 9000 : +CFG.chunk;
       const opt = {
         chunkMs: ch,
         minChunkMs: Math.round(ch * (mode === "talk" ? 0.35 : 0.5)),
@@ -11619,6 +11691,21 @@ $("updbar-x").onclick  = ()=> $("updbar").classList.remove("on");
 $("l-mark").onclick  = markMoment;
 $("l-ear").onclick = toggleTtsLive;
 $("l-spk").onclick = toggleSpkLive;
+/* 꾹 누르기. 손가락을 떼거나 단추 밖으로 나가면 닫는다 — 열린 채로 남으면 상대 말이 스피커로 나간다.
+   대화 모드는 예전 방식(켜고 끄기)을 그대로 쓰므로 건드리지 않는다. */
+(() => {
+  const b = $("l-spk");
+  const usable = () => recording && mode !== "talk" && spkAvail() && (CFG.spkPush || "hold") !== "toggle";
+  const down = e => { if(!usable()) return; ttsUnlocked = true; spkGateOpen();
+                      try{ b.setPointerCapture(e.pointerId); }catch(x){} };
+  const up   = () => { if(spkGateOn && mode !== "talk") spkGateClose(); };
+  b.addEventListener("pointerdown", down);
+  b.addEventListener("pointerup", up);
+  b.addEventListener("pointercancel", up);
+  b.addEventListener("pointerleave", up);
+  // 손가락을 뗀 뒤 click 이 또 오면 안내 토스트가 뜬다. 꾹 누르기일 때는 삼킨다.
+  b.addEventListener("click", e => { if(usable() || (recording && mode !== "talk" && (CFG.spkPush||"hold") !== "toggle")) e.stopImmediatePropagation(); }, true);
+})();
 $("l-mic").onclick = toggleMicRaw;
 $("l-pause").onclick = togglePause;
 $("l-dim").onclick = ()=>{
@@ -11961,6 +12048,7 @@ $("btn-settings").onclick = ()=>{
   $("s-stream").value=CFG.stream || "1";
   $("s-ttsrate").value=CFG.ttsRate;
   $("s-voice").value=CFG.voice || "device"; $("s-voicename").value=CFG.voiceName || "nova";
+  $("s-spkpush").value=CFG.spkPush || "hold";
   $("s-ttsmodel").value=CFG.ttsModel || "";
   $("s-ttslang").value=CFG.ttsLang || "ko-KR";
   $("s-gcid").value=CFG.gcid||""; $("s-gcsec").value=CFG.gcsec||"";
@@ -12311,6 +12399,7 @@ $("s-save").onclick = ()=>{
   CFG.liveSum=$("s-livesum").value; CFG.stream=$("s-stream").value;
   CFG.ttsRate=$("s-ttsrate").value; CFG.ttsLang=$("s-ttslang").value;
   CFG.voice=$("s-voice").value; CFG.voiceName=$("s-voicename").value;
+  CFG.spkPush=$("s-spkpush").value;
   CFG.ttsModel=$("s-ttsmodel").value.trim();
   CFG.gcid=$("s-gcid").value.trim(); CFG.gcsec=$("s-gcsec").value.trim();
   CFG.awake=$("s-awake").value;
