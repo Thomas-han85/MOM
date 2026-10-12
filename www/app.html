@@ -994,7 +994,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.09-2";
+const APP_VERSION = "2026.10.12-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1455,6 +1455,12 @@ async function sttChunk(blob, prompt, terms, modelOverride){
   if(model === "gpt-4o-transcribe-diarize"){
     fd.append("response_format", "diarized_json");
     fd.append("chunking_strategy", "auto");     // 30초가 넘으면 필수다
+    /* 등록해 둔 목소리 본보기를 함께 보낸다. 이것이 있어야 창이 바뀌어도 같은 이름이 붙는다.
+       없으면 그냥 화자1·2·3 으로 갈라진다 — 가르기 자체는 그대로 된다. */
+    for(const p of voiceRefs()){
+      fd.append("known_speaker_names[]", p.name);
+      fd.append("known_speaker_references[]", p.voice);
+    }
   }else{
     fd.append("response_format", "json");
     /* gpt-transcribe 는 여러 언어를 함께 받는다. 나머지는 하나만 받는데,
@@ -1489,6 +1495,14 @@ async function sttChunk(blob, prompt, terms, modelOverride){
   let j;
   try{ j = JSON.parse(text); }
   catch(e){ throw new Error("전사 응답을 읽지 못했습니다 · " + String(text).slice(0,120)); }
+  /* 쓴 양을 적어 둔다. 소리 길이와 견주면 본보기가 과금에 드는지 알 수 있다 — 문서에 없는 것을
+     실제 회의에서 공짜로 확인하는 길이다. */
+  if(j && j.usage){
+    const d = j.usage.input_token_details || {};
+    lastSttUsage = { model, sec: Math.round(bytes / 32000),
+                     inTok: j.usage.input_tokens || 0, audioTok: d.audio_tokens || 0,
+                     refs: model === "gpt-4o-transcribe-diarize" ? voiceRefs().length : 0, at: Date.now() };
+  }
 
   /* diarize 는 말차례마다 화자를 준다. 화자가 바뀌는 자리에 이름을 붙여
      한 덩이 글로 만든다. 뒤의 걸러내기 장치들이 글만 다루기 때문이다. */
@@ -7184,6 +7198,28 @@ function diarWhyNot(n, hasAudio){
   return "";
 }
 
+/* ── 목소리 본보기 ──
+
+   gpt-4o-transcribe-diarize 는 창마다 따로 부르면 「화자1·2·3」이 창마다 다른 사람을 가리킨다.
+   사람마다 2~10초짜리 본보기를 함께 보내면 **창이 바뀌어도, 회의가 바뀌어도 같은 이름**이 붙는다.
+   한도는 넷이다(문서: "up to four short audio references"). 나머지 사람은 그대로 갈라져
+   「화자5·6」으로 나오고, 이름은 손으로 붙이거나 지난 회의 말투로 알아본다.
+
+   본보기는 사람 명부(CFG.people)에 data URL 로 담는다 — 요청에 그 꼴로 실어야 한다. */
+const VOICE_MAX = 4;
+function voiceRefs(){
+  return (CFG.people || []).filter(p => p && p.name && p.voice).slice(0, VOICE_MAX);
+}
+
+/* 이 회의를 화자까지 갈라 받아 적을 것인가. 소리가 있고, 켜고 녹음했고, 열쇠가 있을 때. */
+function diarWanted(note){
+  return !!note && !!note.wantDiar && !!CFG.oai;
+}
+
+/* 마지막 전사 응답이 알려 준 쓴 양. 참조 음성이 과금에 들어가는지를 **실제 회의에서 공짜로** 확인하려고
+   적어 둔다(문서에 안 적혀 있다). 소리 길이보다 토큰이 많으면 본보기도 세는 것이다. */
+let lastSttUsage = null;
+
 async function runDiarize(note, onStep){
   if(!CFG.eleven) throw new Error("ElevenLabs 키가 없습니다. 설정에서 넣어 주세요.");
   const cs = (await byIndex("chunks","note",note.id)).sort(chunkOrder);
@@ -8430,11 +8466,18 @@ async function secondPassRun(noteId, onStep){
     const terms = sttTerms(note);
     const prompt = sttPrompt(note.ctx, terms);
     const tgt = transTarget(note);
-    // 파일 조각 경계에서 50초 안팎으로 묶는다
+    /* 화자까지 가를 때는 창을 넓게 잡는다.
+
+       까닭 둘. ① 목소리 본보기(사람당 5초, 최대 넷 = 20초)를 **요청마다** 함께 보내야 하는데,
+       50초 창이면 그 20초가 40% 덤이 된다. 150초 창이면 13% 다. ② 화자를 가르는 일은 앞뒤가
+       길수록 정확하다. 한도는 25MB(16kHz 모노로 약 13분)라 넉넉하다.
+       화자를 안 가를 때는 예전대로 50초 — 전사문의 시각이 잘게 남는 편이 낫다. */
+    const diar = diarWanted(note);
+    const WIN = diar ? 150 : 65;
     const groups = []; let g = [], gSec = 0;
     for(const c of files){
       const s = c.durMs ? c.durMs / 1000 : chunkSec(c);
-      if(g.length && gSec + s > 65){ groups.push(g); g = []; gSec = 0; }
+      if(g.length && gSec + s > WIN){ groups.push(g); g = []; gSec = 0; }
       g.push(c); gSec += s;
     }
     if(g.length) groups.push(g);
@@ -8457,7 +8500,9 @@ async function secondPassRun(noteId, onStep){
                                     : grp.map(c => c.text || "").join(" ");
       try{
         const { blob } = await mergeAudio(grp);
-        const raw = await sttChunk(blob, prompt, terms, "gpt-transcribe");
+        /* 화자 분리를 켜고 녹음했으면 여기서 화자까지 갈라 받아 적는다. 전사를 두 번 하지 않는다 —
+           같은 소리를 한 번 보내 글과 화자를 함께 받는다(분당 $0.0045 → $0.006). */
+        const raw = await sttChunk(blob, prompt, terms, diar ? "gpt-4o-transcribe-diarize" : "gpt-transcribe");
         let txt = applyFixes(dedupeInside(raw)).trim();
         if(txt && prompt && echoOfPrompt(txt, prompt)) txt = "";
         if(txt) txt = keepGood(txt, s => foreignScript(s) || junkLine(s));
@@ -11340,6 +11385,14 @@ function renderPeople(){
       '<input data-f="lang"  value="'+esc(p.lang)+'"  placeholder="주 사용 언어 · 예: 한국어">'+
       '<input data-f="style" value="'+esc(p.style)+'" placeholder="말투 · 예: 짧게 끊어 말하고 숫자를 먼저 댄다">'+
       '<input data-f="words" value="'+esc(p.words)+'" placeholder="자주 쓰는 말 · 쉼표로 구분">'+
+      /* 목소리 본보기. 이게 있으면 회의마다·창마다 같은 이름이 붙는다. 넷까지만 쓰인다. */
+      '<div class="row" style="margin-top:6px">'+
+        '<button class="chip'+(p.voice?" on":"")+'" data-voice="'+i+'">'+
+          (p.voice ? "🎤 목소리 등록됨 · 다시 녹음" : "🎤 목소리 등록 (5초)")+'</button>'+
+        (p.voice ? '<button class="chip" data-unvoice="'+i+'">지우기</button>' : "")+
+        (voiceRefs().length >= VOICE_MAX && !p.voice
+          ? '<em style="margin-left:6px">본보기는 넷까지입니다</em>' : "")+
+      '</div>'+
     '</div>').join("");
 
   box.querySelectorAll("input").forEach(inp=>{
@@ -11347,6 +11400,12 @@ function renderPeople(){
       const i = +inp.closest(".pcard").dataset.i;
       CFG.people[i][inp.dataset.f] = inp.value;
     };
+  });
+  box.querySelectorAll("[data-voice]").forEach(b=>{
+    b.onclick = () => recordVoice(+b.dataset.voice);
+  });
+  box.querySelectorAll("[data-unvoice]").forEach(b=>{
+    b.onclick = () => { delete CFG.people[+b.dataset.unvoice].voice; saveCfg(); renderPeople(); };
   });
   box.querySelectorAll("[data-kill]").forEach(b=>{
     b.onclick = () => {
@@ -11356,6 +11415,47 @@ function renderPeople(){
         "지운다", ()=>{ CFG.people.splice(i,1); saveCfg(); renderPeople(); });
     };
   });
+}
+
+/* 목소리 본보기를 5초 녹음해 담는다.
+
+   요청에 data URL 로 실어야 하므로 그 꼴로 저장한다. 2~10초면 되는데 5초로 고정한다 —
+   사람에게 "몇 초 말하세요" 를 맡기면 2초를 못 채우거나 10초를 넘긴다.
+   녹음기(네이티브)와 겹치지 않게 회의 중에는 못 하게 막는다. */
+async function recordVoice(i){
+  const p = CFG.people[i]; if(!p) return;
+  if(recording){ toast("회의 중에는 등록할 수 없습니다. 녹음을 끝내고 해 주세요.", 5000); return; }
+  if(!p.name || !p.name.trim()){ toast("먼저 이름을 적어 주세요. 그 이름으로 회의록에 붙습니다.", 5000); return; }
+  if(!p.voice && voiceRefs().length >= VOICE_MAX){
+    toast("목소리 본보기는 넷까지입니다. 다른 사람 것을 지우고 등록해 주세요.", 6000); return;
+  }
+  let stream = null, rec = null;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }catch(e){ toast("마이크를 쓸 수 없습니다 · " + (e.name || e.message || ""), 6000); return; }
+  try{
+    const type = ["audio/mp4", "audio/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+    rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const parts = [];
+    rec.ondataavailable = e => { if(e.data && e.data.size) parts.push(e.data); };
+    const done = new Promise(r => { rec.onstop = r; });
+    rec.start();
+    for(let k = 5; k > 0; k--){ toast("「" + p.name + "」 목소리를 담는 중… " + k, 1100); await new Promise(r => setTimeout(r, 1000)); }
+    rec.stop(); await done;
+    const blob = new Blob(parts, { type: rec.mimeType || "audio/webm" });
+    if(blob.size < 2000){ toast("소리가 담기지 않았습니다. 다시 해 주세요.", 5000); return; }
+    const url = await new Promise((ok, no) => {
+      const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => no(fr.error);
+      fr.readAsDataURL(blob);
+    });
+    CFG.people[i].voice = url;
+    saveCfg(); renderPeople();
+    toast("「" + p.name + "」 목소리를 등록했습니다. 이제 회의록에 이 이름으로 붙습니다.", 5000);
+  }catch(e){
+    toast("등록하지 못했습니다 · " + (e.message || e), 6000);
+  }finally{
+    try{ stream.getTracks().forEach(t => t.stop()); }catch(e){}
+  }
 }
 
 function renderAttendeePicker(selected){
