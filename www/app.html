@@ -959,13 +959,14 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         <option value="1">켜기 · 시간당 약 $0.22</option>
         <option value="0">끄기</option>
       </select></div>
-    <div class="field"><label for="r-keepaudio">끝난 뒤 녹음 파일</label>
+    <div class="field"><label for="r-keepaudio">녹음 보관</label>
       <select id="r-keepaudio">
-        <option value="0">지움 · 저장공간을 아낍니다</option>
-        <option value="1">남김 · 1시간에 약 115MB</option>
+        <option value="0">안 함 · 전사가 끝나면 소리를 지웁니다</option>
+        <option value="1">보관 · 내가 풀 때까지 남김 · 1시간에 약 115MB</option>
       </select>
-      <p class="hint" style="margin-top:6px">남겨 두면 나중에 <b>보내기 → 녹음 파일 저장</b>으로
-        WAV 를 빼낼 수 있습니다. 다른 앱에 같은 소리를 넣어 견주어 볼 때 씁니다.</p></div>
+      <p class="hint" style="margin-top:6px">보관하면 이 회의의 소리를 지우지 않고, 녹음이 끝나면
+        폰의 <b>다운로드 폴더</b>에 WAV 로도 한 벌 둡니다 — 앱 저장소가 비워져도 남습니다.
+        나중에 회의 화면 <b>보내기 → 녹음 보관 풀기</b>로 놓습니다.</p></div>
     <div class="field" id="mic-field" style="display:none"><label for="r-mic">마이크 · 컴퓨터에서만</label>
       <select id="r-mic"></select>
       <p class="hint" style="margin-top:6px">무선 이어폰의 마이크(통화용)는 전화 음질이라 전사가 깨집니다.
@@ -994,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.12-1";
+const APP_VERSION = "2026.10.15-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1554,12 +1555,27 @@ async function storageInfo(){
   }catch(e){ return null; }
 }
 
+/* 이 회의의 소리를 보관하는가. 회의마다 정한다(note.keepAudio) — 녹음 시작 화면에서 고르거나
+   회의 화면 「보내기 → 녹음 보관하기」로 나중에 켠다.
+
+   10월 15일: 회의록만 모드로 59분을 녹음하고 전사를 기다리던 중 앱 저장소가 통째로
+   비워져(폰 저장공간 98%, 저장소 보존 요청은 웹뷰가 거절) 소리를 영영 잃었다. 하루 전
+   대화 모드 89분은 「남김」을 골라도 대화 모드가 그 값을 안 봐서 녹음 중에 소리를 버렸다.
+   그래서 보관은 ① 어느 모드든 지우지 않고 ② 끝나면 다운로드 폴더에 한 벌 내려 둔다. */
+function noteKeeps(n){
+  /* 회의에 적힌 값만 본다. 설정의 값은 다음 회의를 시작할 때 고를 기본값일 뿐이다 —
+     그것을 지난 회의들에 소급하면 옛 녹음이 하나도 안 비워져 저장소가 다시 찬다. */
+  return !!(n && n.keepAudio);
+}
+
 /* 오래된 녹음부터 버린다. 전사가 끝났고 화자 분리도 마친 것이 먼저다.
-   글자는 절대 건드리지 않는다. 그것이 회의록의 알맹이다. */
+   글자는 절대 건드리지 않는다. 그것이 회의록의 알맹이다.
+   보관하기로 한 회의의 소리는 버리지 않는다 — 사람이 풀 때까지 둔다. */
 async function freeAudio(needBytes){
   const notes = await all("notes");
   const doneDiar = new Set(notes.filter(n=>n.script).map(n=>n.id));
-  const cs = (await all("chunks")).filter(c=>c.blob);
+  const kept = new Set(notes.filter(noteKeeps).map(n=>n.id));
+  const cs = (await all("chunks")).filter(c=>c.blob && !kept.has(c.noteId));
   /* 아직 전사하지 않은 조각의 소리는 맨 마지막에 버린다.
 
      예전에는 이 순서에 status 가 없었다. 그래서 저장공간이 모자라면 전사를 기다리던
@@ -1593,7 +1609,8 @@ async function freeAudio(needBytes){
 
 /* 녹음을 쥐고 있는 총량. 상한을 넘으면 오래된 것부터 버린다. */
 async function trimAudio(){
-  const cs = (await all("chunks")).filter(c=>c.blob);
+  const kept = new Set((await all("notes")).filter(noteKeeps).map(n=>n.id));
+  const cs = (await all("chunks")).filter(c=>c.blob && !kept.has(c.noteId));
   let total = 0;
   for(const c of cs) total += (c.blob.size||0);
   if(total > AUDIO_BUDGET) await freeAudio(total - AUDIO_BUDGET);
@@ -2455,6 +2472,12 @@ async function extractTerms(brief){
   }catch(e){ return []; }
 }
 
+/* 통역기가 옮기지 않고 사과하거나 못 하겠다고 돌려준 글. 10/14 에 「입니다.」 한 마디를 받고
+   "Xin lỗi, tôi không thể dịch đoạn này vì nó không có ngữ cảnh đầy đủ." 를 돌려줘 상대에게 나갔다.
+   지시문으로 막되, 그래도 나오면 여기서 거른다. */
+function transRefusal(s){
+  return /xin lỗi,? (tôi|nhưng) (không thể|không) dịch|không thể dịch đoạn|죄송하지만.{0,20}(번역|통역)|번역할 수 없|i'?m sorry,? (but )?i (can(no|')t|am unable to) translate|cannot translate (this|the)/i.test(String(s || ""));
+}
 async function translateChunk(text, target, prevPair, ctxHint, onSentence){
   if(!text) return "";
   const sys = [
@@ -2477,7 +2500,20 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
        부위원장 이름이 전 국가주석 이름으로 바뀌어 나왔다. 그럴듯해서 더 위험하다. */
     "NAMES — if a personal name is unclear, transliterate what you heard. Do NOT substitute a famous or plausible name. "
     + "Never introduce a public figure who was not clearly named.",
+    /* 10/14 대화에서 베트남어 통역이 틀린 자리 셋. 받아쓰기는 맞았는데 옮기기가 틀렸다.
+       "Thứ hai là…" (둘째로) → 「매주 월요일」, "vài trăm triệu" (수억) → 「몇 백만」,
+       "bác sĩ can thiệp thì tôi nghĩ là tốt" (의사가 손대는 게 낫다) → 「좋지 않다」. */
+    "VIETNAMESE ORDINALS — 'thứ nhất', 'thứ hai', 'thứ ba' at the start of a point mean first / second / third "
+    + "(Korean: 첫째, 둘째, 셋째). Read them as weekdays (월요일, 화요일) ONLY when a day of the week is clearly meant, "
+    + "e.g. 'ngày thứ hai', 'thứ hai tuần sau', or next to a date.",
+    "VIETNAMESE NUMBERS — 'trăm triệu' is hundreds of millions: 'vài trăm triệu' = several hundred million VND "
+    + "(Korean: 수억 동), never '몇 백만'. 'nghìn tỷ' is trillions.",
+    "POLARITY — keep affirmative and negative exactly as spoken. Never turn 'tốt' (good) into 'not good' or the reverse. "
+    + "If the polarity is unclear, translate literally.",
     "If a segment starts mid-sentence, translate it as a fragment. Do not invent a beginning.",
+    /* 「입니다.」 한 마디를 받자 통역기가 "Xin lỗi, tôi không thể dịch đoạn này…" 라는 사과문을
+       돌려줬고 그것이 상대에게 나갔다(10/14 14:15). */
+    "If a segment is too short or unclear to translate, output it unchanged. NEVER apologize, explain, or refuse.",
     /* 한 문장 안에 한국어·베트남어·영어가 섞이는 자리다. 이미 목표 언어인 대목까지
        다시 옮기면 뜻이 흔들린다. 그대로 통과시키게 한다. */
     "MIXED INPUT — the transcript may mix Korean, Vietnamese and English in one sentence. "
@@ -2486,9 +2522,11 @@ async function translateChunk(text, target, prevPair, ctxHint, onSentence){
        모르면 모델이 뒤를 그럴듯하게 지어낸다. 이 앱은 그 사고를 이미 겪었다. */
     "The input is live speech-to-text output: punctuation may be missing and some words "
     + "may be misheard. Translate exactly as far as the text goes. Never invent a continuation.",
+    /* 용어집을 구간마다 바뀌는 것(맥락·앞 구간)보다 앞에 둔다. 앞머리가 매번 같으면 OpenAI 가
+       그 부분을 캐시해 값을 덜 받는다. 예전에는 앞 구간이 용어집보다 앞에 있어 앞머리가 늘 달랐다. */
+    CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : "",
     ctxHint ? "Meeting context: "+ctxHint : "",
-    prevPair ? "Context only — the previous segment, already translated. Use it for pronouns and flow. It is NOT part of the text to translate, but the user's message must still be translated in full:\n"+prevPair : "",
-    CFG.gloss ? "Glossary. Use these renderings exactly:\n"+CFG.gloss : ""
+    prevPair ? "Context only — the previous segment, already translated. Use it for pronouns and flow. It is NOT part of the text to translate, but the user's message must still be translated in full:\n"+prevPair : ""
   ].filter(Boolean).join("\n\n");
   /* 통역기에 보내는 것은 예전과 한 글자도 다르지 않다 — 구간 전체 한 덩이, 호출 한 번.
      바뀌는 것은 다 만들어질 때까지 기다릴 것인가 하나뿐이다. 그래서 번역의 정확도가
@@ -7192,7 +7230,10 @@ function diarWhyNot(n, hasAudio){
   if(n.script) return "";
   const asked = !!n.wantDiar || !!n.diarFail;
   if(!asked) return "";
-  if(!CFG.eleven) return "화자 분리를 켜고 녹음했지만 ElevenLabs 열쇠가 없어 못 갈랐습니다 · 설정 → API 열쇠";
+  /* 10/12 부터 화자 분리는 정리 전사 안에서 OpenAI 로 한다. ElevenLabs 열쇠가 없다는 말은
+     OpenAI 열쇠가 있으면 틀린 안내다 — 그 판에서 이 줄을 못 고쳐 회의마다 붙어 있었다. */
+  if(CFG.oai && !CFG.eleven) return "";
+  if(!CFG.eleven && !CFG.oai) return "화자 분리를 켜고 녹음했지만 OpenAI 열쇠가 없어 못 갈랐습니다 · 설정 → API 열쇠";
   if(!hasAudio) return "화자 분리를 켜고 녹음했지만 보관한 소리가 없습니다 · 전사가 끝나고 지워졌습니다";
   if(n.diarFail && n.diarFail.msg) return "화자 분리 실패 · " + n.diarFail.msg;
   return "";
@@ -7295,7 +7336,7 @@ async function runDiarize(note, onStep){
   await put("notes", note);
 
   // 다 썼으면 오디오는 버린다. 한 시간에 100메가가 넘는다.
-  if(CFG.keepAudio !== "1"){
+  if(!noteKeeps(note)){
     for(const c of withAudio){ c.blob = null; await putRaw("chunks", c); }
   }
   return turns;
@@ -7555,6 +7596,7 @@ async function absorbText(c, note, raw, before, prompt){
         if(c.stopAt && say && live) latAdd("live", firstAt - c.stopAt);   // 말이 멎고 귀에 들리기까지
       }
       t0 = fixDateOrder(applyFixes(t0));   // 이름도, 뒤집힌 날짜 차례도 바로잡는다
+      if(transRefusal(t0)) return;         // 통역기의 사과문은 읽지도 적지도 않는다
       partial += (partial ? " " : "") + t0;
       c.trans = partial;
       renderIfOpen(c.noteId);
@@ -7571,6 +7613,7 @@ async function absorbText(c, note, raw, before, prompt){
        한국어 회의를 통역 대상 한국어로 맞춰 녹음하면 **모든 줄이 두 겹**이 된다(10/5 div2 주간회의).
        같으면 비운다 — 내보내기와 회의록에도 두 번 실리지 않게. */
     if(nearSame(c.trans, c.text)) c.trans = "";
+    if(transRefusal(c.trans)) c.trans = "";
     latAdd("trans", Date.now() - tStart);
     lat.calls++;
     noteRatio(tgt, c.text.length, (c.trans||"").length);
@@ -7720,7 +7763,7 @@ async function drain(){
         c.status = "done"; c.error = ""; c.nextAt = 0; c.slow = 0;
         c.doneAt = Date.now(); syncDirty = true;   // 동기화가 "이 노트가 바뀌었다" 고 알게
         // 화자 분리를 켰으면 오디오를 남긴다. 목소리를 가르려면 원본이 있어야 한다.
-        c.blob = (c.keepAudio || CFG.diar==="1") ? c.blob : null;
+        c.blob = (c.keepAudio || CFG.diar==="1" || noteKeeps(note)) ? c.blob : null;
       }catch(err){
         c.error = err.message;
         if(err.quota){
@@ -8491,7 +8534,7 @@ async function secondPassRun(noteId, onStep){
       const lives = cs.filter(c => c.src === "live" && c.offsetMs != null && c.offsetMs < b && c.offsetMs + (c.durMs || 0) > a);
       // 사람이 지운 말이 걸린 창은 다시 받아 적지 않는다 — 지운 말이 되돌아온다
       if(lives.some(c => c.skip === "cut") || grp.some(c => c.skip === "cut")){
-        for(const c of grp){ c.pass = "kept"; if(!(CFG.keepAudio === "1" || CFG.diar === "1")) c.blob = null; await put("chunks", c); }
+        for(const c of grp){ c.pass = "kept"; if(!(noteKeeps(note) || CFG.diar === "1")) c.blob = null; await put("chunks", c); }
         continue;
       }
       /* 소켓이 죽어 파일이 맡았던 창은 실시간 구간이 없다 — 그때는 이미 적힌 파일 글이 잣대다.
@@ -8526,7 +8569,7 @@ async function secondPassRun(noteId, onStep){
       }catch(e){
         for(const c of grp){ c.pass = "fail"; }
       }
-      const keep = CFG.keepAudio === "1" || CFG.diar === "1";
+      const keep = noteKeeps(note) || CFG.diar === "1";
       // 실패한 창은 소리를 남긴다 — 회의록만 모드는 그 소리로 조각별 전사를 다시 한다
       for(const c of grp){ if(!keep && c.pass !== "fail") c.blob = null; c.doneAt = Date.now(); await put("chunks", c); }
       renderIfOpen(noteId);
@@ -8854,7 +8897,8 @@ async function startRecording(){
     langB: talk ? $("r-lang-b").value : "",   // 상대 언어
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
     brief: $("r-brief").value.trim(), terms: [],
-    wantDiar: modeDoes().diar && $("r-diar").value==="1" };
+    wantDiar: modeDoes().diar && $("r-diar").value==="1",
+    keepAudio: $("r-keepaudio").value === "1" };
   if(talk){ CFG.talkA = activeNote.langA; CFG.talkB = activeNote.langB;
             CFG.talkOut = $("r-talkout").value; CFG.talkLive = $("r-talkq").value; }
   // 이 회의에서 고른 것을 기본값으로 삼는다. 다음에도 대개 같기 때문이다.
@@ -9207,7 +9251,7 @@ async function saveChunk(noteId, s, blob, status, offsetMs, src, durMs){
       /* 회의 모드의 이름은 "live"(기본)·"full"·"trans"·"online" 이다. 대화·파일·글 정리는 뺀다. */
       const wantPass = CFG.pass2 !== "0" && activeNote && ["live","full","trans","online"].includes(activeNote.mode);
       if(wantPass){ c.blob = blob; c.pass = "wait"; }
-      else c.blob = CFG.diar === "1" ? blob : null;
+      else c.blob = (CFG.diar === "1" || noteKeeps(activeNote)) ? blob : null;   // 보관하는 회의는 대화 모드라도 쥔다
     } else {
       /* 실시간이 덮지 못한 구멍이 있다. 파일이 이 시간대를 맡는다. 거기 앉았던 실시간 구간은
          지우고, 그중에 이미 읽어 준 것이 있었으면 두 번 읽지 않게 표시한다. */
@@ -9263,6 +9307,9 @@ async function finishRecording(){
   refreshList();
   autoBackup();   // 저장소가 비워져도 되살릴 수 있게 글자만 내려 둔다
   if(done) runSecondPass(done.id);   // 보관한 소리를 50초 창으로 다시 받아 적는다 (기다리지 않는다)
+  /* 녹음 보관을 골랐으면 다운로드 폴더에 한 벌 내려 둔다. 앱 저장소가 비워져도 소리가 남게.
+     마지막 조각이 녹음기에서 건너오고 정리 전사가 소리를 집어 들 틈을 준다. */
+  if(done && noteKeeps(done)) setTimeout(() => { archiveAudio(done.id); }, 8000);
 
   /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
      회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
@@ -9280,13 +9327,12 @@ async function finishRecording(){
       toast("화자 분리 실패: "+(e.message||e), 8000);
       if(openId===done.id) renderDetail();
     }
-  } else if(done && done.wantDiar && !CFG.eleven){
+  } else if(done && done.wantDiar && !CFG.eleven && !CFG.oai){
     /* 켜고 녹음했는데 열쇠가 없다. 예전에는 **아무 말 없이 넘어갔다** — 상세 화면에도 단추가
        안 보일 뿐이어서, 켜 두고도 안 되는 줄만 알고 한 달을 보내게 됐다. */
-    done.diarFail = { at: Date.now(), msg: "ElevenLabs 열쇠가 없어 화자를 가르지 못했습니다" };
+    done.diarFail = { at: Date.now(), msg: "OpenAI 열쇠가 없어 화자를 가르지 못했습니다" };
     try{ await put("notes", done); }catch(x){}
-    toast("화자 분리를 켜 두셨지만 ElevenLabs 열쇠가 없어 못 갈랐습니다 · "
-        + "설정 → API 열쇠에 넣으면 이 회의 상세에서 「화자 분리 하기」로 돌릴 수 있습니다", 12000);
+    toast("화자 분리를 켜 두셨지만 OpenAI 열쇠가 없어 못 갈랐습니다 · 설정 → API 열쇠", 12000);
     if(openId===done.id) renderDetail();
   } else if(!modeDoes().live){
     toast("녹음을 저장했습니다. 전사하려면 노트에서 '지금 전사'를 눌러 주세요.");
@@ -9961,7 +10007,8 @@ async function renderDetail(){
      제목은 누를 만한 자리이고, 실제로 누르는 사람이 있다. */
   $("d-title").onclick = ()=> editNote(n);
   $("d-meta").textContent = dayLabel(n.created).replace(/년 |월 /g,".").replace("일","")+
-    " · "+Math.max(1,Math.round(n.duration/60000))+"분"+(n.target?" · "+n.target:"");
+    " · "+Math.max(1,Math.round(n.duration/60000))+"분"+(n.target?" · "+n.target:"")+
+    (noteKeeps(n) ? " · 녹음 보관" : "");
 
   const held = cs.filter(c=>c.status==="held").length;
   const left = cs.filter(c=>c.status==="pending"||c.status==="sent").length;
@@ -11023,9 +11070,11 @@ function wavHead(dataLen, rate){
    이어 붙인다. 이 값을 늘리면 다시 꺼진다. */
 const AUDIO_PART_SEC = 600;
 
-async function saveAudio(n, cs){
+async function saveAudio(n, cs, opt){
+  opt = opt || {};
   const withAudio = cs.filter(c=>c.blob).sort(chunkOrder);
   if(!withAudio.length){
+    if(opt.quiet) return null;
     toast("이 회의에는 녹음이 남아 있지 않습니다. 전사가 끝나면 지우는 것이 기본입니다. "+
           "다음 회의를 시작할 때 「끝난 뒤 녹음 파일」을 「남김」으로 두면 남습니다.", 9000);
     return;
@@ -11118,7 +11167,8 @@ async function saveAudio(n, cs){
   }
 
   const secs = withAudio.reduce((a,c)=>a+chunkSec(c), 0);
-  if(!ok) return;
+  if(!ok) return null;
+  if(opt.quiet) return { where: where || "다운로드", name, secs };
   /* 녹음도 저장하고 끝내지 않는다. 바로 보낼 수 있게 창을 띄운다.
      93MB 짜리를 대화창에 올릴지는 사람이 정한다 — 다만 찾으러 가지는 않게 한다. */
   if(uri && NativeShare){
@@ -11132,6 +11182,47 @@ async function saveAudio(n, cs){
   }
   toast("녹음을 " + (where||"다운로드") + "에 한 파일로 저장했습니다. "
         + name + " · " + mmss(Math.round(secs*1000)), 9000);
+}
+
+/* 녹음 보관 — 다운로드 폴더에 한 벌. 녹음이 끝나면 저절로, 나중에 보관을 켜도 한 번.
+   앱 저장소(IndexedDB)는 폰 공간이 모자라면 통째로 비워질 수 있다(10/15 실제로 겪음).
+   다운로드 폴더는 앱 바깥이라 그때도 남는다. 결과는 회의에 적어 둔다. */
+async function archiveAudio(noteId){
+  try{
+    const n = await get("notes", noteId);
+    if(!n || !noteKeeps(n) || !NativeSaver) return;
+    const cs = (await byIndex("chunks","note",noteId)).sort(chunkOrder);
+    const r = await saveAudio(n, cs, { quiet:true });
+    if(!r) return;
+    const n2 = await get("notes", noteId) || n;
+    n2.audioSaved = { at: Date.now(), where: r.where, name: r.name, secs: Math.round(r.secs) };
+    await put("notes", n2);
+    toast("녹음을 보관했습니다 · " + r.where + " · " + r.name, 9000);
+    if(openId === noteId) renderDetail();
+  }catch(e){
+    toast("녹음 보관 파일을 못 만들었습니다: " + (e.message || e) + " · 앱 안의 소리는 그대로 둡니다", 9000);
+  }
+}
+
+/* 보관을 켜고 끈다. 끄면 이미 전사가 끝난 조각의 소리만 놓는다 — 아직 전사를 기다리거나
+   정리 전사를 기다리는 소리는 남긴다. 그것까지 버리면 그 대목은 영영 못 받아 적는다. */
+async function setKeepAudio(noteId, on){
+  const n = await get("notes", noteId); if(!n) return;
+  n.keepAudio = !!on;
+  await put("notes", n);
+  if(on){
+    toast("이 회의의 녹음을 보관합니다. 다운로드 폴더에도 한 벌 둡니다.", 6000);
+    archiveAudio(noteId);
+  } else {
+    let freed = 0;
+    for(const c of await byIndex("chunks","note",noteId)){
+      if(!c.blob || c.status !== "done" || c.pass === "wait" || c.keepAudio) continue;
+      freed += c.blob.size || 0; c.blob = null; await putRaw("chunks", c);
+    }
+    toast("녹음 보관을 풀었습니다 · 앱 안의 소리 " + Math.round(freed / 1048576) + "MB 를 비웠습니다"
+          + (n.audioSaved ? " · 다운로드 폴더의 파일은 그대로입니다" : ""), 7000);
+  }
+  if(openId === noteId) renderDetail();
 }
 
 async function exportNote(){
@@ -11155,7 +11246,18 @@ async function exportNote(){
           sub:"전사가 끝나면 지우는 것이 기본입니다. 눌러서 설명을 봅니다.",
           go: ()=> saveAudio(n, cs) };
 
+  const keepRow = noteKeeps(n)
+    ? { label:"녹음 보관 풀기",
+        sub: (n.audioSaved ? "다운로드에 " + n.audioSaved.name + " 로 보관됨 · " : "")
+           + "앱 안의 소리를 비웁니다. 아직 전사하지 않은 소리는 남깁니다.",
+        go: ()=> setKeepAudio(n.id, false) }
+    : { label:"녹음 보관하기",
+        sub: audioSec > 0 ? "남은 소리 " + mmss(Math.round(audioSec*1000)) + "를 지우지 않고 다운로드 폴더에도 둡니다."
+                          : "이미 지워진 소리는 되살릴 수 없습니다. 앞으로 남는 것만 보관합니다.",
+        go: ()=> setKeepAudio(n.id, true) };
+
   sheet("보내기", [
+    keepRow,
     p.concl ? { label:"결론만 보내기", sub:"요약·결정·할 일·다음 회의. 카톡·잘로용입니다.",
               go: async ()=>{
                 /* 표와 마크다운 기호를 걷어 내고 말풍선 길이에 맞춰 나눈다.
