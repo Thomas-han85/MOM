@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.15-1";
+const APP_VERSION = "2026.10.15-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -8229,7 +8229,11 @@ function liveEvent(L, e){
   }
   if(t === "input_audio_buffer.speech_started"){
     const turn = { id: e.item_id, sock: e.audio_start_ms, startRec: liveRec(L, e.audio_start_ms) };
-    L.turns[e.item_id] = turn; L.turn = turn; L.cutTurn = null; L.dip = 0; return;
+    L.turns[e.item_id] = turn; L.turn = turn; L.cutTurn = null; L.dip = 0;
+    /* 모으던 덩이가 있으면 이 말이 끝날 때까지 기다린다 — 같은 사람이 이어 말하는 것일 수 있다.
+       다만 한없이는 아니다. 8초 안에 이 말이 안 끝나면 모은 것부터 내보낸다. */
+    if(L.batch){ clearTimeout(L.batch.t); L.batch.t = setTimeout(() => liveBatchFlush(L), TALK_WAIT_MS); }
+    return;
   }
   if(t === "input_audio_buffer.speech_stopped"){
     let turn = L.turns[e.item_id];
@@ -8308,6 +8312,12 @@ function liveFlushPartial(L, mid, force){
    따로 읽으니 맥락 없이 지어낸 말이 늘고 읽는 줄이 밀렸다. 다음 말이 1.5초 안에 안 오면 그대로 보낸다. */
 function liveTurnDone(L, turn, text){
   const t = String(text || "").trim();
+  if(talkBatchOn(L)){
+    if(t) return liveBatchAdd(L, turn, t);
+    /* 빈 차례(헛잡은 소리)로 끝났다. 모으던 것이 시계 없이 서 있으면 다시 건다. */
+    if(L.batch && !L.batch.t && !L.turn) L.batch.t = setTimeout(() => liveBatchFlush(L), TALK_IDLE_MS);
+    return;
+  }
   if(!t) return;
   const words = t.split(/\s+/).filter(Boolean).length;
   const dur = (turn.endRec || 0) - (turn.startRec || 0);
@@ -8325,7 +8335,54 @@ function liveTurnDone(L, turn, text){
   }
   liveChain = liveChain.then(() => liveAbsorb(L, turn, text)).catch(() => {});
 }
+/* ── 대화 모드: 한 사람이 길게 말하면 모아서 옮긴다 ──
+
+   10/14 대화에서 베트남 분이 몇 분씩 이어 말하자 말이 0.6초만 멎어도 끊겨 문장 한가운데서
+   잘린 줄이 27% 였다(짧게 주고받던 9/18·9/22·9/24 는 0~4%). 반 토막을 따로 옮기니
+   「Các thứ hai, bệnh cần…」 이 「매주 월요일…」 이 되고, 읽는 소리도 툭툭 끊겼다.
+
+   마침표로는 문장 끝을 못 안다 — 그날 조각 164개 중 134개가 문장 중간인데도 마침표로 끝났다.
+   그래서 시간으로 묶는다. 같은 말(한국어/베트남어)이 이어지는 동안 모으고,
+     ① 말이 바뀌면  ② 말이 멎은 뒤 1.2초 안에 다시 말이 시작되지 않으면  ③ 모은 지 12초가 되면
+   한 덩이로 내보낸다. 짧게 주고받는 대화는 ② 로 곧바로 나가 지금과 거의 같고, 10분 독백은
+   12초마다 한 덩이씩 옮겨져 귀에 들린다(실장님 10/15 결정: 12초). 그날 앞 16분에 대 보면
+   164번 옮기던 것이 74번, 더 기다리는 시간은 가운데 4초·최대 12초다.
+   영어처럼 어느 쪽인지 글자로 모르는 말은 모으던 덩이에 붙인다. */
+const TALK_BATCH_MS = 12000, TALK_IDLE_MS = 1200, TALK_WAIT_MS = 8000;
+function talkBatchOn(L){ return !!(L && L.note && L.note.mode === "talk" && CFG.talkBatch !== "0"); }
+function quickLang(s){
+  const han = (s.match(/[가-힣]/g) || []).length, vi = (s.match(VIET_RE) || []).length;
+  if(han >= 2 && han >= vi) return "ko";
+  if(vi >= 2) return "vi";
+  return "";
+}
+function liveBatchAdd(L, turn, t){
+  const lg = quickLang(t);
+  const B = L.batch;
+  if(B && lg && lg !== B.lang) liveBatchFlush(L);          // 말이 바뀌었다 — 다른 사람이다
+  if(!L.batch) L.batch = { turn: { startRec: turn.startRec, endRec: turn.endRec, stopAt: turn.stopAt },
+                           text: t, lang: lg, t: null };
+  else {
+    const b = L.batch;
+    b.text += " " + t; b.turn.endRec = turn.endRec; b.turn.stopAt = turn.stopAt;
+    if(!b.lang) b.lang = lg;
+  }
+  const b = L.batch;
+  clearTimeout(b.t); b.t = null;
+  if((b.turn.endRec || 0) - (b.turn.startRec || 0) >= TALK_BATCH_MS || L.closed){ liveBatchFlush(L); return; }
+  /* 벌써 다음 말이 시작됐으면(L.turn) 그 말이 끝날 때까지 둔다. 아니면 1.2초 기다려 본다. */
+  b.t = setTimeout(() => liveBatchFlush(L), L.turn ? TALK_WAIT_MS : TALK_IDLE_MS);
+  livePaint();
+}
+function liveBatchFlush(L){
+  const b = L && L.batch; if(!b) return;
+  clearTimeout(b.t); L.batch = null;
+  liveChain = liveChain.then(() => liveAbsorb(L, b.turn, b.text)).catch(() => {});
+  livePaint();
+}
+
 function liveHoldFlush(L){
+  liveBatchFlush(L);
   const h = L && L.hold; if(!h) return;
   clearTimeout(h.t); L.hold = null;
   liveChain = liveChain.then(() => liveAbsorb(L, h.turn, h.text)).catch(() => {});
@@ -8382,7 +8439,8 @@ let livePaintT = 0;
 function livePaint(){
   const L = live;
   if(!L || openId !== L.noteId) return;
-  const txt = L.partial ? "듣는 중 · " + L.partial.slice(-160) : "듣는 중…";
+  const held = (L.batch ? L.batch.text + " " : "") + (L.partial || "");
+  const txt = held.trim() ? "듣는 중 · " + held.trim().slice(-160) : "듣는 중…";
   const el = document.querySelector("#pane-raw .livepart");
   if(el){ el.textContent = txt; return; }
   if(Date.now() - livePaintT < 600) return;
@@ -8498,7 +8556,9 @@ async function secondPass(noteId, onStep){
 async function secondPassRun(noteId, onStep){
   const note = await get("notes", noteId); if(!note) return 0;
   // 기본 회의 모드의 이름이 "live" 다. "doc"(회의록만)은 실시간이 없어 녹음 전체를 이 길로 받아 적는다
-  if(!["live", "full", "trans", "online", "doc"].includes(note.mode)) return 0;
+  /* 대화(talk)는 저절로는 안 돈다 — 소리를 쥔 조각(pass:"wait")이 없기 때문이다. 녹음을 보관한
+     대화에서 사람이 「정리 전사」를 누르면 그때 돈다(실장님 10/15: 누를 때만). */
+  if(!["live", "full", "trans", "online", "doc", "talk"].includes(note.mode)) return 0;
   if(!CFG.oai || !navigator.onLine) return 0;
   pass2Busy = true;
   let changed = 0;
@@ -8508,7 +8568,9 @@ async function secondPassRun(noteId, onStep){
     if(!files.length) return 0;
     const terms = sttTerms(note);
     const prompt = sttPrompt(note.ctx, terms);
-    const tgt = transTarget(note);
+    /* 대화는 한 창에 두 사람 말이 섞인다. 방향을 가를 수 없으니 내 말(langA)로 옮긴다 —
+       이미 내 말인 대목은 통역 지시문대로 그대로 지나간다. 읽는 사람이 실장님이다. */
+    const tgt = note.mode === "talk" ? (note.langA || "Korean") : transTarget(note);
     /* 화자까지 가를 때는 창을 넓게 잡는다.
 
        까닭 둘. ① 목소리 본보기(사람당 5초, 최대 넷 = 20초)를 **요청마다** 함께 보내야 하는데,
@@ -10104,7 +10166,7 @@ async function renderDetail(){
         '<div class="strip warn" style="margin:0"><span class="dot"></span>'+esc(diarWhyNot(n, hasAudio))+'</div>' : "")))+
       /* 보관한 소리가 있으면 정리 전사(2차)를 손으로도 돌릴 수 있다 — 회의 중 앱이 꺼졌거나,
          2차가 생기기 전(9/18 이전)에 녹음해 둔 회의. 파일 조각을 모두 다시 받아 적는다. */
-      (hasAudio && ["live","full","trans","online"].includes(n.mode) ?
+      (hasAudio && ["live","full","trans","online","talk"].includes(n.mode) ?
         '<button class="bigbtn ghost" id="do-pass2" style="width:100%;margin:8px 0 0">보관한 소리로 정리 전사 (2차)</button>' : "")+
       spkPick+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
@@ -11247,7 +11309,7 @@ async function exportNote(){
           go: ()=> saveAudio(n, cs) };
 
   const keepRow = noteKeeps(n)
-    ? { label:"녹음 보관 풀기",
+    ? { label:"녹음 지우기 · 보관 풀기",
         sub: (n.audioSaved ? "다운로드에 " + n.audioSaved.name + " 로 보관됨 · " : "")
            + "앱 안의 소리를 비웁니다. 아직 전사하지 않은 소리는 남깁니다.",
         go: ()=> setKeepAudio(n.id, false) }
