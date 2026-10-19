@@ -956,8 +956,8 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
       </select></div>
     <div class="field"><label for="r-diar">화자 분리 · 누가 말했는지 가릅니다</label>
       <select id="r-diar">
-        <option value="1">켜기 · 시간당 약 $0.22</option>
-        <option value="0">끄기</option>
+        <option value="0">끄기 · 글이 더 정확합니다</option>
+        <option value="1">켜기 · 시간당 약 $0.36 · 용어집이 전사에 안 들어갑니다</option>
       </select></div>
     <div class="field"><label for="r-keepaudio">녹음 보관</label>
       <select id="r-keepaudio">
@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.19-2";
+const APP_VERSION = "2026.10.19-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1173,6 +1173,10 @@ if(CFG.stt === "gpt-4o-transcribe-diarize") CFG.stt = "gpt-4o-transcribe";
    언어 목록을 따로 받는다. 한 번만 옮긴다(sttMig) — 설정에서 도로 고르면 그대로 둔다. */
 if(CFG.sttMig !== "1" && cfgSafe()){ if(CFG.stt === "gpt-4o-transcribe") CFG.stt = "gpt-transcribe"; CFG.sttMig = "1"; cfgMigrated = true; }
 if(!CFG.vision) CFG.vision = "gpt-4o-mini";
+/* 화자 분리는 기본으로 끈다(실장님 10/19). 목소리 본보기 없이는 150초 창마다 A·B 가 새로 붙어 회의 전체로
+   이어지지 않고, 이 모델은 용어집·이름·언어 목록을 안 받아 글까지 나빠진다 — 값은 더 비싸다($0.36/시간,
+   끄면 $0.27). 그동안 고른 값이 「켜기」로 저장돼 있으니 한 번만 끄기로 옮긴다(diarMig). 회의마다 켜는 것은 그대로. */
+if(CFG.diarMig !== "1" && cfgSafe()){ CFG.diar = "0"; CFG.diarMig = "1"; cfgMigrated = true; }
 if(!Array.isArray(CFG.series)) CFG.series = [];
 /* 기도제목 한 줄이 이름으로 배워진 것을 걷어 낸다(9/28 "아내가 지치지 않도록"). 이름은 이렇게 맺지 않는다. */
 CFG.series.forEach(s => { if(Array.isArray(s.prayerNames))
@@ -11961,7 +11965,7 @@ $("fab").onclick = ()=>{ if(!CFG.oai){ toast("먼저 설정에서 OpenAI 키를 
   $("r-title").value=""; $("r-brief").value=""; $("r-text").value="";
   // 회의마다 고르는 것들. 지난번 고른 값을 되살려 매번 다시 고르지 않게 한다.
   $("r-tts").value = CFG.tts || "0";
-  $("r-diar").value = CFG.diar || "1";
+  $("r-diar").value = CFG.diar || "0";
   $("r-keepaudio").value = CFG.keepAudio || "0";
   $("r-lang-a").value = CFG.talkA || "Korean";
   $("r-lang-b").value = CFG.talkB || "Vietnamese";
