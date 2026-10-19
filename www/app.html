@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.19-1";
+const APP_VERSION = "2026.10.19-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -3876,6 +3876,7 @@ async function learnPrayerFromDocs(note){
         best = { human, at, body: d.body };
     }
   }
+  prayerNoFromDocs(note, s, await all("notes"));
   if(!best) return;
   const shape = readPrayerShape(best.body);
   const all2 = (s.prayerNames || []).slice();
@@ -3886,6 +3887,36 @@ async function learnPrayerFromDocs(note){
   if(best.human && !s.prayerSample) s.prayerSample = best.body.slice(0, 1200);
   else if(best.human) s.prayerSample = best.body.slice(0, 1200);
   saveCfg();
+}
+/* 이번 모임의 번호를 지난 문서에서 센다.
+
+   10/19 기도회가 「46.」 으로 나왔다 — 9/28 이 이미 46 이었다. 번호를 시리즈의 prayerNo(45, 9/21)와
+   prayerHist 로 셌는데, 9/28 판은 폰에서 고쳐져 이 기기의 prayerHist 에 안 실려 사이가 0 으로 셌다.
+   문서는 동기화로 늘 넘어오니 문서에서 센다: 이번보다 앞선 모임 가운데 첫 줄에 번호가 있는 가장
+   나중 것(고친 판을 먼저 믿는다) + 그 뒤로 기도회 문서가 있는 모임 수 + 1.
+   이번 모임을 사람이 고쳐 번호를 달았으면 그 번호를 그대로 쓴다. */
+function prayerNoOf(n){
+  const docs = (n.docs || []).filter(d => d.form === "prayer" && d.body);
+  docs.sort((a, b) => (b.editedAt ? 1 : 0) - (a.editedAt ? 1 : 0));
+  for(const d of docs){
+    const first = d.body.split("\n").find(l => l.trim()) || "";
+    const m = /^\s*(\d{1,4})\.\s*\d{4}\s*년/.exec(first);
+    if(m) return { no: +m[1], human: !!d.editedAt };
+  }
+  return null;
+}
+function prayerNoFromDocs(note, s, notes){
+  const at = note.created || Date.now();
+  const self = prayerNoOf(note);
+  if(self && self.human){ s.prayerNoFor = { noteId: note.id, no: self.no }; return; }
+  const prev = notes.filter(n => n.seriesId === s.id && n.id !== note.id && (n.created || 0) < at)
+                    .sort((a, b) => (b.created || 0) - (a.created || 0));
+  let between = 0;
+  for(const n of prev){
+    const p = prayerNoOf(n);
+    if(p){ s.prayerNoFor = { noteId: note.id, no: p.no + between + 1 }; return; }
+    if((n.docs || []).some(d => d.form === "prayer" && d.body)) between++;
+  }
 }
 function rememberPrayer(s, n, body, human){
   const text = String(body || "").slice(0, 4000);
@@ -3937,7 +3968,8 @@ function prayerHeader(note){
   const date = d.getFullYear() + "년 " + pad(d.getMonth() + 1) + "월 " + pad(d.getDate()) + "일";
   const s = note.seriesId ? findSeries(note.seriesId) : null;
   let no = 0;
-  if(s && s.prayerNo){
+  if(s && s.prayerNoFor && s.prayerNoFor.noteId === note.id) no = s.prayerNoFor.no;
+  else if(s && s.prayerNo){
     if(s.prayerNo.at === at) no = s.prayerNo.no;
     else if(s.prayerNo.at < at){
       const between = (s.prayerHist || []).filter(h => h.at > s.prayerNo.at && h.at < at && h.noteId !== note.id).length;
@@ -3967,20 +3999,29 @@ ${note.ctx ? "상황: "+note.ctx+"\n" : ""}${people ? "참석자\n"+people+"\n\n
 말의 흐름에서 차례가 바뀌는 자리를 찾아라 — 인도자가 이름을 부르는 말("○○ 형제님", "다음은 ○○",
 "○○ 자매님 나눠 주세요"), 자기 이름을 대는 말, 한 사람이 "이상입니다"·"감사합니다" 로 맺은 뒤
 새 사정이 시작되는 자리.
+· 이 모임은 인도자가 다음 사람을 짧게 부른다 — "○○부터", "○○ 톡", "○○ 차례", "○○요".
+  받아쓰기가 이 이름을 **소리가 비슷한 흔한 낱말로 바꿔 적는 일이 잦다.** 실제로 있었던 것:
+  「케이트 톡」→「케이크 톡」, 「제임스요」→「재미있어요」, 「솔로몬부터」→「소로몬부터」.
+  차례가 바뀌는 자리에 뜬금없는 낱말이 있으면 위 "늘 오는 사람" 가운데 소리가 가까운 이름으로 읽어라.
 · 이름은 전사문에서 불린 것을 쓴다. 위 "늘 오는 사람" 가운데 소리가 비슷한 이름이 있으면 그 표기로 쓴다.
+· 아내·아이 이야기처럼 사정만 들어도 앞뒤 차례로 누구인지 가늠되면 "나눔 N" 대신 그 이름을 쓴다.
 · 이름을 알 수 없으면 차례대로 "나눔 1", "나눔 2" 로 적는다. 앞 구간에서 쓴 번호를 이어 간다.
 · **"발언자 불명" 으로 한데 뭉치지 마라.** 한 사람의 제목이 한자리에 모여 있어야 기도할 때 쓴다.
 · 차례가 바뀌었는지 애매하면 앞 사람의 것으로 둔다. 한 사람을 둘로 쪼개는 것보다 낫다.
 
 ■ 공통과 개인
 · 공통은 인도자가 모임 첫머리나 끝에 "함께 기도하자" 며 내놓는 회사·공동체 제목뿐이다.
+· "○○를 위해 함께 기도하겠습니다" 같은 맺음말은 제목이 아니다. 그 앞에서 말한 구체적인 바람
+  (예: "좋은 현장이 생겨 직원들이 옮겨 갈 수 있도록")을 제목으로 적는다.
 · 한 사람이 자기 차례에 말한 것은 회사·팀·현장 이야기라도 **그 사람의 제목**이다. 공통으로 올리지 마라.
+· 나눔이 다 끝난 뒤 한 사람이 소리 내어 드리는 **마무리 기도**("사랑의 아버지…", "…주시옵소서", "아멘")는
+  기도제목이 아니다. 거기서는 아무것도 뽑지 마라 — 앞에서 나눈 것을 되풀이할 뿐이다.
 
 ■ 적는 법
 여기서 뽑은 것이 그대로 최종 기록이 된다. 뒤에서 다시 줄이지 않는다.
 - 한 사람이 여러 제목을 나누면 항목을 나눠 적는다.
 - **한 마디로 지나간 제목도 빠뜨리지 마라.** "결혼 준비 잘 하게 기도해 달라" 같은 한 줄도 제목이다.
-- 항목 하나는 한두 문장이다. 무슨 사정인지와 무엇을 바라는지를 담는다.
+- 항목 하나는 한 문장이다. 무슨 사정인지와 무엇을 바라는지를 담는다. "또한 …" 으로 두 제목을 잇지 말고 항목을 나눈다.
 - 사람 이름, 지명, 병명, 날짜, 나이, 회사와 현장 이름, 금액, 일정은 그대로 남긴다.
 - ${S.rule}
 - 문장은 "~하도록 기도한다" 로 담담하게 맺는다.
@@ -4001,8 +4042,8 @@ ${seg}`;
 
 function prayerMergePrompt(note, digests){
   const S = docSize(note);
-  const last = prevPrayer(note);
   const ser = note.seriesId ? findSeries(note.seriesId) : null;
+  const last = (ser && ser.prayerStyle && !ser.prayerStyle.follow) ? "" : prevPrayer(note);   // 고친 판에 후속 절이 없으면 안 만든다
   const sample = ser && ser.prayerSample ? ser.prayerSample : "";
   return `아래는 기도회를 구간별로 훑으며 뽑아 둔 기도제목이다. 이것을 하나의 기록으로 정리한다.
 
@@ -4094,6 +4135,9 @@ async function makePrayer(note, fullText, onStep, cache){
   /* 시리즈에 저장된 이름·틀이 비어 있어도 지난 문서는 남아 있다. 만들기 직전에 거기서 다시 배운다.
      9월 14일 이전 판으로 만든 회의만 있는 시리즈도 이번 판부터 제 이름·제 틀로 나온다. */
   try{ await learnPrayerFromDocs(note); }catch(e){}
+  /* 목소리 본보기 없이 화자 분리를 거친 전사문은 「A: … B: …」 꼴이다. 기도회에서 그 글자는 사람과
+     맞지 않아(10/19: 여러 사람이 A 하나) 차례를 가르는 데 오히려 방해가 된다. 이름 아닌 표시만 걷는다. */
+  fullText = String(fullText || "").replace(/(^|\n|\s)(?:[A-Z]|@|화자\s*\d+|speaker_?\d+)\s*:\s+/g, "$1");
   const S = docSize(note);
   const parts = splitParts(fullText, S.seg);
   const outs = [];
@@ -4122,7 +4166,10 @@ async function makePrayer(note, fullText, onStep, cache){
 
   // 지난 모임 후속만 따로 짧게 묻는다. 본문은 건드리지 않는다.
   let followUp = "";
-  const last = prevPrayer(note);
+  /* 사람이 고친 판에 「지난 기도제목 후속」 절이 없으면 만들지 않는다. 9/28·10/19 두 번 다
+     실장님이 그 절을 통째로 지우셨다 — 배운 틀(prayerStyle)에 follow 가 없으면 원치 않는 것이다. */
+  const pst = note.seriesId ? (findSeries(note.seriesId) || {}).prayerStyle : null;
+  const last = (pst && !pst.follow) ? "" : prevPrayer(note);
   if(last){
     if(onStep) onStep(parts.length+1, parts.length+1);
     try{
@@ -7258,7 +7305,22 @@ function voiceRefs(){
 
 /* 이 회의를 화자까지 갈라 받아 적을 것인가. 소리가 있고, 켜고 녹음했고, 열쇠가 있을 때. */
 function diarWanted(note){
-  return !!note && !!note.wantDiar && !!CFG.oai;
+  return !!note && !!note.wantDiar && !!CFG.oai && !isPrayerNote(note);
+}
+
+/* 기도회는 화자 분리 모델로 받아 적지 않는다.
+
+   10/19 기도회: 10.12-1 부터 화자 분리가 기본으로 켜져 정리 전사가 gpt-4o-transcribe-diarize 로 갔다.
+   이 모델은 길잡이 글·낱말 목록·언어 목록을 하나도 안 받는다 — 9/28 에 넣은 「배운 이름을 전사에
+   넘긴다」 가 통째로 꺼진 셈이다. 그래서 「케이트 톡」 이 「케이크 톡」, 「제임스요」 가 「재미있어요」 로
+   적혀 회의록이 이름을 못 찾고 「나눔 1·2·3」 으로 갈랐다. 케이트 차례와 끝 1분은 한국어 기도가
+   영어 헛소리로 바뀌었다. 목소리 본보기가 없으니 화자 표시도 A·B 뿐이고, 그것도 여러 사람이 A 하나로
+   묶였다. 기도회는 돌아가며 나누는 자리라 차례는 말의 흐름으로 가른다 — 화자 분리가 보태는 것이 없다. */
+function isPrayerNote(note){
+  if(!note) return false;
+  if(note.docForm === "prayer") return true;
+  const s = note.seriesId ? findSeries(note.seriesId) : null;
+  return !!(s && (s.prayerStyle || (s.prayerNames && s.prayerNames.length) || s.prayerNo));
 }
 
 /* 마지막 전사 응답이 알려 준 쓴 양. 참조 음성이 과금에 들어가는지를 **실제 회의에서 공짜로** 확인하려고
