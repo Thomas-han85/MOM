@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.15-2";
+const APP_VERSION = "2026.10.19-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1699,6 +1699,10 @@ function dedupeInside(text){
   joined = joined.replace(/(\S+)(?:\s+\1){2,}/g, "$1");
   // 띄어쓰기 없이 붙어 되풀이되는 것도 접는다 ("아아아아", "그래서그래서그래서")
   joined = joined.replace(/(.{2,20}?)\1{2,}/g, "$1");
+  /* 여러 낱말 토막이 문장부호 없이 세 번 넘게 이어지는 것도 접는다. 10/19 기도회 끝 1분이
+     「you guys have a lot of worries and」 를 수십 번 되풀이한 글(4,889자)로 앉았다 — 화자 분리
+     모델이 기도 소리 위에서 헛돌았다. 위 두 줄은 한 낱말·20자까지만 봐서 못 잡았다. */
+  joined = joined.replace(/(\S.{6,118}?)(?:\s*\1){2,}/g, "$1");
   return joined.trim();
 }
 
@@ -8531,6 +8535,12 @@ function liveWebStop(){
    2차가 실시간보다 훨씬 짧게 나온 창(절반 미만)은 실시간을 남긴다. 통째로 놓친 창을 빈칸으로 바꾸지 않는다.
    ===================================================================== */
 let pass2Busy = false, pass2Run = null, pass2Note = "";
+/* 정리 전사가 몇 번째 창을 하고 있는지. 기록 화면의 띠가 이것을 그린다.
+
+   10/19 기도회: 한 번 누르면 끝까지 돌고 있었는데(창 일곱 개가 50초 간격으로 이어서 끝남),
+   창 하나 끝날 때마다 화면을 다시 그리면서 띠가 「전사 대기 N개 · 지금 전사」로 되돌아갔다.
+   누른 단추가 사라지고 새 단추가 다시 나오니 멈춘 것처럼 보여 다섯 번 넘게 누르셨다. */
+let pass2Step = null;
 
 /* 이미 정리 전사가 돌고 있으면 기다렸다가 이어서 한다.
 
@@ -8590,6 +8600,8 @@ async function secondPassRun(noteId, onStep){
     for(let gi = 0; gi < groups.length; gi++){
       const grp = groups[gi];
       if(onStep) onStep(gi, groups.length);
+      pass2Step = { note: noteId, i: gi, t: groups.length };
+      renderIfOpen(noteId);
       const a = grp[0].offsetMs;
       const last = grp[grp.length - 1];
       const b = last.offsetMs + (last.durMs || chunkSec(last) * 1000);
@@ -8638,7 +8650,7 @@ async function secondPassRun(noteId, onStep){
     }
     syncDirty = true;
     return changed;
-  } finally { pass2Busy = false; }
+  } finally { pass2Busy = false; pass2Step = null; }
 }
 
 /* 녹음이 끝난 뒤 2차를 돈다. 실시간의 마지막 말차례가 앉을 시간을 준 다음이다. */
@@ -10079,6 +10091,12 @@ async function renderDetail(){
   const strip = $("d-strip");
   if(bad.length) strip.innerHTML = '<div class="strip warn"><span class="dot"></span>전사 실패 '+bad.length+
     '개<button id="retry-all">모두 다시 시도</button></div>';
+  /* 정리 전사가 도는 동안에는 「지금 전사」를 다시 내놓지 않는다 — 끝까지 저절로 간다. */
+  else if(pass2Pending(n.id)){
+    const st = pass2Step && pass2Step.note === n.id ? pass2Step : null;
+    strip.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중 '+
+      (st ? (st.i + 1) + '/' + st.t + ' ' : '')+'· 끝까지 저절로 갑니다 (다시 누르지 않아도 됩니다)</div>';
+  }
   else if(held) strip.innerHTML = '<div class="strip warn"><span class="dot"></span>전사 대기 '+held+
     '개<button id="go-now">지금 전사</button></div>';
   else if(left) strip.innerHTML = '<div class="strip"><span class="dot live"></span>전사 중 · 남은 구간 '+left+'</div>';
