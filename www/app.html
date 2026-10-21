@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.21-4";
+const APP_VERSION = "2026.10.21-5";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7747,9 +7747,20 @@ async function audioUpload(noteId, onStep){
       const skip = Math.max(0, up.sent - start);
       const slice = out.subarray(skip);
       const from = start + skip;
-      const r = await fetchT(up.uri, { method: "PUT",
-        headers: { "Content-Range": "bytes " + from + "-" + (end - 1) + "/" + total, "Content-Type": "audio/wav" },
-        body: slice }, 600000);
+      /* 드라이브가 가끔 503 을 돌려준다(첫 실측에서 둘째 덩이가 그랬다). 5xx·통신 끊김은 같은 덩이를 잠시 뒤 다시 보낸다.
+         세 번 실패하면 상태를 남기고 물러난다 — 다음 맞춤 때 이어서 간다. */
+      let r = null;
+      for(let tryNo = 0; tryNo < 4; tryNo++){
+        try{
+          r = await fetchT(up.uri, { method: "PUT",
+            headers: { "Content-Range": "bytes " + from + "-" + (end - 1) + "/" + total, "Content-Type": "audio/wav" },
+            body: slice }, 600000);
+        }catch(e){ r = null; }
+        if(r && r.status < 500) break;
+        if(tryNo === 3) throw new Error("소리 올리기 실패 " + (r ? r.status : "통신 끊김") + " · 다음 맞춤 때 이어서 올립니다");
+        if(onStep) onStep("드라이브가 잠시 거절했습니다 · " + (3 + tryNo * 4) + "초 뒤 다시");
+        await new Promise(r2 => setTimeout(r2, (3 + tryNo * 4) * 1000));
+      }
       if(r.status === 308){ const rg = r.headers.get("Range"); up.sent = rg ? (+rg.split("-")[1] + 1) : end; }
       else if(r.status === 200 || r.status === 201){ up.sent = total; await audioUploadDone(noteId, up, await r.json(), withAudio); return; }
       else throw new Error("소리 올리기 실패 " + r.status);
