@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.21-3";
+const APP_VERSION = "2026.10.21-4";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7652,11 +7652,14 @@ let audioUploading = new Set();
 async function audioPlan(withAudio){
   const heads = []; let total = 0, cum = 0; const table = [];
   for(const c of withAudio){
-    let off = 44;
-    try{ const b = wavDataAt(new Uint8Array(await c.blob.slice(0, 64).arrayBuffer())); if(b > 0) off = b; }catch(e){}
-    const len = Math.max(0, (c.blob.size || 0) - off);
+    let off = 44, isWav = false;
+    try{ const h8 = new Uint8Array(await c.blob.slice(0, 64).arrayBuffer()); isWav = h8[0] === 82 && h8[1] === 73 && h8[2] === 70; const b = isWav ? wavDataAt(h8) : 0; if(b > 0) off = b; }catch(e){}
+    /* 폰(네이티브)은 WAV 라 크기가 곧 길이다. 랩탑 브라우저 녹음은 webm 이라 풀어야 길이를 안다 —
+       조각의 durMs 로 길이를 못 박고 풀 때 그 길이에 맞춘다(짧으면 0 으로 채우고 길면 자른다). */
+    const len = isWav ? Math.max(0, (c.blob.size || 0) - off) : (c.durMs ? Math.round(c.durMs / 1000 * 16000) * 2 : 0);
+    if(!len) continue;
     table.push([Math.round(cum * 100) / 100, c.offsetMs || 0]);
-    heads.push({ c, off, len, at: 44 + total }); total += len; cum += len / 32000;
+    heads.push({ c, off, len, isWav, at: 44 + total }); total += len; cum += len / 32000;
   }
   const groups = []; let cur = [], curSec = 0;
   for(const h of heads){
@@ -7666,6 +7669,27 @@ async function audioPlan(withAudio){
   }
   if(cur.length) groups.push(cur);
   return { heads, groups, total, table };
+}
+
+/* 조각 하나를 16kHz PCM16 바이트로. WAV 면 몸통만 떼고, webm 이면 풀어서 16kHz 로 맞춘다. 길이는 h.len 에 맞춘다. */
+let _upAc = null;
+async function chunkPcm(h){
+  const out = new Uint8Array(h.len);
+  if(h.isWav){
+    const body = wavBody(new Uint8Array(await h.c.blob.arrayBuffer()));
+    if(body) out.set(body.subarray(0, Math.min(body.length, h.len)), 0);
+    return out;
+  }
+  try{
+    if(!_upAc) _upAc = new (window.AudioContext || window.webkitAudioContext)();
+    const dec = await _upAc.decodeAudioData(await h.c.blob.arrayBuffer());
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(dec.duration * 16000)), 16000);
+    const src = off.createBufferSource(); src.buffer = dec; src.connect(off.destination); src.start();
+    const f = (await off.startRendering()).getChannelData(0);
+    const n = Math.min(f.length, h.len >> 1); const v = new DataView(out.buffer);
+    for(let i = 0; i < n; i++){ const x = Math.max(-1, Math.min(1, f[i])); v.setInt16(i * 2, x < 0 ? x * 32768 : x * 32767, true); }
+  }catch(e){ /* 못 푸는 조각은 무음으로 둔다 — 길이는 지킨다 */ }
+  return out;
 }
 
 /* 회의 소리를 드라이브에 이어 올린다. 몇 번을 불러도 이어서 간다. */
@@ -7719,10 +7743,7 @@ async function audioUpload(noteId, onStep){
       if(onStep) onStep("소리를 드라이브로 올리는 중… " + Math.round(up.sent / total * 100) + "%");
       const out = new Uint8Array(len); let o = 0;
       if(g === 0){ out.set(wavHead(plan.total, 16000), 0); o = 44; }
-      for(const h of grp){
-        const b = new Uint8Array(await h.c.blob.arrayBuffer()); const body = wavBody(b);
-        out.set(body.subarray(0, h.len), o); o += h.len;
-      }
+      for(const h of grp){ out.set(await chunkPcm(h), o); o += h.len; }
       const skip = Math.max(0, up.sent - start);
       const slice = out.subarray(skip);
       const from = start + skip;
