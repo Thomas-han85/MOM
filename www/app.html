@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.21-6";
+const APP_VERSION = "2026.10.21-7";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7736,42 +7736,54 @@ async function audioUpload(noteId, onStep){
         n.audioUp = { restarted: true }; await put("notes", n); audioUploading.delete(noteId); return audioUpload(noteId, onStep);
       }
     }
-    /* 덩이마다 PUT. 이미 보낸 바이트는 건너뛴다. */
-    for(let g = 0; g < plan.groups.length; g++){
-      const grp = plan.groups[g];
-      const start = g === 0 ? 0 : grp[0].at;
-      const parts = []; let len = (g === 0 ? 44 : 0);
-      for(const h of grp) len += h.len;
-      const end = start + len;                       // [start, end)
-      if(end <= up.sent) continue;
-      if(!wifiOk()){ if(onStep) onStep("와이파이가 끊겨 소리 올리기를 멈춥니다 · 다음에 이어서"); return; }
-      if(onStep) onStep("소리를 드라이브로 올리는 중… " + Math.round(up.sent / total * 100) + "%");
-      const out = new Uint8Array(len); let o = 0;
-      if(g === 0){ out.set(wavHead(plan.total, 16000), 0); o = 44; }
-      for(const h of grp){ out.set(await chunkPcm(h), o); o += h.len; }
-      const skip = Math.max(0, up.sent - start);
-      const slice = out.subarray(skip);
-      const from = start + skip;
-      /* 드라이브가 가끔 503 을 돌려준다(첫 실측에서 둘째 덩이가 그랬다). 5xx·통신 끊김은 같은 덩이를 잠시 뒤 다시 보낸다.
-         세 번 실패하면 상태를 남기고 물러난다 — 다음 맞춤 때 이어서 간다. */
-      let r = null;
-      for(let tryNo = 0; tryNo < 4; tryNo++){
-        try{
-          r = await fetchT(up.uri, { method: "PUT",
-            headers: { "Content-Range": "bytes " + from + "-" + (end - 1) + "/" + total, "Content-Type": "audio/wav" },
-            body: slice }, 600000);
-        }catch(e){ r = null; }
-        if(r && r.status < 500) break;
-        if(tryNo === 3) throw new Error("소리 올리기 실패 " + (r ? r.status : "통신 끊김") + " · 다음 맞춤 때 이어서 올립니다");
-        if(onStep) onStep("드라이브가 잠시 거절했습니다 · " + (3 + tryNo * 4) + "초 뒤 다시");
-        await new Promise(r2 => setTimeout(r2, (3 + tryNo * 4) * 1000));
+    /* 덩이마다 PUT. 구글은 마지막 덩이 말고는 **256KiB 의 배수**만 받는다(10/21 실측 400 — 첫 덩이는 우연히 배수였다).
+       그래서 조각 묶음이 아니라 바이트 흐름을 8MiB(256KiB×32) 로 잘라 보낸다. 조각은 10분 묶음이 아니라 하나씩 풀어
+       버퍼에 채우므로 메모리는 8MB 남짓이다. 이미 보낸 바이트는 건너뛴다(서버가 말한 up.sent 기준). */
+    const BLOCK = 32 * 262144;
+    const buf = new Uint8Array(BLOCK); let bl = 0, pos = 0;   // pos = buf[0] 이 흐름의 몇 번째 바이트인가
+    const send = async (final) => {
+      if(!bl) return;
+      const a = pos, b = pos + bl;                    // [a, b)
+      if(b > up.sent){
+        if(!wifiOk()) throw new Error("와이파이가 끊겨 소리 올리기를 멈춥니다 · 다음에 이어서");
+        if(onStep) onStep("소리를 드라이브로 올리는 중… " + Math.round(up.sent / total * 100) + "%");
+        const skip = Math.max(0, up.sent - a);
+        let r = null;
+        for(let tryNo = 0; tryNo < 4; tryNo++){
+          try{
+            r = await fetchT(up.uri, { method: "PUT",
+              headers: { "Content-Range": "bytes " + (a + skip) + "-" + (b - 1) + "/" + total, "Content-Type": "audio/wav" },
+              body: buf.subarray(skip, bl) }, 600000);
+          }catch(e){ r = null; }
+          if(r && r.status < 500) break;
+          if(tryNo === 3) throw new Error("소리 올리기 실패 " + (r ? r.status : "통신 끊김") + " · 다음 맞춤 때 이어서 올립니다");
+          if(onStep) onStep("드라이브가 잠시 거절했습니다 · " + (3 + tryNo * 4) + "초 뒤 다시");
+          await new Promise(r2 => setTimeout(r2, (3 + tryNo * 4) * 1000));
+        }
+        if(r.status === 308){ const rg = r.headers.get("Range"); up.sent = rg ? (+rg.split("-")[1] + 1) : b; }
+        else if(r.status === 200 || r.status === 201){ up.sent = total; await audioUploadDone(noteId, up, await r.json(), withAudio); return "done"; }
+        else throw new Error("소리 올리기 실패 " + r.status + (r.status === 400 ? " · 덩이 크기" : ""));
+        n = await get("notes", noteId) || n; n.audioUp = up; await put("notes", n);
       }
-      if(r.status === 308){ const rg = r.headers.get("Range"); up.sent = rg ? (+rg.split("-")[1] + 1) : end; }
-      else if(r.status === 200 || r.status === 201){ up.sent = total; await audioUploadDone(noteId, up, await r.json(), withAudio); return; }
-      else throw new Error("소리 올리기 실패 " + r.status);
-      n = await get("notes", noteId) || n; n.audioUp = up; await put("notes", n);
-      await new Promise(r2 => setTimeout(r2, 100));
+      pos = b; bl = 0;
+    };
+    const push = async (bytes) => {
+      let o = 0;
+      while(o < bytes.length){
+        const k = Math.min(BLOCK - bl, bytes.length - o);
+        buf.set(bytes.subarray(o, o + k), bl); bl += k; o += k;
+        if(bl === BLOCK){ if(await send(false) === "done") return "done"; }
+      }
+    };
+    if(await push(wavHead(plan.total, 16000)) === "done") return;
+    for(const h of plan.heads){
+      /* 통째로 이미 보낸 조각은 풀지도 않는다 — 다시 이어 올릴 때 시간을 아낀다 */
+      if(bl === 0 && pos + h.len <= up.sent){ pos += h.len; continue; }
+      if(await push(await chunkPcm(h)) === "done") return;
+      await new Promise(r2 => setTimeout(r2, 20));
     }
+    if(await send(true) === "done") return;
+    if(up.sent < total) throw new Error("다 올렸는데 서버가 끝을 안 알립니다 · 다음 맞춤 때 다시");
   } finally { audioUploading.delete(noteId); }
 }
 async function audioUploadDone(noteId, up, fileJson, withAudio){
