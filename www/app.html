@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.21-5";
+const APP_VERSION = "2026.10.21-6";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7719,17 +7719,22 @@ async function audioUpload(noteId, onStep){
       if(!r.ok) throw new Error("올리기 자리를 못 잡았습니다 " + r.status);
       const uri = r.headers.get("Location");
       if(!uri) throw new Error("올리기 주소가 없습니다");
-      up = { uri, sent: 0, total, table: plan.table, at: Date.now() };
+      up = { uri, sent: 0, total, table: plan.table, at: Date.now(), restarted: !!(n.audioUp && n.audioUp.restarted) };
       n.audioUp = up; await put("notes", n);
     } else {
-      /* 어디까지 받았는지 서버에 묻는다 — 이 기기가 적어 둔 값보다 서버가 정확하다 */
-      const q = await fetchT(up.uri, { method: "PUT", headers: { "Content-Range": "bytes */" + total } }, 30000);
-      if(q.status === 200 || q.status === 201){ await audioUploadDone(noteId, up, await q.json(), withAudio); return; }
-      if(q.status === 308){
+      /* 어디까지 받았는지 서버에 묻는다 — 이 기기가 적어 둔 값보다 서버가 정확하다.
+         308 이면 Range 에 받은 끝이 온다. 그 밖(400·404·410·통신 끊김)은 세션이 죽은 것 — 10/21 실측에서 503 한 번 뒤
+         세션이 400 을 돌려줬다. 처음부터 새로 연다(한 번만, 되돌이 방지). */
+      let q = null;
+      try{ q = await fetchT(up.uri, { method: "PUT", headers: { "Content-Range": "bytes */" + total } }, 30000); }catch(e){ q = null; }
+      if(q && (q.status === 200 || q.status === 201)){ await audioUploadDone(noteId, up, await q.json(), withAudio); return; }
+      if(q && q.status === 308){
         const rg = q.headers.get("Range"); up.sent = rg ? (+rg.split("-")[1] + 1) : 0;
-      } else if(q.status === 404 || q.status === 410){
-        n.audioUp = null; await put("notes", n); audioUploading.delete(noteId); return audioUpload(noteId, onStep);
-      } else throw new Error("올리기 상태 확인 실패 " + q.status);
+      } else {
+        if(n.audioUp && n.audioUp.restarted) throw new Error("올리기 세션이 자꾸 죽습니다 · 다음 맞춤 때 다시");
+        if(onStep) onStep("올리기 세션이 끊겨 처음부터 다시 올립니다");
+        n.audioUp = { restarted: true }; await put("notes", n); audioUploading.delete(noteId); return audioUpload(noteId, onStep);
+      }
     }
     /* 덩이마다 PUT. 이미 보낸 바이트는 건너뛴다. */
     for(let g = 0; g < plan.groups.length; g++){
