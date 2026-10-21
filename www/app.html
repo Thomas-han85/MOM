@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.21-2";
+const APP_VERSION = "2026.10.21-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7088,6 +7088,7 @@ async function syncDrive(manual){
     const files = await dList();
     const byName = {};
     files.forEach(f => byName[f.name] = f);
+    resumeAudioUploads();   // 덜 올린 회의 소리가 있으면 이어 올린다(기다리지 않는다)
 
     // 지운 것 목록을 합친다. 한쪽에서 지운 회의록이 다른 쪽에서 되살아나면 안 된다.
     let tombs = [];
@@ -7134,6 +7135,16 @@ async function syncDrive(manual){
       if(recording && activeNote && activeNote.id === id) continue;   // 녹음 중인 것은 건드리지 않는다
       await unpackNote(await dRead(f.id));
       got++;
+    }
+
+    // 랩탑이 가른 화자 결과(diar-회의ID.json)가 새것이면 받아 얹는다
+    for(const f of files){
+      const m = /^diar-(.+)\.json$/.exec(f.name);
+      if(!m) continue;
+      const n = localById[m[1]];
+      if(!n || tombSet.has(n.id)) continue;
+      try{ if(await applyRemoteDiar(n, f)){ got++; if(openId === n.id) renderDetail(); } }
+      catch(e){ console.warn("applyRemoteDiar", e); }
     }
 
     // 올리기: 이 기기가 더 새것이거나 드라이브에 없는 것
@@ -7610,10 +7621,188 @@ function bankLearn(note){
   return n;
 }
 
+
+/* =====================================================================
+   드라이브 중계 — 폰은 소리를 올리고, 랩탑이 가르고, 폰은 결과를 받는다 (2026-10-21 실장님 결정)
+
+   폰 안에서 가르는 길(Diar 플러그인)은 그대로 두되 기본 길은 이것이다. 랩탑이 실시간의 5~12배로 빠르고,
+   명부(성문 은행)·이름 붙이기·검증이 모두 랩탑 일이라 비교도 랩탑에서 하는 것이 맞다. 통로는 이미 글을 주고받는
+   구글 드라이브 폴더다 — 서버는 여전히 없다.
+
+   흐름
+     1. 화자 분리를 켠 회의가 끝나면 소리(16kHz PCM WAV)를 audio-<회의ID>.wav 로 **이어 올리기**(resumable) 한다.
+        10분 덩이씩 보내고 어디까지 보냈는지 note.audioUp 에 적어 둔다 — 앱이 뒤로 가거나 죽어도 다음에 이어서 보낸다.
+        (보관 WAV 가 10분에서 잘리던 사고의 교훈: 한 번에 끝내야 하는 일을 만들지 않는다.) 다 올리면 done:"1" 표를 붙인다.
+        와이파이에서만 올린다(1시간 115MB). CFG.audioUpNet="any" 면 어디서든.
+     2. 랩탑 감시기(MOM 화자시험/도구/drive_diar_watch.py)가 done 인 소리를 받아 가르고 명부와 맞춰 diar-<회의ID>.json 을 올린다.
+     3. 맞춤(syncDrive) 때 diar-<회의ID>.json 이 새것이면 받아 note.script 를 만든다 — 글은 이 기기의 전사 조각을 구간에 얹는다.
+        사람이 「이름 저장」 하면 그 이름은 note-<회의ID>.json 으로 드라이브에 올라가고, 랩탑이 읽어 명부에 배운다.
+   ===================================================================== */
+const DIAR_RELAY = () => CFG.diarRelay !== "0" && driveOn();
+function wifiOk(){
+  if(CFG.audioUpNet === "any") return true;
+  const c = navigator.connection;
+  if(!c || !c.type || c.type === "unknown") return true;      // 모르는 환경(랩탑 브라우저)은 막지 않는다
+  return c.type === "wifi" || c.type === "ethernet";
+}
+const audioBusy = n => !!(n && n.audioUp && !n.audioUp.done);
+let audioUploading = new Set();
+
+/* 소리 조각을 하나로 이어 보낼 때의 덩이 나누기. saveAudio·diarFeed 와 같은 규칙(10분, 머리는 첫 덩이에만). */
+async function audioPlan(withAudio){
+  const heads = []; let total = 0, cum = 0; const table = [];
+  for(const c of withAudio){
+    let off = 44;
+    try{ const b = wavDataAt(new Uint8Array(await c.blob.slice(0, 64).arrayBuffer())); if(b > 0) off = b; }catch(e){}
+    const len = Math.max(0, (c.blob.size || 0) - off);
+    table.push([Math.round(cum * 100) / 100, c.offsetMs || 0]);
+    heads.push({ c, off, len, at: 44 + total }); total += len; cum += len / 32000;
+  }
+  const groups = []; let cur = [], curSec = 0;
+  for(const h of heads){
+    const sec = h.len / 32000;
+    if(curSec + sec > AUDIO_PART_SEC && cur.length){ groups.push(cur); cur = []; curSec = 0; }
+    cur.push(h); curSec += sec;
+  }
+  if(cur.length) groups.push(cur);
+  return { heads, groups, total, table };
+}
+
+/* 회의 소리를 드라이브에 이어 올린다. 몇 번을 불러도 이어서 간다. */
+async function audioUpload(noteId, onStep){
+  if(audioUploading.has(noteId)) return;
+  audioUploading.add(noteId);
+  try{
+    let n = await get("notes", noteId); if(!n) return;
+    if(n.audioUp && n.audioUp.done) return;
+    if(!driveOn()) throw new Error("드라이브 연결이 없습니다");
+    if(!wifiOk()){ if(onStep) onStep("와이파이가 아니어서 소리 올리기를 미룹니다"); return; }
+    const cs = (await byIndex("chunks", "note", noteId)).sort(chunkOrder);
+    const withAudio = cs.filter(c => c.blob && c.src !== "live");
+    if(!withAudio.length) return;
+    const plan = await audioPlan(withAudio);
+    const total = 44 + plan.total;
+    if(!plan.total) return;
+    const t = await gToken();
+    let up = n.audioUp && n.audioUp.uri && n.audioUp.total === total ? n.audioUp : null;
+    if(!up){
+      const meta = { name: "audio-" + noteId + ".wav", parents: [await dFolder()],
+                     appProperties: { kind: "audio", note: noteId, u: String(Date.now()), secs: String(Math.round(plan.total / 32000)), done: "0" } };
+      const r = await fetchT(G.UP + "/files?uploadType=resumable", { method: "POST",
+        headers: { Authorization: "Bearer " + t, "Content-Type": "application/json; charset=UTF-8",
+                   "X-Upload-Content-Type": "audio/wav", "X-Upload-Content-Length": String(total) },
+        body: JSON.stringify(meta) });
+      if(!r.ok) throw new Error("올리기 자리를 못 잡았습니다 " + r.status);
+      const uri = r.headers.get("Location");
+      if(!uri) throw new Error("올리기 주소가 없습니다");
+      up = { uri, sent: 0, total, table: plan.table, at: Date.now() };
+      n.audioUp = up; await put("notes", n);
+    } else {
+      /* 어디까지 받았는지 서버에 묻는다 — 이 기기가 적어 둔 값보다 서버가 정확하다 */
+      const q = await fetchT(up.uri, { method: "PUT", headers: { "Content-Range": "bytes */" + total } }, 30000);
+      if(q.status === 200 || q.status === 201){ await audioUploadDone(noteId, up, await q.json(), withAudio); return; }
+      if(q.status === 308){
+        const rg = q.headers.get("Range"); up.sent = rg ? (+rg.split("-")[1] + 1) : 0;
+      } else if(q.status === 404 || q.status === 410){
+        n.audioUp = null; await put("notes", n); audioUploading.delete(noteId); return audioUpload(noteId, onStep);
+      } else throw new Error("올리기 상태 확인 실패 " + q.status);
+    }
+    /* 덩이마다 PUT. 이미 보낸 바이트는 건너뛴다. */
+    for(let g = 0; g < plan.groups.length; g++){
+      const grp = plan.groups[g];
+      const start = g === 0 ? 0 : grp[0].at;
+      const parts = []; let len = (g === 0 ? 44 : 0);
+      for(const h of grp) len += h.len;
+      const end = start + len;                       // [start, end)
+      if(end <= up.sent) continue;
+      if(!wifiOk()){ if(onStep) onStep("와이파이가 끊겨 소리 올리기를 멈춥니다 · 다음에 이어서"); return; }
+      if(onStep) onStep("소리를 드라이브로 올리는 중… " + Math.round(up.sent / total * 100) + "%");
+      const out = new Uint8Array(len); let o = 0;
+      if(g === 0){ out.set(wavHead(plan.total, 16000), 0); o = 44; }
+      for(const h of grp){
+        const b = new Uint8Array(await h.c.blob.arrayBuffer()); const body = wavBody(b);
+        out.set(body.subarray(0, h.len), o); o += h.len;
+      }
+      const skip = Math.max(0, up.sent - start);
+      const slice = out.subarray(skip);
+      const from = start + skip;
+      const r = await fetchT(up.uri, { method: "PUT",
+        headers: { "Content-Range": "bytes " + from + "-" + (end - 1) + "/" + total, "Content-Type": "audio/wav" },
+        body: slice }, 600000);
+      if(r.status === 308){ const rg = r.headers.get("Range"); up.sent = rg ? (+rg.split("-")[1] + 1) : end; }
+      else if(r.status === 200 || r.status === 201){ up.sent = total; await audioUploadDone(noteId, up, await r.json(), withAudio); return; }
+      else throw new Error("소리 올리기 실패 " + r.status);
+      n = await get("notes", noteId) || n; n.audioUp = up; await put("notes", n);
+      await new Promise(r2 => setTimeout(r2, 100));
+    }
+  } finally { audioUploading.delete(noteId); }
+}
+async function audioUploadDone(noteId, up, fileJson, withAudio){
+  const n = await get("notes", noteId); if(!n) return;
+  up.done = true; up.sent = up.total; up.fileId = fileJson && fileJson.id || ""; up.doneAt = Date.now();
+  n.audioUp = up; await put("notes", n);
+  /* 다 올렸다는 표. 감시기는 이 표가 있는 파일만 집어 든다 — 올리는 중인 반쪽 파일을 가르면 안 된다 */
+  try{
+    const t = await gToken();
+    if(up.fileId) await fetchT(G.API + "/files/" + up.fileId, { method: "PATCH",
+      headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
+      body: JSON.stringify({ appProperties: { kind: "audio", note: noteId, u: String(Date.now()), secs: String(Math.round((up.total - 44) / 32000)), done: "1" } }) });
+  }catch(e){}
+  /* 소리는 드라이브에 있으니 보관 회의가 아니면 이 기기에서는 놓는다 */
+  if(!noteKeeps(n) && !DIAR_LOCAL_OK){
+    for(const c of withAudio){ if(c.pass !== "wait"){ c.blob = null; await putRaw("chunks", c); } }
+  }
+  toast("회의 소리를 드라이브에 올렸습니다 · 랩탑이 화자를 가르면 기록에 붙습니다", 6000);
+  renderIfOpen(noteId);
+}
+/* 덜 올린 소리를 이어 올린다. 앱이 켜질 때와 맞춤 때 부른다. 기다리지 않는다. */
+async function resumeAudioUploads(){
+  if(!DIAR_RELAY() || !navigator.onLine) return;
+  for(const n of await all("notes")){
+    if(!audioBusy(n) || (recording && activeNote && activeNote.id === n.id)) continue;
+    audioUpload(n.id, m => toast(m, 3000)).catch(e => { console.warn("audioUpload", e); });
+    break;   // 한 번에 하나만 — 둘을 동시에 올리면 메모리와 회선이 두 배로 든다
+  }
+}
+
+/* 드라이브에서 온 화자 분리 결과를 이 회의에 얹는다. */
+async function applyRemoteDiar(n, f){
+  const remoteU = +((f.appProperties || {}).u || 0);
+  if((n.diarRemoteU || 0) >= remoteU) return false;
+  const d = await dRead(f.id);
+  if(!d || !Array.isArray(d.segments)) return false;
+  const cs = (await byIndex("chunks", "note", n.id)).sort(chunkOrder);
+  /* 이어 붙인 소리의 초 → 회의 ms. 올릴 때 적어 둔 표가 있으면 그것, 없으면(다른 기기가 올렸으면) 조각 길이로 다시 센다 */
+  let table = n.audioUp && n.audioUp.table;
+  if(!table || !table.length){
+    table = []; let cum = 0;
+    for(const c of cs.filter(c => c.src !== "live" && (c.durMs || c.blob))){
+      table.push([cum, c.offsetMs || 0]); cum += (c.durMs ? c.durMs / 1000 : chunkSec(c));
+    }
+  }
+  const toMs = t => diarToNoteMs(table.map(r => ({ cum: r[0], offsetMs: r[1] })), t);
+  const segs = d.segments.map(r => ({ startMs: toMs(r[0]), endMs: toMs(r[1]), spk: r[2], start: r[0], end: r[1], dur: r[1] - r[0] }));
+  const textChunks = cs.filter(c => c.text && !c.skip && c.offsetMs != null).sort((p, q) => p.offsetMs - q.offsetMs);
+  const turns = turnsFromText(textChunks, segs);
+  n.script = turns.length ? turns : segs.map(s => ({ spk: "speaker_" + s.spk, t: s.startMs, text: "(글 없음 " + Math.round(s.dur) + "초)" }));
+  n.scriptAt = Date.now();
+  n.scriptRemote = { at: d.at || remoteU, secs: d.secs, elapsedMs: d.elapsedMs, speakers: Object.keys(d.speakers || {}).length, model: d.model, thr: d.thr };
+  n.spkSecs = {}; n.spkNames = Object.assign({}, n.spkNames); n.spkGuess = (n.spkGuess || []).slice(); n.spkSim = n.spkSim || {};
+  for(const k in (d.speakers || {})){
+    const spk = "speaker_" + k, sp = d.speakers[k];
+    n.spkSecs[spk] = sp.secs || 0;
+    const userSet = n.spkNames[spk] && !n.spkGuess.includes(spk);
+    if(sp.name && !userSet){ n.spkNames[spk] = sp.name; if(!n.spkGuess.includes(spk)) n.spkGuess.push(spk); n.spkSim[spk] = sp.sim; }
+  }
+  n.diarRemoteU = remoteU; delete n.diarFail;
+  await put("notes", n);
+  return true;
+}
+
 /* 이 회의를 OpenAI 화자 분리 모델로 받아 적을 것인가. 폰 안 화자 분리(Diar)가 있으면 아니다 —
    글은 gpt-transcribe(용어집·이름이 닿는다)로 받고 화자는 폰 안에서 가른다. 옛 APK 에서만 이 길이 남는다. */
 function diarWanted(note){
-  if(DIAR_LOCAL_OK) return false;
+  if(DIAR_LOCAL_OK || DIAR_RELAY()) return false;
   return !!note && !!note.wantDiar && !!CFG.oai && !isPrayerNote(note);
 }
 
@@ -8985,7 +9174,7 @@ async function secondPassRun(noteId, onStep){
       const lives = cs.filter(c => c.src === "live" && c.offsetMs != null && c.offsetMs < b && c.offsetMs + (c.durMs || 0) > a);
       // 사람이 지운 말이 걸린 창은 다시 받아 적지 않는다 — 지운 말이 되돌아온다
       if(lives.some(c => c.skip === "cut") || grp.some(c => c.skip === "cut")){
-        for(const c of grp){ c.pass = "kept"; if(!(noteKeeps(note) || CFG.diar === "1" || (note.wantDiar && DIAR_LOCAL_OK))) c.blob = null; await put("chunks", c); }
+        for(const c of grp){ c.pass = "kept"; if(!(noteKeeps(note) || CFG.diar === "1" || (note.wantDiar && (DIAR_LOCAL_OK || DIAR_RELAY())) || audioBusy(note))) c.blob = null; await put("chunks", c); }
         continue;
       }
       /* 소켓이 죽어 파일이 맡았던 창은 실시간 구간이 없다 — 그때는 이미 적힌 파일 글이 잣대다.
@@ -9020,7 +9209,7 @@ async function secondPassRun(noteId, onStep){
       }catch(e){
         for(const c of grp){ c.pass = "fail"; }
       }
-      const keep = noteKeeps(note) || CFG.diar === "1" || (note.wantDiar && DIAR_LOCAL_OK);   // 폰 안 화자 분리가 2차 뒤에 이 소리를 쓴다
+      const keep = noteKeeps(note) || CFG.diar === "1" || (note.wantDiar && (DIAR_LOCAL_OK || DIAR_RELAY())) || audioBusy(note);   // 화자 분리(폰 안 또는 드라이브 올리기)가 이 소리를 쓴다
       // 실패한 창은 소리를 남긴다 — 회의록만 모드는 그 소리로 조각별 전사를 다시 한다
       for(const c of grp){ if(!keep && c.pass !== "fail") c.blob = null; c.doneAt = Date.now(); await put("chunks", c); }
       renderIfOpen(noteId);
@@ -9060,7 +9249,7 @@ async function runSecondPassGo(noteId){
   /* 화자 분리를 켠 회의는 글이 앉은 다음 폰 안에서 누가 말했는지 가른다. 글이 먼저여야 구간에 얹을 글이 있다. */
   try{
     const nn = await get("notes", noteId);
-    if(nn && nn.wantDiar && DIAR_LOCAL_OK && !nn.script){
+    if(nn && nn.wantDiar && DIAR_LOCAL_OK && !DIAR_RELAY() && !nn.script){
       holdAwake("diar", true, true);
       try{
         await runDiarizeLocal(nn, m => toast(m, 4000));
@@ -9777,6 +9966,9 @@ async function finishRecording(){
   /* 녹음 보관을 골랐으면 다운로드 폴더에 한 벌 내려 둔다. 앱 저장소가 비워져도 소리가 남게.
      마지막 조각이 녹음기에서 건너오고 정리 전사가 소리를 집어 들 틈을 준다. */
   if(done && noteKeeps(done)) setTimeout(() => { archiveAudio(done.id); }, 8000);
+  /* 화자 분리를 켠 회의는 소리를 드라이브로 올린다 — 랩탑이 가른다(중계). 마지막 조각이 건너올 틈을 준다. */
+  if(done && done.wantDiar && DIAR_RELAY())
+    setTimeout(() => { audioUpload(done.id, m => toast(m, 3000)).catch(e => toast("소리 올리기 실패: " + (e.message || e) + " · 다음 맞춤 때 이어서 올립니다", 6000)); }, 12000);
 
   /* 회의가 끝났으니 화자를 가른다. 이것이 회의록의 바탕이 되는 진짜 기록이다.
      회의 중의 조각 전사는 자막을 띄우기 위한 것이고, 여기서 만드는 것이 본문이다. */
@@ -10573,8 +10765,13 @@ async function renderDetail(){
   const refNote = (!liveNow && n.wantDiar && Array.isArray(n.diarRefs)) ?
     '<p class="hint" style="margin:0 0 6px">목소리 본보기 '+(n.diarRefs.length ? n.diarRefs.map(esc).join(' · ') : '없음')+
     (n.diarLeft && n.diarLeft.length ? ' · 요청마다 넷까지라 못 실림: '+n.diarLeft.map(esc).join(' · ') : '')+'</p>' : "";
+  const relayNote = (!liveNow && n.wantDiar && !n.script && (n.audioUp || DIAR_RELAY())) ?
+    '<p class="hint" style="margin:0 0 6px">'+
+      (n.audioUp && n.audioUp.done ? '소리를 드라이브에 올렸습니다 · 랩탑이 화자를 가르면 여기 붙습니다'
+       : n.audioUp ? '소리를 드라이브로 올리는 중 · '+Math.round((n.audioUp.sent||0)/Math.max(1,n.audioUp.total)*100)+'% · 와이파이에서 이어 올립니다'
+       : '녹음이 끝나면 소리를 드라이브로 올려 랩탑이 화자를 가릅니다')+'</p>' : "";
   const diarBar = liveNow ? "" :
-    '<div style="padding:12px 18px 0">'+ refNote +
+    '<div style="padding:12px 18px 0">'+ refNote + relayNote +
 
       (n.script ?
         '<div class="chiprow oneline"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">실시간 자막</button>'+
@@ -10592,8 +10789,8 @@ async function renderDetail(){
         '<button class="bigbtn ghost" id="do-pass2" style="width:100%;margin:8px 0 0">보관한 소리로 정리 전사 (2차)</button>' : "")+
       spkPick+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
-        (n.script ? (n.scriptLocal ? "폰 안에서 " : "") + "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸습니다. 이름을 붙이면 문서에도 그 이름으로 나옵니다."+
-           (n.scriptLocal ? " 이름을 저장하면 그 목소리를 기억해 다음 회의에서 알아봅니다." : "")+
+        (n.script ? (n.scriptLocal ? "폰 안에서 " : n.scriptRemote ? "랩탑에서 " : "") + "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸습니다. 이름을 붙이면 문서에도 그 이름으로 나옵니다."+
+           ((n.scriptLocal || n.scriptRemote) ? " 이름을 저장하면 그 목소리를 기억해 다음 회의에서 알아봅니다." : "")+
            ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤습니다. 맞는지 확인해 주세요." : "")+
            (hasAudio ? " 사람 수가 실제와 다르면 아래에서 정하고 다시 분리해 주세요." : "")
          : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가릅니다. 시간당 약 $0.22. 사람 수는 알아서 셉니다."
@@ -13242,7 +13439,7 @@ function paintUpdBar(){
   // 여기까지 왔으면 정상 기동이다. 부트로더의 감시 플래그를 푼다.
   if(window.__mnBootOK) window.__mnBootOK();
   wireUpdateUI();
-  syncDrive(false);   // 켤 때 한 번 맞춘다
+  syncDrive(false);   // 켤 때 한 번 맞춘다 (덜 올린 회의 소리도 그 안에서 이어 올린다)
   checkCosts(false);  // 오래됐으면 쓴 돈도 조용히 확인한다
 })();
 </script>
