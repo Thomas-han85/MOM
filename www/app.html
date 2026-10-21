@@ -957,7 +957,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
     <div class="field"><label for="r-diar">화자 분리 · 누가 말했는지 가릅니다</label>
       <select id="r-diar">
         <option value="0">끄기 · 글이 더 정확합니다</option>
-        <option value="1">켜기 · 시간당 약 $0.36 · 용어집이 전사에 안 들어갑니다</option>
+        <option value="1" id="r-diar-on">켜기 · 시간당 약 $0.36 · 용어집이 전사에 안 들어갑니다</option>
       </select></div>
     <div class="field"><label for="r-keepaudio">녹음 보관</label>
       <select id="r-keepaudio">
@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.21-1";
+const APP_VERSION = "2026.10.21-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7287,6 +7287,7 @@ function diarWhyNot(n, hasAudio){
   if(!asked) return "";
   /* 10/12 부터 화자 분리는 정리 전사 안에서 OpenAI 로 한다. ElevenLabs 열쇠가 없다는 말은
      OpenAI 열쇠가 있으면 틀린 안내다 — 그 판에서 이 줄을 못 고쳐 회의마다 붙어 있었다. */
+  if(DIAR_LOCAL_OK) return hasAudio ? "" : "화자 분리를 켜고 녹음했지만 소리가 없습니다 · 전사가 끝나고 지워졌습니다";
   if(CFG.oai && !CFG.eleven) return "";
   if(!CFG.eleven && !CFG.oai) return "화자 분리를 켜고 녹음했지만 OpenAI 열쇠가 없어 못 갈랐습니다 · 설정 → API 열쇠";
   if(!hasAudio) return "화자 분리를 켜고 녹음했지만 보관한 소리가 없습니다 · 전사가 끝나고 지워졌습니다";
@@ -7321,8 +7322,298 @@ function voiceRefsLeft(note){
     .map(i => (CFG.people || [])[i]).filter(p => p && p.name && p.voice && !sent.has(p.name)).map(p => p.name);
 }
 
-/* 이 회의를 화자까지 갈라 받아 적을 것인가. 소리가 있고, 켜고 녹음했고, 열쇠가 있을 때. */
+
+/* =====================================================================
+   폰 안에서 화자 분리 — Diar 플러그인(sherpa-onnx) + 성문 은행
+
+   2026-10-21 실장님 결정. OpenAI 화자 분리 모델은 본보기를 요청마다 넷만 받고 2027-02-26 에 닫힌다.
+   목표는 연말까지 직원 20~30명의 목소리를 담아 두고 회의마다 누가 말했는지 가르는 것이라,
+   비교(성문)가 우리 손에 있어야 한다. 네이티브가 소리를 「누가 언제 말했나」 구간과 구간별 성문(256개 숫자)으로
+   돌려주고, 여기서 ① 성문으로 묶어 사람 수를 세고 ② 명부(CFG.people[].vp)의 성문과 맞춰 이름을 붙이고
+   ③ 전사 글을 그 구간에 얹어 note.script 를 만든다. 그 뒤는 예전 ElevenLabs 길과 같은 자료 꼴이라
+   「화자별 기록」 화면·이름 붙이기·회의록이 그대로 돈다.
+
+   돈은 안 든다. 엔진 sherpa-onnx(Apache 2.0), 분할 pyannote segmentation-3.0(MIT), 성문 3D-Speaker
+   eres2net_base(Apache 2.0). 9/3 자금회의 51분, 실장님이 귀로 확인한 다섯 사람 291구간에서 96% 를 맞췄다.
+   그때 고른 값이 아래 둘이다. 바꾸려면 `MOM 화자시험\_인수인계.md` 의 잣대로 다시 재고 바꿀 것.
+   ===================================================================== */
+const NativeDiar = (function(){
+  const C = window.Capacitor;
+  if(!C) return null;
+  if(C.Plugins && C.Plugins.Diar) return C.Plugins.Diar;
+  if(C.isNativePlatform && C.isNativePlatform() && typeof C.registerPlugin === "function"){
+    try{ return C.registerPlugin("Diar"); }catch(e){ return null; }
+  }
+  return null;
+})();
+const DIAR_THR  = 0.65;   // 묶기 — 코사인 거리. 0.5 는 한 사람이 둘로, 0.7 은 두 사람이 하나로 갈렸다
+const DIAR_MIN  = 2.0;    // 성문을 뽑는 최소 길이(초). 더 짧으면 성문이 흔들려 묶음을 흐린다
+const VP_MATCH  = 0.55;   // 명부 성문과 이 유사도 넘게 맞으면 그 사람. 9/3 에서 다른 사람끼리는 최고 0.63 이었다 —
+                          // 여유가 얇으니 본보기는 길게(여러 회의 평균) 쌓인다(bankLearn)
+const DIAR_LOCAL_OK = !!NativeDiar;
+/* 폰 안에서 가르면 값도 안 들고 용어집도 그대로 들어간다 — 시작 화면 설명을 그에 맞춘다 */
+try{ if(DIAR_LOCAL_OK){ const o = document.getElementById("r-diar-on"); if(o) o.textContent = "켜기 · 폰 안에서 가릅니다 · 무료 · 녹음 끝나고 몇 분 걸립니다"; } }catch(e){}
+
+/* 성문 모델(40MB)이 폰에 없으면 받아 온다. 한 번만. */
+async function diarPrepare(onStep){
+  const st = await NativeDiar.status();
+  if(st && st.emb) return;
+  if(onStep) onStep("성문 모델을 내려받는 중… 40MB · 한 번만");
+  let h = null;
+  try{
+    h = await NativeDiar.addListener("dl", ev => {
+      if(onStep && ev && ev.total) onStep("성문 모델을 내려받는 중… " + Math.round(ev.got / ev.total * 100) + "%");
+    });
+    await NativeDiar.prepare();
+  } finally { try{ if(h) h.remove(); }catch(e){} }
+}
+
+/* 소리 조각을 네이티브에 넘긴다. Saver 와 같은 꼴 — 한 번에 10분(약 19MB)씩만 쥔다.
+   WAV 머리는 떼고 PCM 만 이어 보낸다(네이티브가 머리 없는 PCM 도 읽는다).
+   돌려주는 표는 「이어 붙인 소리의 몇 초가 회의의 몇 ms 인가」 — 구간 시각을 회의 시각으로 되돌릴 때 쓴다. */
+async function diarFeed(withAudio, onStep){
+  const table = [];
+  let cum = 0;
+  const groups = []; let cur = [], curSec = 0;
+  for(const c of withAudio){
+    const sec = chunkSec(c);
+    table.push({ cum, offsetMs: c.offsetMs || 0, sec });
+    cum += sec;
+    if(curSec + sec > AUDIO_PART_SEC && cur.length){ groups.push(cur); cur = []; curSec = 0; }
+    cur.push(c); curSec += sec;
+  }
+  if(cur.length) groups.push(cur);
+  await NativeDiar.begin();
+  for(let g = 0; g < groups.length; g++){
+    if(onStep) onStep("소리를 넘기는 중… " + (g + 1) + "/" + groups.length);
+    const bodies = []; let part = 0;
+    for(const c of groups[g]){
+      const b = new Uint8Array(await c.blob.arrayBuffer());
+      const body = wavBody(b);
+      if(body && body.length){ bodies.push(body); part += body.length; }
+    }
+    if(!part) continue;
+    const out = new Uint8Array(part); let o = 0;
+    for(const b of bodies){ out.set(b, o); o += b.length; }
+    bodies.length = 0;
+    let bin = "";
+    for(let i = 0; i < out.length; i += 8192) bin += String.fromCharCode.apply(null, out.subarray(i, i + 8192));
+    await NativeDiar.feed({ data: btoa(bin) });
+    bin = "";
+    await new Promise(r => setTimeout(r, 120));
+  }
+  await NativeDiar.end();
+  return table;
+}
+/* 이어 붙인 소리의 t초 → 회의 ms. 표에서 그 조각을 찾아 그 조각의 offsetMs 에 더한다. */
+function diarToNoteMs(table, t){
+  let lo = 0, hi = table.length - 1;
+  while(lo < hi){ const mid = (lo + hi + 1) >> 1; if(table[mid].cum <= t) lo = mid; else hi = mid - 1; }
+  const row = table[lo] || { cum: 0, offsetMs: 0 };
+  return Math.round(row.offsetMs + (t - row.cum) * 1000);
+}
+
+/* 평균 연결 응집 묶기(코사인 거리). n 이 수백이라 거리표를 통째로 들어도 된다.
+   가장 가까운 두 묶음을 합치되 거리가 thr 를 넘으면 멈춘다. 행마다 최솟값을 적어 두어 n² 로 끝낸다. */
+function clusterCos(vecs, thr){
+  const n = vecs.length;
+  if(!n) return [];
+  const D = new Float32Array(n * n);
+  for(let i = 0; i < n; i++) for(let j = i + 1; j < n; j++){
+    let s = 0; const a = vecs[i], b = vecs[j];
+    for(let k = 0; k < a.length; k++) s += a[k] * b[k];
+    D[i * n + j] = D[j * n + i] = 1 - s;
+  }
+  const alive = new Array(n).fill(true), size = new Array(n).fill(1), label = Array.from({length: n}, (_, i) => i);
+  const rowMin = new Float32Array(n), rowArg = new Int32Array(n);
+  const recalc = i => { let m = Infinity, arg = -1; for(let j = 0; j < n; j++) if(j !== i && alive[j] && D[i*n+j] < m){ m = D[i*n+j]; arg = j; } rowMin[i] = m; rowArg[i] = arg; };
+  for(let i = 0; i < n; i++) recalc(i);
+  for(;;){
+    let best = Infinity, bi = -1;
+    for(let i = 0; i < n; i++) if(alive[i] && rowMin[i] < best){ best = rowMin[i]; bi = i; }
+    if(bi < 0 || best > thr) break;
+    const bj = rowArg[bi], a = Math.min(bi, bj), b = Math.max(bi, bj);
+    // b 를 a 에 합친다(Lance-Williams, 평균 연결)
+    for(let k = 0; k < n; k++){
+      if(!alive[k] || k === a || k === b) continue;
+      const d = (size[a] * D[a*n+k] + size[b] * D[b*n+k]) / (size[a] + size[b]);
+      D[a*n+k] = D[k*n+a] = d;
+    }
+    size[a] += size[b]; alive[b] = false;
+    for(let k = 0; k < n; k++) if(label[k] === b) label[k] = a;
+    for(let k = 0; k < n; k++) if(alive[k] && (k === a || rowArg[k] === a || rowArg[k] === b)) recalc(k);
+  }
+  // 묶음 번호를 0..m-1 로 다시 매긴다
+  const ids = new Map(); return label.map(l => { if(!ids.has(l)) ids.set(l, ids.size); return ids.get(l); });
+}
+function cosSim(a, b){ let s = 0; for(let k = 0; k < a.length; k++) s += a[k] * b[k]; return s; }
+function vecMean(rows, w){
+  const out = new Array(rows[0].length).fill(0); let W = 0;
+  rows.forEach((v, i) => { const wi = w ? w[i] : 1; W += wi; for(let k = 0; k < v.length; k++) out[k] += v[k] * wi; });
+  let nrm = 0; for(let k = 0; k < out.length; k++){ out[k] /= (W || 1); nrm += out[k] * out[k]; }
+  nrm = Math.sqrt(nrm) || 1; return out.map(x => Math.round(x / nrm * 10000) / 10000);
+}
+
+/* 글을 문장으로 가른다 — 구간에 얹을 때 쓴다. 한국어·영어·베트남어 마침 부호와 줄바꿈. */
+function splitSentences(t){
+  return String(t || "").split(/(?<=[.?!。…])\s+|\n+/).map(s => s.trim()).filter(Boolean);
+}
+
+/* 전사 글(조각)을 화자 구간에 얹어 말차례(turns)를 만든다.
+   조각 하나(실시간 3~12초, 정리 전사 65초)에 한 사람이 8할 넘게 말했으면 통째로 그 사람.
+   섞였으면 문장을 시간 비율로 차례대로 나눠 준다 — 낱말 시각이 없으니 어림이다. 정리 전사 창을
+   화자 구간에서 자르는 것(2단계)이 들어오면 이 어림은 필요 없어진다. */
+function turnsFromText(textChunks, segs){
+  const turns = [];
+  for(const c of textChunks){
+    const a = c.offsetMs, b = c.offsetMs + (c.durMs || chunkSec(c) * 1000);
+    const hit = [];
+    for(const s of segs){
+      const o = Math.min(b, s.endMs) - Math.max(a, s.startMs);
+      if(o > 0 && s.spk != null) hit.push({ spk: s.spk, o, at: Math.max(a, s.startMs) });
+    }
+    if(!hit.length){ turns.push({ spk: null, t: a, text: c.text }); continue; }
+    const tot = hit.reduce((x, h) => x + h.o, 0);
+    const bySpk = {}; for(const h of hit) bySpk[h.spk] = (bySpk[h.spk] || 0) + h.o;
+    const top = Object.keys(bySpk).sort((p, q) => bySpk[q] - bySpk[p])[0];
+    const sents = splitSentences(c.text);
+    if(bySpk[top] >= tot * 0.8 || sents.length < 2){ turns.push({ spk: top, t: a, text: c.text }); continue; }
+    // 문장을 시간 순서대로 구간에 배분
+    hit.sort((p, q) => p.at - q.at);
+    let given = 0, acc = 0;
+    for(let i = 0; i < hit.length; i++){
+      acc += hit[i].o;
+      const upto = i === hit.length - 1 ? sents.length : Math.round(acc / tot * sents.length);
+      const take = sents.slice(given, upto); given = upto;
+      if(take.length) turns.push({ spk: hit[i].spk, t: hit[i].at, text: take.join(" ") });
+    }
+  }
+  // 화자 구간이 안 덮은 글(짧은 틈·조용한 자리)은 앞사람 말에 이어 붙인다 — 「화자 x」를 만들지 않는다
+  let lastSpk = null;
+  for(const t of turns){ if(t.spk == null) t.spk = lastSpk; else lastSpk = t.spk; }
+  for(let i = turns.length - 1, nx = null; i >= 0; i--){ if(turns[i].spk == null) turns[i].spk = nx; else nx = turns[i].spk; }
+  // 같은 사람이 이어 말한 것은 한 차례로
+  const out = [];
+  for(const t of turns){
+    const last = out[out.length - 1];
+    if(last && last.spk === t.spk) last.text += " " + t.text; else out.push({ spk: t.spk, t: t.t, text: t.text });
+  }
+  return out.map(t => ({ spk: t.spk == null ? "speaker_x" : "speaker_" + t.spk, t: t.t, text: t.text.trim() })).filter(t => t.text);
+}
+
+async function runDiarizeLocal(note, onStep){
+  if(!NativeDiar) throw new Error("이 APK 에는 화자 분리 엔진이 없습니다. 새 APK 를 깔아 주세요.");
+  const cs = (await byIndex("chunks", "note", note.id)).sort(chunkOrder);
+  const withAudio = cs.filter(c => c.blob && c.src !== "live");
+  if(!withAudio.length) throw new Error("이 회의에는 보관한 소리가 없습니다. 시작할 때 「화자 분리」나 「녹음 보관」을 켜면 남습니다.");
+  await diarPrepare(onStep);
+  const table = await diarFeed(withAudio, onStep);
+  if(onStep) onStep("누가 언제 말했는지 가르는 중… 소리 길이의 1/3~1/2 시간이 걸립니다");
+  let h = null, res;
+  try{
+    h = await NativeDiar.addListener("progress", ev => {
+      if(!onStep || !ev) return;
+      const piece = (ev.pieces > 1) ? " · " + (ev.piece + 1) + "/" + ev.pieces + "조각" : "";
+      onStep((ev.stage === "seg" ? "가르는 중" : "성문 뽑는 중") + piece + " · " + Math.round(ev.done / Math.max(1, ev.total) * 100) + "%");
+    });
+    res = await NativeDiar.run({ minSec: DIAR_MIN, threads: 4 });
+  } finally { try{ if(h) h.remove(); }catch(e){} }
+  const rows = res.segments || [], embPairs = res.emb || [];
+  if(!rows.length) throw new Error("말소리를 찾지 못했습니다.");
+  const embOf = new Map(embPairs.map(p => [p[0], p[1]]));
+  const segs = rows.map((r, i) => ({ i, start: r[0], end: r[1], dur: r[1] - r[0], local: r[2],
+                                     startMs: diarToNoteMs(table, r[0]), endMs: diarToNoteMs(table, r[1]), spk: null }));
+
+  /* ① 성문 있는 구간을 묶는다 */
+  const withE = segs.filter(s => embOf.has(s.i));
+  const labels = clusterCos(withE.map(s => embOf.get(s.i)), DIAR_THR);
+  withE.forEach((s, k) => { s.cl = labels[k]; });
+  /* 자투리 묶음(30초 미만 또는 구간 3개 미만)은 가장 가까운 큰 묶음에 붙이거나(유사도 0.3 넘으면) 버린다 —
+     「화자 9」 같은 유령을 이름 칸에 늘어놓지 않기 위해서다. 9/3 시험에서 16초짜리 유령이 하나 남아 30초로 올렸다 */
+  const groups = {}; for(const s of withE){ (groups[s.cl] = groups[s.cl] || []).push(s); }
+  const cent = {}; for(const k in groups) cent[k] = vecMean(groups[k].map(s => embOf.get(s.i)), groups[k].map(s => s.dur));
+  const secs = {}; for(const k in groups) secs[k] = groups[k].reduce((x, s) => x + s.dur, 0);
+  const big = Object.keys(groups).filter(k => secs[k] >= 30 && groups[k].length >= 3);
+  for(const k of Object.keys(groups)){
+    if(big.includes(k)) continue;
+    let bk = null, bs = 0.3;
+    for(const j of big){ const sim = cosSim(cent[k], cent[j]); if(sim > bs){ bs = sim; bk = j; } }
+    for(const s of groups[k]) s.cl = bk == null ? null : +bk;
+  }
+  /* 큰 묶음을 말한 시간 순서로 speaker_0, 1, … */
+  const order = big.sort((p, q) => secs[q] - secs[p]);
+  const rank = {}; order.forEach((k, r) => { rank[k] = r; });
+  for(const s of withE) s.spk = s.cl == null ? null : rank[s.cl];
+  /* ② 성문 없는 짧은 구간은 시간상 가장 가까운 성문 구간을 따른다(5초 안) */
+  for(const s of segs){
+    if(s.spk != null || embOf.has(s.i)) continue;
+    let bd = 5, bs = null;
+    for(const e of withE){ if(e.spk == null) continue; const d = Math.max(0, Math.max(e.start - s.end, s.start - e.end)); if(d < bd){ bd = d; bs = e; } }
+    if(bs) s.spk = bs.spk;
+  }
+  const spkVec = {}, spkSecs = {};
+  for(const k of order){ spkVec["speaker_" + rank[k]] = cent[k]; spkSecs["speaker_" + rank[k]] = Math.round(secs[k]); }
+
+  /* ③ 명부의 성문과 맞춘다 — 한 사람은 한 묶음에만(점수 높은 짝부터) */
+  const bank = (CFG.people || []).map((p, i) => ({ i, p })).filter(x => x.p && x.p.name && Array.isArray(x.p.vp) && x.p.vp.length);
+  const guessed = {}, cands = [];
+  for(const spk in spkVec) for(const b of bank) cands.push({ spk, name: b.p.name, sim: cosSim(spkVec[spk], b.p.vp) });
+  cands.sort((p, q) => q.sim - p.sim);
+  const usedSpk = new Set(), usedName = new Set();
+  for(const c of cands){
+    if(c.sim < VP_MATCH) break;
+    if(usedSpk.has(c.spk) || usedName.has(c.name)) continue;
+    guessed[c.spk] = { name: c.name, sim: Math.round(c.sim * 100) / 100 }; usedSpk.add(c.spk); usedName.add(c.name);
+  }
+
+  /* ④ 글을 얹는다 */
+  const textChunks = cs.filter(c => c.text && !c.skip && c.offsetMs != null).sort((p, q) => p.offsetMs - q.offsetMs);
+  const turns = turnsFromText(textChunks, segs.filter(s => s.spk != null));
+
+  note.script = turns.length ? turns : segs.filter(s => s.spk != null).map(s => ({ spk: "speaker_" + s.spk, t: s.startMs, text: "(글 없음 " + Math.round(s.dur) + "초)" }));
+  note.scriptAt = Date.now();
+  note.scriptLocal = { secs: res.seconds, elapsedMs: res.elapsedMs, speakers: order.length, segs: rows.length, thr: DIAR_THR, model: "eres2net_base" };
+  note.spkVec = spkVec; note.spkSecs = spkSecs;
+  note.spkNames = Object.assign({}, note.spkNames);
+  note.spkGuess = [];
+  for(const spk in guessed){ if(!note.spkNames[spk]){ note.spkNames[spk] = guessed[spk].name; note.spkGuess.push(spk); } }
+  note.spkSim = {}; for(const spk in guessed) note.spkSim[spk] = guessed[spk].sim;
+  delete note.diarFail;
+  await put("notes", note);
+  /* 다 썼으면 소리를 놓는다 — 보관 회의는 그대로 */
+  if(!noteKeeps(note)){
+    for(const c of withAudio){ c.blob = null; await putRaw("chunks", c); }
+  }
+  return note.script;
+}
+
+/* 이름을 붙이면(또는 추정을 그대로 두면) 그 묶음의 성문이 명부에 쌓인다. 회의가 거듭될수록 사람마다
+   성문이 길어지고(초 단위 가중 평균) 다음 회의에서 더 잘 알아본다. 기도회는 이름을 말하고 기도하므로
+   여기에 가장 좋은 재료다 — 자동 짝짓기는 다음 단계. */
+function bankLearn(note){
+  if(!note.spkVec) return 0;
+  let n = 0;
+  for(const spk in (note.spkNames || {})){
+    const name = (note.spkNames[spk] || "").trim(), vec = note.spkVec[spk], secs = (note.spkSecs || {})[spk] || 0;
+    if(!name || !vec || secs < 5) continue;
+    let p = (CFG.people || []).find(x => x && (x.name || "").trim() === name);
+    if(!p){ p = { name, role: "", lang: "", style: "", words: "" }; CFG.people.push(p); }
+    if(p.vpFrom && p.vpFrom.includes(note.id)) continue;     // 같은 회의로 두 번 배우지 않는다
+    if(Array.isArray(p.vp) && p.vp.length === vec.length && p.vpSecs){
+      p.vp = vecMean([p.vp, vec], [p.vpSecs, secs]); p.vpSecs += secs;
+    } else { p.vp = vec.slice(); p.vpSecs = secs; }
+    p.vpN = (p.vpN || 0) + 1;
+    p.vpFrom = [...(p.vpFrom || []), note.id].slice(-30);
+    n++;
+  }
+  if(n) saveCfg();
+  return n;
+}
+
+/* 이 회의를 OpenAI 화자 분리 모델로 받아 적을 것인가. 폰 안 화자 분리(Diar)가 있으면 아니다 —
+   글은 gpt-transcribe(용어집·이름이 닿는다)로 받고 화자는 폰 안에서 가른다. 옛 APK 에서만 이 길이 남는다. */
 function diarWanted(note){
+  if(DIAR_LOCAL_OK) return false;
   return !!note && !!note.wantDiar && !!CFG.oai && !isPrayerNote(note);
 }
 
@@ -8694,7 +8985,7 @@ async function secondPassRun(noteId, onStep){
       const lives = cs.filter(c => c.src === "live" && c.offsetMs != null && c.offsetMs < b && c.offsetMs + (c.durMs || 0) > a);
       // 사람이 지운 말이 걸린 창은 다시 받아 적지 않는다 — 지운 말이 되돌아온다
       if(lives.some(c => c.skip === "cut") || grp.some(c => c.skip === "cut")){
-        for(const c of grp){ c.pass = "kept"; if(!(noteKeeps(note) || CFG.diar === "1")) c.blob = null; await put("chunks", c); }
+        for(const c of grp){ c.pass = "kept"; if(!(noteKeeps(note) || CFG.diar === "1" || (note.wantDiar && DIAR_LOCAL_OK))) c.blob = null; await put("chunks", c); }
         continue;
       }
       /* 소켓이 죽어 파일이 맡았던 창은 실시간 구간이 없다 — 그때는 이미 적힌 파일 글이 잣대다.
@@ -8729,7 +9020,7 @@ async function secondPassRun(noteId, onStep){
       }catch(e){
         for(const c of grp){ c.pass = "fail"; }
       }
-      const keep = noteKeeps(note) || CFG.diar === "1";
+      const keep = noteKeeps(note) || CFG.diar === "1" || (note.wantDiar && DIAR_LOCAL_OK);   // 폰 안 화자 분리가 2차 뒤에 이 소리를 쓴다
       // 실패한 창은 소리를 남긴다 — 회의록만 모드는 그 소리로 조각별 전사를 다시 한다
       for(const c of grp){ if(!keep && c.pass !== "fail") c.blob = null; c.doneAt = Date.now(); await put("chunks", c); }
       renderIfOpen(noteId);
@@ -8766,6 +9057,22 @@ async function runSecondPassGo(noteId){
     if(n) toast("정리 전사를 마쳤습니다 · " + n + "창. 기록과 회의록은 이 글을 씁니다.", 6000);
   }catch(e){ toast("정리 전사 실패: " + (e.message || e), 6000); }
   finally{ holdAwake("pass2", false, true); }
+  /* 화자 분리를 켠 회의는 글이 앉은 다음 폰 안에서 누가 말했는지 가른다. 글이 먼저여야 구간에 얹을 글이 있다. */
+  try{
+    const nn = await get("notes", noteId);
+    if(nn && nn.wantDiar && DIAR_LOCAL_OK && !nn.script){
+      holdAwake("diar", true, true);
+      try{
+        await runDiarizeLocal(nn, m => toast(m, 4000));
+        const k = (nn.scriptLocal || {}).speakers || 0, named = Object.keys(nn.spkNames || {}).length;
+        toast("화자를 갈랐습니다 · " + k + "명" + (named ? " · 이름 " + named + "명 알아봄" : "") + " · 기록 탭 → 화자별 기록", 7000);
+        renderIfOpen(noteId); syncDrive(false);
+      } finally { holdAwake("diar", false, true); }
+    }
+  }catch(e){
+    toast("화자 분리 실패: " + (e.message || e), 7000);
+    try{ const nn = await get("notes", noteId); if(nn){ nn.diarFail = { at: Date.now(), msg: String(e.message || e).slice(0, 200) }; await put("notes", nn); } }catch(e2){}
+  }
 }
 
 /* 네이티브가 남겨 둔 구간 파일을 받아 저장하고 지운다.
@@ -9941,13 +10248,15 @@ function wireDiar(n, cs){
   const go = async (btn) => {
     btn.disabled = true;
     try{
-      await runDiarize(n, setNote);
+      if(DIAR_LOCAL_OK && cs.some(c => c.blob && c.src !== "live")) await runDiarizeLocal(n, setNote);
+      else await runDiarize(n, setNote);
       scriptView = true;
       toast("화자를 갈랐습니다.");
       renderDetail(); syncDrive(false);
     }catch(e){ setNote(e.message || "실패"); toast(e.message||"화자 분리 실패", 6000); btn.disabled = false; }
   };
   const d1 = $("do-diar");   if(d1) d1.onclick = ()=> go(d1);
+  const d0 = $("do-diar-local"); if(d0) d0.onclick = ()=> go(d0);
   const d2 = $("redo-diar"); if(d2) d2.onclick = ()=> go(d2);
   const p2 = $("do-pass2");
   if(p2) p2.onclick = async ()=>{
@@ -9976,9 +10285,11 @@ function wireDiar(n, cs){
       if(v) n.spkNames[s] = v; else delete n.spkNames[s];
       if(n.spkGuess) n.spkGuess = n.spkGuess.filter(x=>x!==s);   // 사람이 손댔으니 추정이 아니다
     });
-    learnVoices(n);   // 시리즈가 이 목소리를 기억한다
+    learnVoices(n);   // 시리즈가 이 목소리를 기억한다(말투)
+    const learned = bankLearn(n);   // 명부가 이 목소리를 기억한다(성문) — 폰 안 화자 분리일 때
     await put("notes", n); renderDetail(); syncDrive(false);
-    toast(n.seriesId ? "저장했습니다. 다음 회의부터 이 사람들을 알아봅니다." : "저장했다.", 4000);
+    toast(learned ? "저장했습니다. " + learned + "명의 목소리를 명부에 담았습니다 — 다음 회의부터 알아봅니다."
+        : n.seriesId ? "저장했습니다. 다음 회의부터 이 사람들을 알아봅니다." : "저장했다.", 5000);
   };
 }
 
@@ -10269,7 +10580,9 @@ async function renderDetail(){
         '<div class="chiprow oneline"><button class="chip'+(!scriptView?" on":"")+'" data-sv="0">실시간 자막</button>'+
         '<button class="chip'+(scriptView?" on":"")+'" data-sv="1">화자별 기록</button>'+
         '<button class="chip" id="redo-diar">다시 분리</button></div>'
-       : (hasAudio && CFG.eleven ?
+       : (hasAudio && DIAR_LOCAL_OK ?
+        '<button class="bigbtn ghost" id="do-diar-local" style="width:100%;margin:0">화자 분리 하기 · 폰 안에서 · 무료</button>'
+       : hasAudio && CFG.eleven ?
         '<button class="bigbtn ghost" id="do-diar" style="width:100%;margin:0">화자 분리 하기</button>'
        : (diarWhyNot(n, hasAudio) ?
         '<div class="strip warn" style="margin:0"><span class="dot"></span>'+esc(diarWhyNot(n, hasAudio))+'</div>' : "")))+
@@ -10279,7 +10592,8 @@ async function renderDetail(){
         '<button class="bigbtn ghost" id="do-pass2" style="width:100%;margin:8px 0 0">보관한 소리로 정리 전사 (2차)</button>' : "")+
       spkPick+
       '<p class="hint" id="diar-note" style="margin-top:8px">'+
-        (n.script ? "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸습니다. 이름을 붙이면 문서에도 그 이름으로 나옵니다."+
+        (n.script ? (n.scriptLocal ? "폰 안에서 " : "") + "화자 "+new Set(n.script.map(t=>t.spk)).size+"명으로 갈렸습니다. 이름을 붙이면 문서에도 그 이름으로 나옵니다."+
+           (n.scriptLocal ? " 이름을 저장하면 그 목소리를 기억해 다음 회의에서 알아봅니다." : "")+
            ((n.spkGuess||[]).length ? " 지난 회의 말투로 "+n.spkGuess.length+"명을 알아봤습니다. 맞는지 확인해 주세요." : "")+
            (hasAudio ? " 사람 수가 실제와 다르면 아래에서 정하고 다시 분리해 주세요." : "")
          : hasAudio ? (CFG.eleven ? "목소리로 누가 말했는지 가릅니다. 시간당 약 $0.22. 사람 수는 알아서 셉니다."
@@ -11663,6 +11977,9 @@ function renderPeople(){
         '<button class="chip'+(p.voice?" on":"")+'" data-voice="'+i+'">'+
           (p.voice ? "🎤 목소리 등록됨 · 다시 녹음" : "🎤 목소리 등록 (5초)")+'</button>'+
         (p.voice ? '<button class="chip" data-unvoice="'+i+'">지우기</button>' : "")+
+        (Array.isArray(p.vp) && p.vp.length
+          ? '<span class="chip on" title="회의에서 이름을 붙일 때마다 쌓입니다">🔊 성문 '+Math.round(p.vpSecs||0)+'초 · 회의 '+(p.vpN||0)+'번</span>'+
+            '<button class="chip" data-unvp="'+i+'">성문 지우기</button>' : "")+
       '</div>'+
     '</div>').join("");
 
@@ -11677,6 +11994,9 @@ function renderPeople(){
   });
   box.querySelectorAll("[data-unvoice]").forEach(b=>{
     b.onclick = () => { delete CFG.people[+b.dataset.unvoice].voice; saveCfg(); renderPeople(); };
+  });
+  box.querySelectorAll("[data-unvp]").forEach(b=>{
+    b.onclick = () => { const p = CFG.people[+b.dataset.unvp]; delete p.vp; delete p.vpSecs; delete p.vpN; delete p.vpFrom; saveCfg(); renderPeople(); };
   });
   box.querySelectorAll("[data-kill]").forEach(b=>{
     b.onclick = () => {

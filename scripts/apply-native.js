@@ -29,7 +29,7 @@ if (!fs.existsSync(APP)) fail("android/ 가 없다. 먼저 `npx cap add android`
    예전에는 이 이름들이 다섯 군데에 흩어져 있었다. 새 플러그인을 더할 때
    한 군데를 빠뜨리면, 빌드는 멀쩡히 되는데 앱에서만 그 기능이 없었다.
    무엇이 잘못됐는지 알아내기 아주 어려운 종류의 실수다. */
-const PLUGINS = ["RecorderPlugin", "TtsPlugin", "SaverPlugin", "SharePlugin", "DecoderPlugin"];
+const PLUGINS = ["RecorderPlugin", "TtsPlugin", "SaverPlugin", "SharePlugin", "DecoderPlugin", "DiarPlugin"];
 const SOURCES = ["RecorderService.java", ...PLUGINS.map(p => p + ".java")];
 
 /* ---------- 1. 자바 소스 복사 ---------- */
@@ -37,6 +37,38 @@ fs.mkdirSync(JAVA_DIR, { recursive: true });
 for (const f of SOURCES) {
   fs.copyFileSync(path.join(ROOT, "native", f), path.join(JAVA_DIR, f));
   ok("복사 " + f);
+}
+
+/* ---------- 1.5 화자 분리(sherpa-onnx) ----------
+   DiarPlugin 은 폰 안에서 「누가 언제 말했나」를 가르고 성문을 뽑는다(10/21 결정 — OpenAI 화자 분리 모델은
+   본보기 넷 한도·2027-02 종료, 우리 비교 모델이 있어야 20~30명이 된다). 엔진은 sherpa-onnx 의 안드로이드 AAR
+   (Apache 2.0). 미리 빌드된 AAR 을 릴리스에서 받아 app/libs 에 둔다 — 리포에 50MB 를 넣지 않는다.
+   분할 모델(pyannote segmentation-3.0, MIT, 6MB)은 native/assets 에 두어 APK 에 들어가고,
+   성문 모델(3D-Speaker eres2net_base, Apache 2.0, 40MB)은 앱이 처음 쓸 때 내려받는다(DiarPlugin.prepare). */
+const SHERPA_VER = "1.13.8";
+const SHERPA_AAR = `sherpa-onnx-${SHERPA_VER}.aar`;
+const SHERPA_URL = `https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VER}/${SHERPA_AAR}`;
+const LIBS = path.join(ROOT, "android", "app", "libs");
+const ASSETS = path.join(APP, "assets");
+
+fs.mkdirSync(ASSETS, { recursive: true });
+for (const f of fs.readdirSync(path.join(ROOT, "native", "assets"))) {
+  fs.copyFileSync(path.join(ROOT, "native", "assets", f), path.join(ASSETS, f));
+  ok("에셋 복사 " + f);
+}
+
+/* 내려받기는 동기로 한다 — 이 스크립트 전체가 순서대로 도는 글이라 중간에 비동기를 끼우면 뒤가 먼저 끝난다.
+   curl 이 있으면 curl(Actions 우분투·윈도우 둘 다 있다), 없으면 건너뛰고 알린다. */
+fs.mkdirSync(LIBS, { recursive: true });
+const aarPath = path.join(LIBS, SHERPA_AAR);
+const aarOk = () => fs.existsSync(aarPath) && fs.statSync(aarPath).size > 40 * 1024 * 1024;
+if (aarOk()) {
+  ok("sherpa-onnx AAR 이미 있음");
+} else {
+  const { spawnSync } = require("child_process");
+  const r = spawnSync("curl", ["-L", "--fail", "--retry", "3", "-o", aarPath, SHERPA_URL], { stdio: "inherit" });
+  if (r.status !== 0 || !aarOk()) fail("sherpa-onnx AAR 을 받지 못했다: " + SHERPA_URL);
+  ok("sherpa-onnx AAR 내려받음 " + (fs.statSync(aarPath).size / 1048576).toFixed(1) + "MB");
 }
 
 /* ---------- 2. MainActivity 에 플러그인 등록 ---------- */
@@ -179,6 +211,28 @@ if (fs.existsSync(GRADLE)) {
   }
 } else {
   console.log("! build.gradle 을 찾지 못했다: " + GRADLE);
+}
+
+/* ---------- 2.6 sherpa-onnx 의존성과 ABI ----------
+   AAR 은 네 가지 CPU 용 .so 를 다 품고 있어 50MB 다. 우리 폰은 전부 arm64 라 그것만 넣는다 —
+   안 그러면 APK 가 40MB 더 커진다. AAR 안의 코틀린 클래스는 kotlin-stdlib 가 있어야 돈다. */
+if (fs.existsSync(GRADLE)) {
+  let g = fs.readFileSync(GRADLE, "utf8");
+  let changed = false;
+  if (!g.includes(SHERPA_AAR)) {
+    g = g.replace(/dependencies\s*\{/, m => m +
+`
+    implementation files('libs/${SHERPA_AAR}')
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'`);
+    changed = true;
+  }
+  if (!g.includes("abiFilters")) {
+    g = g.replace(/defaultConfig\s*\{/, m => m + `
+        ndk { abiFilters 'arm64-v8a' }`);
+    changed = true;
+  }
+  if (changed) { fs.writeFileSync(GRADLE, g); ok("build.gradle 에 sherpa-onnx 의존성·arm64 만 넣음"); }
+  else ok("sherpa-onnx 의존성 이미 있음");
 }
 
 /* ---------- 3. 매니페스트 패치 ---------- */
