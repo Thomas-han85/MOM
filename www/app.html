@@ -995,7 +995,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.22-1";
+const APP_VERSION = "2026.10.22-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -8103,7 +8103,10 @@ function applyFixes(text){
   }
   let s = String(text || "");
   for(const f of fixesList) s = s.replace(f.re, f.good);
-  return s;
+  /* 뒤집힌 날짜(「20월 10일」)도 여기서 바로잡는다. 전에는 실시간 자막·통역에만 걸었더니 정리 전사(2차)가
+     글을 다시 앉히면서 되살아났고 회의록까지 갔다(10/22 실장님 「아직도 20월 10일로 읽네」). 고침 사전이
+     지나는 모든 길(실시간·2차·통역)이 이 함수를 타므로 여기 한 곳이면 된다. */
+  return fixDateOrder(s);
 }
 
 async function absorbText(c, note, raw, before, prompt){
