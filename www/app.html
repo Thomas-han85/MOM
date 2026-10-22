@@ -719,6 +719,14 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
         <p class="hint" style="margin-top:6px">실시간은 말이 멎는 자리마다 잘라 적어 빠르지만, 멀리 앉은 사람의 작은 말을
           놓치고 앞뒤가 없어 덜 맞습니다(9월 18일 실측: 낱말의 57%). 회의가 끝나면 같은 소리를 길게 다시 들어
           기록을 고칩니다. 자막·통역은 그대로고, 회의록은 이 글로 만듭니다. 대화 모드에는 하지 않습니다.</p></div>
+      <div class="field"><label for="s-audioup">화자 분리 · 회의 소리를 드라이브로 올리기</label>
+        <select id="s-audioup">
+          <option value="wifi">와이파이에서만 · 1시간 회의 약 115MB</option>
+          <option value="any">어디서든 · 모바일 데이터로도 올립니다</option>
+        </select>
+        <p class="hint" style="margin-top:6px">화자 분리를 켠 회의는 끝난 뒤 소리를 드라이브로 올리고, 랩탑이 받아 누가 말했는지 가른 뒤
+          결과만 돌려줍니다(API 요금 없음). 랩탑을 폰 핫스팟에 물려도 길은 같습니다 — 다만 폰은 데이터 회선이라
+          「와이파이에서만」이면 올리지 않고 기다립니다.</p></div>
       <div class="field"><label for="s-stt">전사 · 구간 파일과 불러온 음성</label>
         <select id="s-stt">
           <option value="gpt-transcribe">gpt-transcribe · $0.0045/분 · 기본 · 용어와 언어를 따로 받습니다</option>
@@ -995,7 +1003,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.22-2";
+const APP_VERSION = "2026.10.22-3";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -12982,6 +12990,7 @@ $("btn-settings").onclick = ()=>{
   $("s-oai").value=CFG.oai; $("s-stt").value=CFG.stt;
   $("s-live").value = CFG.live === "0" ? "0" : (CFG.liveFast === "1" ? "fast" : "1");
   $("s-pass2").value = CFG.pass2 === "0" ? "0" : "1";
+  $("s-audioup").value = CFG.audioUpNet === "any" ? "any" : "wifi";
   $("s-talklive").value = CFG.talkLive === "0" ? "0" : "1";
   $("s-earmine").value = CFG.earMine || "1"; $("s-earother").value = CFG.earOther || "1";
   $("s-myen").value = CFG.myEn === "0" ? "0" : "1";
@@ -13338,6 +13347,7 @@ $("s-save").onclick = ()=>{
   CFG.stt=$("s-stt").value; CFG.doc=$("s-doc").value;
   { const lv = $("s-live").value; CFG.live = lv === "0" ? "0" : "1"; CFG.liveFast = lv === "fast" ? "1" : "0"; }
   CFG.pass2 = $("s-pass2").value; CFG.talkLive = $("s-talklive").value;
+  CFG.audioUpNet = $("s-audioup").value;
   CFG.earMine=$("s-earmine").value; CFG.earOther=$("s-earother").value; CFG.myEn=$("s-myen").value; CFG.micRaw=$("s-micraw").value;
   CFG.trans=$("s-trans").value; CFG.vision=$("s-vision").value;
   CFG.chunk=$("s-chunk").value; CFG.gloss=$("s-gloss").value.trim(); CFG.fixes=$("s-fixes").value.trim();
