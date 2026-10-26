@@ -1003,7 +1003,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.23-1";
+const APP_VERSION = "2026.10.26-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1185,6 +1185,10 @@ if(!CFG.vision) CFG.vision = "gpt-4o-mini";
    이어지지 않고, 이 모델은 용어집·이름·언어 목록을 안 받아 글까지 나빠진다 — 값은 더 비싸다($0.36/시간,
    끄면 $0.27). 그동안 고른 값이 「켜기」로 저장돼 있으니 한 번만 끄기로 옮긴다(diarMig). 회의마다 켜는 것은 그대로. */
 if(CFG.diarMig !== "1" && cfgSafe()){ CFG.diar = "0"; CFG.diarMig = "1"; cfgMigrated = true; }
+/* 10/26 실장님: 「당분간은 소리 올라오면 항상 화자 구분 켜. 누적을 훨씬 많이 해야 쓸만할 것 같아.」
+   화자 분리가 랩탑(드라이브 중계)으로 옮겨 값이 안 들고 글도 안 나빠지므로 기본을 다시 켠다. 한 번만 옮긴다(diarMig2) —
+   그 뒤 사람이 끄면 그 값을 지킨다. */
+if(CFG.diarMig2 !== "1" && cfgSafe()){ CFG.diar = "1"; CFG.diarMig2 = "1"; cfgMigrated = true; }
 if(!Array.isArray(CFG.series)) CFG.series = [];
 /* 기도제목 한 줄이 이름으로 배워진 것을 걷어 낸다(9/28 "아내가 지치지 않도록"). 이름은 이렇게 맺지 않는다. */
 CFG.series.forEach(s => { if(Array.isArray(s.prayerNames))
@@ -7371,7 +7375,9 @@ const VP_MATCH  = 0.55;   // 명부 성문과 이 유사도 넘게 맞으면 그
                           // 여유가 얇으니 본보기는 길게(여러 회의 평균) 쌓인다(bankLearn)
 const DIAR_LOCAL_OK = !!NativeDiar;
 /* 폰 안에서 가르면 값도 안 들고 용어집도 그대로 들어간다 — 시작 화면 설명을 그에 맞춘다 */
-try{ if(DIAR_LOCAL_OK){ const o = document.getElementById("r-diar-on"); if(o) o.textContent = "켜기 · 폰 안에서 가릅니다 · 무료 · 녹음 끝나고 몇 분 걸립니다"; } }catch(e){}
+try{ const o = document.getElementById("r-diar-on");
+  if(o && CFG.diarRelay !== "0" && driveOn()) o.textContent = "켜기 · 랩탑이 가릅니다 · 무료 · 회의 끝나고 소리를 드라이브로 올림";
+  else if(o && DIAR_LOCAL_OK) o.textContent = "켜기 · 폰 안에서 가릅니다 · 무료 · 녹음 끝나고 몇 분 걸립니다"; }catch(e){}
 
 /* 성문 모델(40MB)이 폰에 없으면 받아 온다. 한 번만. */
 async function diarPrepare(onStep){
