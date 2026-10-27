@@ -1003,7 +1003,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.26-1";
+const APP_VERSION = "2026.10.27-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -7874,7 +7874,12 @@ async function applyRemoteDiar(n, f){
     const spk = "speaker_" + k, sp = d.speakers[k];
     n.spkSecs[spk] = sp.secs || 0;
     const userSet = n.spkNames[spk] && !n.spkGuess.includes(spk);
-    if(sp.name && !userSet){ n.spkNames[spk] = sp.name; if(!n.spkGuess.includes(spk)) n.spkGuess.push(spk); n.spkSim[spk] = sp.sim; }
+    /* 랩탑 이름붙이기 화면에서 사람이 확인한 이름(sp.user)은 추정 표시를 달지 않는다. 비운 묶음(sp.mixed)은 이름을 거둔다. */
+    if(sp.name && !userSet){
+      n.spkNames[spk] = sp.name; n.spkSim[spk] = sp.sim;
+      if(sp.user) n.spkGuess = n.spkGuess.filter(x => x !== spk);
+      else if(!n.spkGuess.includes(spk)) n.spkGuess.push(spk);
+    } else if(!sp.name && sp.mixed && !userSet){ delete n.spkNames[spk]; n.spkGuess = n.spkGuess.filter(x => x !== spk); }
   }
   n.diarRemoteU = Math.max(remoteU, n.diarRemoteU || 0); delete n.diarFail;
   await put("notes", n);
