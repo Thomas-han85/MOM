@@ -1009,7 +1009,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.10.28-1";
+const APP_VERSION = "2026.11.04-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -10179,7 +10179,379 @@ function findCut(data, from, target, rate){
    같은 방식으로 앱이 통째로 꺼진 적이 있다. 그래서 미리 막고, 나눠서 넣게 안내한다.
 
    이미 16kHz 모노면 표본율을 바꾸지 않는다. 한 벌을 덜 만든다. */
-const IMPORT_MAX_SEC = 2400;   // 파일 하나당 40분. 늘리지 마라. 앱이 꺼진다.
+const IMPORT_MAX_SEC = 2400;   // 파일 하나당 40분. 늘리지 마라. 앱이 꺼진다. (아래 흘려 읽기가 안 될 때만 걸린다)
+
+/* ── 길이 제한 없이 읽기: 흘려 읽기 (2026-11-04) ──
+   TLB 현설 녹음 81분 m4a 가 40분 제한에 걸려 실장님이 손으로 잘라야 했다. 「제한 없이, 스스로 나눠
+   붙이되 오류는 나지 않게」 가 지시다.
+   decodeAudioData 는 통째로만 푼다. 그래서 파일을 몇 MB 씩 잘라 읽어 WebCodecs AudioDecoder 에
+   한 덩이(AAC·MP3 프레임)씩 넣고, 나오는 소리를 곧바로 16kHz 모노로 내려 30초 조각으로 떨군다.
+   메모리에는 늘 수십 초어치만 있다. 디코더를 끊지 않고 하나로 쭉 돌리므로 이음매에 틈이 없다.
+   - m4a·mp4·mov(AAC, mp4 안 mp3)·mp3 → AudioDecoder.  wav → 직접 읽음(디코더 불필요).
+   - 그 밖의 꼴(ogg·webm·flac…)이나 디코더가 그 코덱을 못 받으면 예전 길(decodeTo16k, 40분 제한)로.
+   - 흘려 읽다 중간에 깨지면, 그때까지 떨군 조각은 그대로 두고 알린다(회의가 날아가지 않는다).
+   표본율 내리기는 창 씌운 sinc(Hann) 저역 통과 — decodeAudioData 가 하던 것과 같은 계열이다.
+   선형 보간으로 내리면 8kHz 위 소리가 접혀 들어와 전사가 나빠진다. */
+function makeResampler(sr){
+  const OUT = 16000;
+  if(!(sr > 0) || sr === OUT) return { push: x => x, end: () => new Float32Array(0) };
+  const ratio = sr / OUT;
+  const fc = Math.min(1, 1/ratio) * 0.92;            // 차단(입력 나이퀴스트 대비)
+  const H = Math.ceil(12 * Math.max(1, ratio));       // 한쪽 탭 수(입력 표본 단위)
+  const N = 2*H, P = 256;
+  const tab = new Float32Array((P+1)*N);
+  for(let p = 0; p <= P; p++){
+    const frac = p/P; let sum = 0;
+    for(let j = 0; j < N; j++){
+      const d = (j - H + 1) - frac;
+      const x = d * fc;
+      const s = x === 0 ? 1 : Math.sin(Math.PI*x)/(Math.PI*x);
+      const v = Math.abs(d) >= H ? 0 : fc * s * (0.5 + 0.5*Math.cos(Math.PI*d/H));
+      tab[p*N+j] = v; sum += v;
+    }
+    for(let j = 0; j < N; j++) tab[p*N+j] /= sum;     // 직류 이득 1
+  }
+  let buf = new Float32Array(H);    // 앞에 0 을 깔아 첫 표본도 창 가운데 온다
+  let t = H;                        // 다음 출력의 자리(buf 좌표)
+  let totalIn = 0, totalOut = 0;
+  const run = () => {
+    const out = new Float32Array(Math.max(0, Math.ceil((buf.length - H - t) / ratio) + 2));
+    let n = 0;
+    for(;;){
+      const i0 = Math.floor(t);
+      if(i0 + H >= buf.length) break;
+      const p = Math.round((t - i0) * P), row = p*N, b0 = i0 - H + 1;
+      let acc = 0;
+      for(let j = 0; j < N; j++) acc += buf[b0+j] * tab[row+j];
+      if(n >= out.length) break;
+      out[n++] = acc; t += ratio;
+    }
+    const drop = Math.max(0, Math.floor(t) - H + 1);
+    if(drop > 0){ buf = buf.slice(drop); t -= drop; }
+    totalOut += n;
+    return out.subarray(0, n);
+  };
+  const append = x => { const nb = new Float32Array(buf.length + x.length); nb.set(buf); nb.set(x, buf.length); buf = nb; };
+  return {
+    push(x){ totalIn += x.length; append(x); return run(); },
+    end(){
+      append(new Float32Array(H + 2));
+      const y = run();
+      const want = Math.max(0, Math.round(totalIn / ratio) - (totalOut - y.length));
+      return y.subarray(0, Math.min(y.length, want));
+    }
+  };
+}
+
+/* AudioDecoder 한 대를 끝까지 돌린다. next() 가 프레임 묶음을 주고, null 이면 끝. */
+async function runAudioDecoder(cfg, next, push, onProg){
+  const outQ = []; let err = null;
+  const dec = new AudioDecoder({ output: ad => outQ.push(ad), error: e => { err = e; } });
+  dec.configure(cfg);
+  let rs = null, outSec = 0, ts = 0;
+  const toMono = ad => {
+    const n = ad.numberOfFrames, ch = ad.numberOfChannels || 1;
+    const out = new Float32Array(n);
+    const tmp = ch > 1 ? new Float32Array(n) : null;
+    for(let c = 0; c < ch; c++){
+      const dst = c === 0 ? out : tmp;
+      ad.copyTo(dst, { planeIndex: c, format: "f32-planar" });
+      if(c > 0) for(let i = 0; i < n; i++) out[i] += tmp[i];
+    }
+    if(ch > 1) for(let i = 0; i < n; i++) out[i] /= ch;
+    const sr = ad.sampleRate; ad.close();
+    return { pcm: out, sr };
+  };
+  const drainOut = async () => {
+    while(outQ.length){
+      const { pcm, sr } = toMono(outQ.shift());
+      if(!rs) rs = makeResampler(sr);
+      outSec += pcm.length / sr;
+      const y = rs.push(pcm);
+      if(y.length) await push(y);
+    }
+  };
+  const waitDeq = () => new Promise(r => {
+    const tm = setTimeout(r, 25);
+    try{ dec.addEventListener("dequeue", () => { clearTimeout(tm); r(); }, { once: true }); }catch(e){}
+  });
+  try{
+    for(;;){
+      if(err) throw err;
+      const batch = await next();
+      if(!batch) break;
+      for(const f of batch){
+        dec.decode(new EncodedAudioChunk({ type: "key", timestamp: ts, data: f }));
+        ts += 1000;
+      }
+      while(dec.decodeQueueSize > 48){ await waitDeq(); if(err) throw err; await drainOut(); }
+      await drainOut();
+      if(onProg) onProg(outSec);
+    }
+    await dec.flush();
+    if(err) throw err;
+    await drainOut();
+    if(rs){ const y = rs.end(); if(y.length) await push(y); }
+  }finally{
+    try{ if(dec.state !== "closed") dec.close(); }catch(e){}
+    for(const a of outQ) try{ a.close(); }catch(e){}
+  }
+}
+
+const fourcc = (v, o) => String.fromCharCode(v.getUint8(o), v.getUint8(o+1), v.getUint8(o+2), v.getUint8(o+3));
+
+/* mp4·m4a·mov 에서 소리 트랙 하나를 찾아 프레임 자리표를 만든다. 못 하면 null(→ 예전 길). */
+async function mp4Source(file){
+  // 맨 윗단 상자들만 훑는다(mdat 는 건너뛴다 — moov 가 뒤에 있는 파일도 많다)
+  let moov = null, o = 0;
+  while(o + 8 <= file.size){
+    const v = new DataView(await file.slice(o, o + 16).arrayBuffer());
+    let size = v.getUint32(0), hdr = 8;
+    const type = fourcc(v, 4);
+    if(size === 1){ if(v.byteLength < 16) break; size = Number(v.getBigUint64(8)); hdr = 16; }
+    else if(size === 0) size = file.size - o;
+    if(size < hdr) break;
+    if(type === "moov"){ moov = { off: o, size, hdr }; break; }
+    o += size;
+  }
+  if(!moov || moov.size > 400*1024*1024) return null;
+  const mv = new DataView(await file.slice(moov.off, moov.off + moov.size).arrayBuffer());
+  const kids = (s, e) => {
+    const out = []; let p = s;
+    while(p + 8 <= e){
+      let sz = mv.getUint32(p), h = 8;
+      const t = fourcc(mv, p+4);
+      if(sz === 1){ sz = Number(mv.getBigUint64(p+8)); h = 16; } else if(sz === 0) sz = e - p;
+      if(sz < h || p + sz > e) break;
+      out.push({ t, s: p + h, e: p + sz }); p += sz;
+    }
+    return out;
+  };
+  const find = (l, t) => l.find(b => b.t === t);
+  const readDesc = p => {                               // 기술자 길이(7비트씩, 최대 4바이트)
+    let len = 0;
+    for(let k = 0; k < 4; k++){ const b = mv.getUint8(p++); len = (len << 7) | (b & 0x7f); if(!(b & 0x80)) break; }
+    return { len, p };
+  };
+  const parseEsds = b => {                              // → { oti, dsi }
+    let p = b.s + 4;                                    // 판·깃발
+    if(mv.getUint8(p) !== 3) return null;
+    let d = readDesc(p + 1); p = d.p;
+    const fl = mv.getUint8(p + 2); p += 3;
+    if(fl & 0x80) p += 2;
+    if(fl & 0x40) p += 1 + mv.getUint8(p);
+    if(fl & 0x20) p += 2;
+    if(mv.getUint8(p) !== 4) return null;
+    d = readDesc(p + 1); p = d.p;
+    const oti = mv.getUint8(p); p += 13;
+    let dsi = null;
+    if(p < b.e && mv.getUint8(p) === 5){
+      d = readDesc(p + 1);
+      dsi = new Uint8Array(mv.buffer, mv.byteOffset + d.p, d.len).slice();
+    }
+    return { oti, dsi };
+  };
+  for(const trak of kids(moov.hdr, moov.size).filter(b => b.t === "trak")){
+    const mdia = find(kids(trak.s, trak.e), "mdia"); if(!mdia) continue;
+    const mk = kids(mdia.s, mdia.e);
+    const hdlr = find(mk, "hdlr");
+    if(!hdlr || fourcc(mv, hdlr.s + 8) !== "soun") continue;
+    const minf = find(mk, "minf");
+    const stbl = minf && find(kids(minf.s, minf.e), "stbl"); if(!stbl) continue;
+    const sk = kids(stbl.s, stbl.e);
+    const stsd = find(sk, "stsd"), stsz = find(sk, "stsz"), stsc = find(sk, "stsc");
+    const stco = find(sk, "stco") || find(sk, "co64");
+    if(!stsd || !stsz || !stsc || !stco) continue;
+    const es = stsd.s + 8, eend = es + mv.getUint32(es), etype = fourcc(mv, es + 4);
+    const sver = mv.getUint16(es + 16);
+    let ch = mv.getUint16(es + 24), sr = mv.getUint32(es + 32) >>> 16;
+    if(sver === 2){ sr = Math.round(mv.getFloat64(es + 40)); ch = mv.getUint32(es + 48); }
+    const cs = es + 36 + (sver === 1 ? 16 : sver === 2 ? 36 : 0);
+    let cfg = null;
+    if(etype === "mp4a"){
+      let ek = kids(cs, eend), esds = find(ek, "esds");
+      if(!esds){ const wave = find(ek, "wave"); if(wave) esds = find(kids(wave.s, wave.e), "esds"); }
+      const info = esds && parseEsds(esds);
+      if(!info) continue;
+      if(info.oti === 0x40 || info.oti === 0x66 || info.oti === 0x67 || info.oti === 0x68){
+        if(!info.dsi || !info.dsi.length) continue;
+        let aot = info.dsi[0] >> 3;
+        if(aot === 31 && info.dsi.length > 1) aot = 32 + (((info.dsi[0] & 7) << 3) | (info.dsi[1] >> 5));
+        cfg = { codec: "mp4a.40." + aot, sampleRate: sr, numberOfChannels: ch, description: info.dsi };
+      } else if(info.oti === 0x6B || info.oti === 0x69){
+        cfg = { codec: "mp3", sampleRate: sr, numberOfChannels: ch };
+      } else continue;
+    } else if(etype === ".mp3"){
+      cfg = { codec: "mp3", sampleRate: sr, numberOfChannels: ch };
+    } else continue;
+    if(!(sr > 0) || !(ch > 0)) continue;
+
+    // 프레임 크기·자리
+    const ss = mv.getUint32(stsz.s + 4), n = mv.getUint32(stsz.s + 8);
+    if(!n) continue;
+    const sizes = new Uint32Array(n);
+    for(let i = 0; i < n; i++) sizes[i] = ss || mv.getUint32(stsz.s + 12 + i*4);
+    const co64 = stco.t === "co64", nch = mv.getUint32(stco.s + 4);
+    const coff = new Float64Array(nch);
+    for(let i = 0; i < nch; i++)
+      coff[i] = co64 ? Number(mv.getBigUint64(stco.s + 8 + i*8)) : mv.getUint32(stco.s + 8 + i*4);
+    const ne = mv.getUint32(stsc.s + 4);
+    const offs = new Float64Array(n);
+    let si = 0;
+    for(let e = 0; e < ne && si < n; e++){
+      const first = mv.getUint32(stsc.s + 8 + e*12), spc = mv.getUint32(stsc.s + 12 + e*12);
+      const nextFirst = e + 1 < ne ? mv.getUint32(stsc.s + 8 + (e+1)*12) : nch + 1;
+      for(let c = first; c < nextFirst && si < n; c++){
+        let at = coff[c-1];
+        for(let k = 0; k < spc && si < n; k++){ offs[si] = at; at += sizes[si]; si++; }
+      }
+    }
+    const total = si;
+    if(!total) continue;
+    let i = 0;
+    const next = async () => {
+      if(i >= total) return null;
+      const j = Math.min(total, i + 256);
+      let lo = Infinity, hi = 0;
+      for(let k = i; k < j; k++){ lo = Math.min(lo, offs[k]); hi = Math.max(hi, offs[k] + sizes[k]); }
+      const frames = [];
+      if(hi - lo <= 64*1024*1024){
+        const b = new Uint8Array(await file.slice(lo, hi).arrayBuffer());
+        for(let k = i; k < j; k++) frames.push(b.subarray(offs[k] - lo, offs[k] - lo + sizes[k]));
+      } else {
+        for(let k = i; k < j; k++) frames.push(new Uint8Array(await file.slice(offs[k], offs[k] + sizes[k]).arrayBuffer()));
+      }
+      i = j;
+      return frames;
+    };
+    return { cfg, next };
+  }
+  return null;
+}
+
+/* mp3: 프레임 머리를 따라가며 한 프레임씩 넘긴다(레이어 III 만). */
+const MP3_BR1 = [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320];
+const MP3_BR2 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160];
+function mp3Hdr(b, i){
+  if(i + 4 > b.length || b[i] !== 0xFF || (b[i+1] & 0xE0) !== 0xE0) return null;
+  const ver = (b[i+1] >> 3) & 3, lay = (b[i+1] >> 1) & 3;
+  if(ver === 1 || lay !== 1) return null;
+  const bri = b[i+2] >> 4, sri = (b[i+2] >> 2) & 3, pad = (b[i+2] >> 1) & 1;
+  if(bri === 0 || bri === 15 || sri === 3) return null;
+  const v1 = ver === 3;
+  const br = (v1 ? MP3_BR1 : MP3_BR2)[bri] * 1000;
+  const sr = [44100,48000,32000][sri] / (v1 ? 1 : ver === 2 ? 2 : 4);
+  return { len: Math.floor((v1 ? 144 : 72) * br / sr) + pad, sr, ch: (b[i+3] >> 6) === 3 ? 1 : 2, ver };
+}
+async function mp3Source(file){
+  let pos = 0;
+  const h = new Uint8Array(await file.slice(0, 10).arrayBuffer());
+  if(h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33)
+    pos = 10 + (((h[6]&127)<<21) | ((h[7]&127)<<14) | ((h[8]&127)<<7) | (h[9]&127)) + ((h[5] & 0x10) ? 10 : 0);
+  const probe = new Uint8Array(await file.slice(pos, pos + (1 << 20)).arrayBuffer());
+  let first = null;
+  for(let i = 0; i + 4 < probe.length; i++){
+    const a = mp3Hdr(probe, i);
+    if(a && i + a.len + 4 <= probe.length){
+      const b = mp3Hdr(probe, i + a.len);
+      if(b && b.sr === a.sr && b.ver === a.ver){ first = a; pos += i; break; }
+    }
+  }
+  if(!first) return null;
+  const BLK = 2*1024*1024;
+  let buf = new Uint8Array(0), p = 0, filePos = pos;
+  const refill = async () => {
+    if(filePos >= file.size) return false;
+    const add = new Uint8Array(await file.slice(filePos, Math.min(file.size, filePos + BLK)).arrayBuffer());
+    filePos += add.length;
+    const nb = new Uint8Array(buf.length - p + add.length);
+    nb.set(buf.subarray(p)); nb.set(add, buf.length - p);
+    buf = nb; p = 0;
+    return true;
+  };
+  const next = async () => {
+    const frames = [];
+    while(frames.length < 256){
+      if(p + 4 > buf.length){ if(!(await refill())) break; continue; }
+      const f = mp3Hdr(buf, p);
+      if(!f || f.sr !== first.sr || f.ver !== first.ver){ p++; continue; }     // 다시 맞추기(ID3v1 꼬리 등)
+      if(p + f.len > buf.length){ if(!(await refill())) break; continue; }
+      frames.push(buf.subarray(p, p + f.len)); p += f.len;
+    }
+    return frames.length ? frames : null;
+  };
+  return { cfg: { codec: "mp3", sampleRate: first.sr, numberOfChannels: first.ch }, next };
+}
+
+/* wav: 디코더 없이 바로 읽는다. 지원 못 하는 꼴이면 false. */
+async function wavStream(file, push, onProg){
+  let o = 12, fmt = null, data = null;
+  while(o + 8 <= file.size){
+    const v = new DataView(await file.slice(o, o + 8).arrayBuffer());
+    const id = fourcc(v, 0); let sz = v.getUint32(4, true);
+    if(id === "fmt "){
+      const f = new DataView(await file.slice(o + 8, o + 8 + Math.min(sz, 40)).arrayBuffer());
+      let tag = f.getUint16(0, true);
+      if(tag === 0xFFFE && f.byteLength >= 26) tag = f.getUint16(24, true);
+      fmt = { tag, ch: f.getUint16(2, true), sr: f.getUint32(4, true), bits: f.getUint16(14, true), align: f.getUint16(12, true) };
+    } else if(id === "data"){
+      if(!sz || o + 8 + sz > file.size) sz = file.size - o - 8;   // 길이 안 적힌(녹음 중 끊긴) 파일
+      data = { off: o + 8, size: sz }; break;
+    }
+    o += 8 + sz + (sz & 1);
+  }
+  if(!fmt || !data || !fmt.ch || !fmt.sr) return false;
+  const { tag, ch, sr, bits } = fmt;
+  const bps = bits >> 3, align = fmt.align || ch * bps;
+  const okFmt = (tag === 1 && [8,16,24,32].includes(bits)) || (tag === 3 && bits === 32);
+  if(!okFmt) return false;
+  const rs = makeResampler(sr);
+  const step = align * Math.max(1, Math.round(sr * 10));     // 10초씩
+  for(let at = 0; at < data.size; at += step){
+    const len = Math.min(step, data.size - at);
+    const v = new DataView(await file.slice(data.off + at, data.off + at + len).arrayBuffer());
+    const n = Math.floor(v.byteLength / align);
+    const out = new Float32Array(n);
+    for(let i = 0; i < n; i++){
+      let s = 0;
+      for(let c = 0; c < ch; c++){
+        const q = i*align + c*bps;
+        if(tag === 3) s += v.getFloat32(q, true);
+        else if(bits === 16) s += v.getInt16(q, true) / 32768;
+        else if(bits === 24){ let x = v.getUint8(q) | (v.getUint8(q+1) << 8) | (v.getInt8(q+2) << 16); s += x / 8388608; }
+        else if(bits === 32) s += v.getInt32(q, true) / 2147483648;
+        else s += (v.getUint8(q) - 128) / 128;
+      }
+      out[i] = s / ch;
+    }
+    const y = rs.push(out);
+    if(y.length) await push(y);
+    if(onProg) onProg((at + len) / align / sr);
+  }
+  const y = rs.end(); if(y.length) await push(y);
+  return true;
+}
+
+/* 흘려 읽기 입구. 이 길로 못 읽는 꼴이면 아무것도 넘기기 전에 false 를 돌려준다(→ 예전 길). */
+async function streamPcm16k(file, push, onProg){
+  if(!file || typeof file.slice !== "function" || file.size < 12) return false;
+  const h = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  const s4 = o => String.fromCharCode(h[o], h[o+1], h[o+2], h[o+3]);
+  if(s4(0) === "RIFF" && s4(8) === "WAVE") return await wavStream(file, push, onProg);
+  if(typeof AudioDecoder === "undefined" || typeof EncodedAudioChunk === "undefined") return false;
+  let src = null;
+  try{
+    if(s4(4) === "ftyp") src = await mp4Source(file);
+    else if((h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) || (h[0] === 0xFF && (h[1] & 0xE0) === 0xE0)) src = await mp3Source(file);
+  }catch(e){ src = null; }
+  if(!src) return false;
+  try{
+    const sup = await AudioDecoder.isConfigSupported(src.cfg);
+    if(!sup || !sup.supported) return false;
+  }catch(e){ return false; }
+  await runAudioDecoder(src.cfg, src.next, push, onProg);
+  return true;
+}
 
 /* 소리 파일 하나를 펼쳐 16kHz 실수 배열로 만든다.
 
@@ -10314,32 +10686,74 @@ async function importFiles(files){
   const per = Math.floor(RATE * (+CFG.chunk)/1000);
   let seq = 0, offset = 0;                 // offset 은 지금까지 이어 붙인 초
 
+  const failed = [];
   for(let f = 0; f < files.length; f++){
-    toast("소리를 읽는 중… 파일 " + (f+1) + "/" + files.length, 60000);
-    let data;
-    try{ data = await decodeTo16k(files[f]); }
-    catch(e){
-      toast(e.message || "이 파일은 읽을 수 없습니다. m4a, mp3, wav 로 변환해 보세요.", 12000);
-      continue;                            // 하나가 안 읽혀도 나머지는 잇는다
-    }
+    const tag = "파일 " + (f+1) + "/" + files.length;
+    toast("소리를 읽는 중… " + tag, 60000);
 
-    let i = 0;
-    while(i < data.length){
-      const cut = findCut(data, i, per, RATE);   // 시계가 아니라 조용한 자리에서 끊는다
-      await saveChunk(note.id, seq, encodeWAV(data.subarray(i, cut), RATE),
-                      "pending", Math.round(offset*1000 + i/RATE*1000));
-      i = cut; seq++;
-      if(seq % 20 === 0) toast("나누는 중… " + seq + "구간 (파일 " + (f+1) + "/" + files.length + ")", 30000);
+    /* 들어오는 소리를 쌓아 두었다가 목표 길이의 1.25배가 모이면 조용한 자리에서 한 조각 떨군다.
+       통째로 펼쳤을 때와 자르는 자리가 같다(findCut 이 보는 범위가 늘 다 차 있다). */
+    let acc = new Float32Array(per * 2), len = 0, done = 0;   // done = 이 파일에서 떨군 표본 수
+    const emit = async final => {
+      while(len > 0 && (final || len >= Math.floor(per * 1.25))){
+        const view = acc.subarray(0, len);
+        const cut = Math.max(1, findCut(view, 0, per, RATE));   // 시계가 아니라 조용한 자리에서 끊는다
+        await saveChunk(note.id, seq, encodeWAV(view.subarray(0, cut), RATE),
+                        "pending", Math.round(offset*1000 + done/RATE*1000));
+        acc.copyWithin(0, cut, len); len -= cut; done += cut; seq++;
+        if(seq % 20 === 0) toast("나누는 중… " + seq + "구간 · " + mmss(done/RATE*1000) + " (" + tag + ")", 30000);
+      }
+    };
+    const push = async pcm => {
+      if(len + pcm.length > acc.length){
+        const nb = new Float32Array(Math.max(acc.length * 2, len + pcm.length));
+        nb.set(acc.subarray(0, len)); acc = nb;
+      }
+      acc.set(pcm, len); len += pcm.length;
+      await emit(false);
+    };
+    let lastProg = 0;
+    const onProg = sec => {
+      const now = Date.now();
+      if(now - lastProg < 1500) return;
+      lastProg = now;
+      toast("소리를 읽는 중… " + tag + " · " + mmss(sec*1000) + " · " + seq + "구간", 60000);
+    };
+
+    let ok = false, errMsg = "";
+    try{
+      ok = await streamPcm16k(files[f], push, onProg);     // 길이 제한 없음
+      if(ok) await emit(true);
+    }catch(e){
+      /* 중간에 깨졌다. 이미 떨군 조각은 그대로 두고 남은 것도 내보낸 뒤 알린다. */
+      console.warn("흘려 읽기 실패", e);
+      try{ await emit(true); }catch(e2){}
+      if(done > 0){ ok = true; errMsg = files[f].name + " 은 " + mmss(done/RATE*1000) + " 까지만 읽었습니다(" + (e.message||e) + ")."; }
+      else { acc = null; len = 0; }                     // 하나도 못 떨궜으면 예전 길로 한 번 더
     }
-    offset += data.length / RATE;
-    data = null;                           // 다음 파일 전에 놓아 준다
+    if(!ok){
+      let data;
+      try{ data = await decodeTo16k(files[f]); }
+      catch(e){
+        failed.push(files[f].name);
+        toast(e.message || "이 파일은 읽을 수 없습니다. m4a, mp3, wav 로 변환해 보세요.", 12000);
+        continue;                            // 하나가 안 읽혀도 나머지는 잇는다
+      }
+      acc = new Float32Array(per * 2); len = 0; done = 0;
+      await push(data); data = null;
+      await emit(true);
+    }
+    if(errMsg){ failed.push(files[f].name); toast(errMsg, 12000); }
+    offset += done / RATE;
+    acc = null;                            // 다음 파일 전에 놓아 준다
     await new Promise(r => setTimeout(r, 200));
   }
 
   note.duration = Math.round(offset*1000);
   await put("notes", note);
   renderIfOpen(note.id); refreshList();
-  toast(files.length + "개 파일을 이어 " + seq + "구간으로 나눴습니다. 순서대로 전사합니다.", 8000);
+  toast(files.length + "개 파일 · " + mmss(note.duration) + " · " + seq + "구간으로 나눴습니다. 순서대로 전사합니다."
+        + (failed.length ? " (못 읽은 것: " + failed.join(", ") + ")" : ""), 10000);
 }
 
 /* =====================================================================
