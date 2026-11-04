@@ -1009,7 +1009,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.11.04-1";
+const APP_VERSION = "2026.11.04-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -2493,27 +2493,38 @@ async function loadBriefFile(file, targetId){
 }
 
 /** 사전 자료에서 고유명사만 뽑는다. 전사 프롬프트는 길이가 짧아 전문을 넣을 수 없다. */
+/* 사전 자료가 길면 12,000자씩 나눠(최대 셋) 뽑아 합친다. 예전에는 앞 12,000자만 봤다 —
+   11/3 TLB 입찰지침서는 19,891자라 뒤쪽 공종·조건의 낱말이 빠졌다. */
 async function extractTerms(brief){
   if(!brief || !CFG.oai || !navigator.onLine) return [];
+  const parts = [];
+  for(let i = 0; i < brief.length && parts.length < 3; i += 12000) parts.push(brief.slice(i, i + 12000));
+  const got = await Promise.all(parts.map(extractTermsOne));
+  const seen = new Set(), out = [];
+  for(const t of got.flat()){ const k = t.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(t); } }
+  return out.slice(0, 150);
+}
+async function extractTermsOne(brief){
   try{
     const r = await fetch("https://api.openai.com/v1/chat/completions",{
       method:"POST",
       headers:{ "Content-Type":"application/json", Authorization:"Bearer "+CFG.oai },
-      body: JSON.stringify({ model:"gpt-4o-mini", temperature:0, max_tokens:700,
+      body: JSON.stringify({ model:"gpt-4o-mini", temperature:0, max_tokens:1200,
         messages:[
           { role:"system", content:
             "Extract proper nouns and domain terms from the text: project names, people, "+
             "companies, place names, product or drawing codes, and construction jargon. "+
+            "Include abbreviations and contract terms exactly as written (e.g. BOQ, BOM, VE, turnkey, lump sum). "+
             "Keep the original script and spelling. Exclude common words. "+
             "Reply with a JSON array of strings only. No prose, no code fences." },
-          { role:"user", content: brief.slice(0, 12000) }
+          { role:"user", content: brief }
         ] })
     });
     if(!r.ok) return [];
     const raw = ((await r.json()).choices?.[0]?.message?.content||"").replace(/```json|```/g,"").trim();
     const arr = JSON.parse(raw);
     return Array.isArray(arr)
-      ? arr.map(x=>String(x).trim()).filter(x=>x && x.length<40).slice(0,60)
+      ? arr.map(x=>String(x).trim()).filter(x=>x && x.length<40).slice(0,80)
       : [];
   }catch(e){ return []; }
 }
@@ -10179,6 +10190,11 @@ function findCut(data, from, target, rate){
    같은 방식으로 앱이 통째로 꺼진 적이 있다. 그래서 미리 막고, 나눠서 넣게 안내한다.
 
    이미 16kHz 모노면 표본율을 바꾸지 않는다. 한 벌을 덜 만든다. */
+/* 불러온 파일은 60초 안팎(45~75초, 조용한 자리)으로 나눠 전사한다. 녹음 조각(설정, 30초)을 그대로 쓰면
+   경계가 두 배라 문장이 그만큼 더 잘린다 — 11/3 현설 전사에서 「…사 입장에서는 정확한…」·「보면 가지고
+   몰량을」 처럼 경계마다 말이 끊겼다. 정리 전사(2차)가 65초 창을 쓰는 것과 같은 까닭이다. */
+const IMPORT_CHUNK_MS = 60000;
+const importChunkMs = () => Math.max(+CFG.chunk || 30000, IMPORT_CHUNK_MS);
 const IMPORT_MAX_SEC = 2400;   // 파일 하나당 40분. 늘리지 마라. 앱이 꺼진다. (아래 흘려 읽기가 안 될 때만 걸린다)
 
 /* ── 길이 제한 없이 읽기: 흘려 읽기 (2026-11-04) ──
@@ -10187,8 +10203,8 @@ const IMPORT_MAX_SEC = 2400;   // 파일 하나당 40분. 늘리지 마라. 앱�
    decodeAudioData 는 통째로만 푼다. 그래서 파일을 몇 MB 씩 잘라 읽어 WebCodecs AudioDecoder 에
    한 덩이(AAC·MP3 프레임)씩 넣고, 나오는 소리를 곧바로 16kHz 모노로 내려 30초 조각으로 떨군다.
    메모리에는 늘 수십 초어치만 있다. 디코더를 끊지 않고 하나로 쭉 돌리므로 이음매에 틈이 없다.
-   - m4a·mp4·mov(AAC, mp4 안 mp3)·mp3 → AudioDecoder.  wav → 직접 읽음(디코더 불필요).
-   - 그 밖의 꼴(ogg·webm·flac…)이나 디코더가 그 코덱을 못 받으면 예전 길(decodeTo16k, 40분 제한)로.
+   - m4a·mp4·mov(AAC, mp4 안 mp3)·mp3·ogg·webm·mka·aac → AudioDecoder.  wav → 직접 읽음(디코더 불필요).
+   - 그 밖의 꼴(flac 단독·amr…)이나 디코더가 그 코덱을 못 받으면 예전 길(decodeTo16k, 40분 제한)로.
    - 흘려 읽다 중간에 깨지면, 그때까지 떨군 조각은 그대로 두고 알린다(회의가 날아가지 않는다).
    표본율 내리기는 창 씌운 sinc(Hann) 저역 통과 — decodeAudioData 가 하던 것과 같은 계열이다.
    선형 보간으로 내리면 8kHz 위 소리가 접혀 들어와 전사가 나빠진다. */
@@ -10483,6 +10499,296 @@ async function mp3Source(file){
   return { cfg: { codec: "mp3", sampleRate: first.sr, numberOfChannels: first.ch }, next };
 }
 
+/* ── ogg·webm·aac 도 흘려 읽는다 (2026-11-04 오후) ──
+   오전 판은 이 꼴들을 예전 길(통째로 펼치기, 40분 제한)로 보냈다. 실장님 지시 「40분 제한 있으니까
+   자동으로 잘라서 전사한 다음에 합쳐 줘」 — 이 꼴들도 상자를 직접 풀어 한 덩이씩 디코더에 넣는다.
+   - ogg: Opus·Vorbis·FLAC.  webm·mka: Opus·Vorbis·AAC·MP3·FLAC(크기 모름 상자 = 녹음기 출력도 읽는다).
+   - aac(ADTS): 머리를 떼고 AAC 덩이만.
+   파일을 몇 MB 씩만 쥐는 읽개(byteReader)를 함께 쓴다. */
+function byteReader(file){
+  const BLK = 2 * 1024 * 1024;
+  let buf = new Uint8Array(0), base = 0;
+  const R = {
+    pos: 0, size: file.size,
+    /* [pos, pos+n) 가 손에 있게 한다. 파일 끝에 닿아 다 못 채우면 false. */
+    async ensure(n){
+      const have = base + buf.length, pos = R.pos;
+      if(pos >= base && pos + n <= have) return true;
+      const inside = pos >= base && pos < have;
+      const from = inside ? have : pos;
+      const end = Math.min(file.size, Math.max(pos + n, from + BLK));
+      if(from >= end){ if(!inside){ buf = new Uint8Array(0); base = pos; } return false; }
+      const add = new Uint8Array(await file.slice(from, end).arrayBuffer());
+      if(inside){
+        const keep = buf.subarray(pos - base);
+        const nb = new Uint8Array(keep.length + add.length);
+        nb.set(keep); nb.set(add, keep.length); buf = nb;
+      } else buf = add;
+      base = pos;
+      return pos + n <= base + buf.length;
+    },
+    u8: i => buf[R.pos - base + i],
+    bytes: (i, n) => buf.subarray(R.pos - base + i, R.pos - base + i + n)
+  };
+  return R;
+}
+const concatU8 = parts => {
+  if(parts.length === 1) return parts[0].slice();
+  let n = 0; for(const p of parts) n += p.length;
+  const out = new Uint8Array(n); let o = 0;
+  for(const p of parts){ out.set(p, o); o += p.length; }
+  return out;
+};
+/* Vorbis 머리 셋을 디코더가 받는 꼴(Xiph 엮음)로 묶는다 — webm 의 CodecPrivate 와 같은 꼴이다. */
+function xiphLace(heads){
+  const lace = [2];
+  for(const h of heads.slice(0, 2)){ let n = h.length; while(n >= 255){ lace.push(255); n -= 255; } lace.push(n); }
+  return concatU8([new Uint8Array(lace), ...heads]);
+}
+const aacCfg = (asc, sr, ch) => {
+  let aot = asc[0] >> 3;
+  if(aot === 31 && asc.length > 1) aot = 32 + (((asc[0] & 7) << 3) | (asc[1] >> 5));
+  return { codec: "mp4a.40." + aot, sampleRate: sr, numberOfChannels: ch, description: asc };
+};
+const AAC_SR = [96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000,7350];
+
+/* ogg: 첫 소리 흐름(Opus·Vorbis·FLAC)의 덩이를 차례로 넘긴다. */
+async function oggSource(file){
+  const R = byteReader(file);
+  /* 쪽(page) 하나를 읽는다. 끝이면 null. 어긋나 있으면 "OggS" 를 찾아 다시 맞춘다. */
+  const page = async () => {
+    for(;;){
+      if(!(await R.ensure(27))) return null;
+      if(!(R.u8(0) === 0x4F && R.u8(1) === 0x67 && R.u8(2) === 0x67 && R.u8(3) === 0x53)){ R.pos++; continue; }
+      const flags = R.u8(5);
+      const sn = (R.u8(14) | (R.u8(15) << 8) | (R.u8(16) << 16) | (R.u8(17) << 24)) >>> 0;
+      const ns = R.u8(26);
+      if(!(await R.ensure(27 + ns))) return null;
+      const lace = []; let body = 0;
+      for(let i = 0; i < ns; i++){ const l = R.u8(27 + i); lace.push(l); body += l; }
+      if(!(await R.ensure(27 + ns + body))) return null;        // 끊긴 꼬리
+      const data = R.bytes(27 + ns, body);
+      R.pos += 27 + ns + body;
+      return { flags, sn, lace, data };
+    }
+  };
+  let serial = null, kind = "", part = [];
+  const packetsOf = pg => {
+    if(!(pg.flags & 1)) part = [];        // 이어지는 쪽이 아닌데 남은 토막이 있으면 버린다
+    const out = []; let off = 0;
+    for(const l of pg.lace){
+      part.push(pg.data.subarray(off, off + l)); off += l;
+      if(l < 255){ out.push(concatU8(part)); part = []; }
+    }
+    return out;
+  };
+  const queue = [];
+  // 소리 흐름 찾기: 시작(BOS) 쪽의 첫 덩이를 보고 고른다(골격 흐름 같은 것은 건너뛴다)
+  let first = null;
+  for(let k = 0; k < 64 && !first; k++){
+    const pg = await page(); if(!pg) return null;
+    if(!(pg.flags & 2) || !pg.lace.length) continue;
+    const pk = packetsOf(pg)[0]; part = [];
+    if(!pk) continue;
+    const tag = String.fromCharCode(...pk.subarray(0, 8));
+    if(tag === "OpusHead"){ kind = "opus"; first = pk; serial = pg.sn; }
+    else if(pk[0] === 1 && tag.slice(1, 7) === "vorbis"){ kind = "vorbis"; first = pk; serial = pg.sn; }
+    else if(pk[0] === 0x7F && tag.slice(1, 5) === "FLAC"){ kind = "flac"; first = pk; serial = pg.sn; }
+  }
+  if(!first) return null;
+  const more = async () => {
+    for(;;){
+      const pg = await page(); if(!pg) return false;
+      if(pg.sn !== serial) continue;
+      for(const p of packetsOf(pg)) queue.push(p);
+      return true;
+    }
+  };
+  const take = async () => { while(!queue.length) if(!(await more())) return null; return queue.shift(); };
+  let cfg;
+  const dv = new DataView(first.buffer, first.byteOffset, first.byteLength);
+  if(kind === "opus"){
+    cfg = { codec: "opus", sampleRate: 48000, numberOfChannels: first[9] || 1, description: first };
+    await take();                                              // OpusTags
+  } else if(kind === "vorbis"){
+    const ch = first[11], sr = dv.getUint32(12, true);
+    const c2 = await take(), c3 = await take();
+    if(!c2 || !c3) return null;
+    cfg = { codec: "vorbis", sampleRate: sr, numberOfChannels: ch, description: xiphLace([first, c2, c3]) };
+  } else {
+    const nh = dv.getUint16(7);                                // 뒤따르는 머리 덩이 수
+    const si = first.subarray(13);                             // "fLaC" 뒤 STREAMINFO 블록
+    const sr = ((si[4+10] << 12) | (si[4+11] << 4) | (si[4+12] >> 4)) >>> 0;
+    const ch = ((si[4+12] >> 1) & 7) + 1;
+    for(let i = 0; i < nh; i++) await take();
+    cfg = { codec: "flac", sampleRate: sr, numberOfChannels: ch, description: first.subarray(9).slice() };
+  }
+  const next = async () => {
+    const frames = [];
+    while(frames.length < 256){ const p = await take(); if(!p) break; if(p.length) frames.push(p); }
+    return frames.length ? frames : null;
+  };
+  return { cfg, next };
+}
+
+/* webm·mka: 상자(EBML)를 따라가며 소리 트랙의 덩이를 넘긴다.
+   녹음기(MediaRecorder)가 만든 파일은 Segment·Cluster 의 크기가 「모름」이다 — 그 둘은 안으로 들어가기만
+   하고 크기로 건너뛰지 않으니 상관없다. */
+async function webmSource(file){
+  const R = byteReader(file);
+  const SEG = 0x18538067, CLU = 0x1F43B675, BGRP = 0xA0, TRACKS = 0x1654AE6B,
+        SBLK = 0xA3, BLK = 0xA1;
+  const rdId = async () => {
+    if(!(await R.ensure(1))) return null;
+    const b = R.u8(0), n = b & 0x80 ? 1 : b & 0x40 ? 2 : b & 0x20 ? 3 : b & 0x10 ? 4 : 0;
+    if(!n || !(await R.ensure(n))) return null;
+    let v = 0; for(let i = 0; i < n; i++) v = v * 256 + R.u8(i);
+    return { id: v, n };
+  };
+  const rdSize = async at => {
+    if(!(await R.ensure(at + 1))) return null;
+    const b = R.u8(at); let n = 1, m = 0x80;
+    while(n <= 8 && !(b & m)){ n++; m >>= 1; }
+    if(n > 8 || !(await R.ensure(at + n))) return null;
+    let v = b & (m - 1), ones = v === m - 1;
+    for(let i = 1; i < n; i++){ const x = R.u8(at + i); v = v * 256 + x; if(x !== 0xFF) ones = false; }
+    return { v: ones ? -1 : v, n };                             // -1 = 크기 모름
+  };
+  // 메모리 안 바이트에서 읽는 것들(Tracks·Block)
+  const mVint = (b, p) => {
+    const x = b[p]; let n = 1, m = 0x80;
+    while(n <= 8 && !(x & m)){ n++; m >>= 1; }
+    let v = x & (m - 1); for(let i = 1; i < n; i++) v = v * 256 + b[p + i];
+    return { v, n };
+  };
+  const mId = (b, p) => {
+    const x = b[p], n = x & 0x80 ? 1 : x & 0x40 ? 2 : x & 0x20 ? 3 : x & 0x10 ? 4 : 1;
+    let v = 0; for(let i = 0; i < n; i++) v = v * 256 + b[p + i];
+    return { v, n };
+  };
+  const kids = (b, s, e) => {
+    const out = []; let p = s;
+    while(p < e){
+      const id = mId(b, p); p += id.n; if(p >= e) break;
+      const sz = mVint(b, p); p += sz.n;
+      const end = Math.min(e, p + sz.v);
+      out.push({ id: id.v, s: p, e: end }); p = end;
+    }
+    return out;
+  };
+  const uint = (b, k) => { let v = 0; for(let i = k.s; i < k.e; i++) v = v * 256 + b[i]; return v; };
+  let track = null;
+  const parseTracks = b => {
+    for(const te of kids(b, 0, b.length).filter(k => k.id === 0xAE)){
+      const f = kids(b, te.s, te.e), g = id => f.find(k => k.id === id);
+      const tt = g(0x83); if(!tt || uint(b, tt) !== 2) continue;              // 소리 트랙만
+      const num = uint(b, g(0xD7)), cid = g(0x86), cp = g(0x63A2), au = g(0xE1);
+      const codec = cid ? String.fromCharCode(...b.subarray(cid.s, cid.e)).replace(/\0+$/, "") : "";
+      let sr = 0, ch = 1;
+      if(au){
+        for(const a of kids(b, au.s, au.e)){
+          if(a.id === 0xB5){ const dv = new DataView(b.buffer, b.byteOffset + a.s, a.e - a.s); sr = a.e - a.s === 4 ? dv.getFloat32(0) : dv.getFloat64(0); }
+          else if(a.id === 0x9F) ch = uint(b, a);
+        }
+      }
+      const priv = cp ? b.slice(cp.s, cp.e) : null;
+      let cfg = null;
+      if(codec === "A_OPUS") cfg = { codec: "opus", sampleRate: 48000, numberOfChannels: ch, ...(priv ? { description: priv } : {}) };
+      else if(codec === "A_VORBIS" && priv) cfg = { codec: "vorbis", sampleRate: Math.round(sr), numberOfChannels: ch, description: priv };
+      else if(codec === "A_FLAC" && priv) cfg = { codec: "flac", sampleRate: Math.round(sr), numberOfChannels: ch, description: priv };
+      else if(codec === "A_MPEG/L3") cfg = { codec: "mp3", sampleRate: Math.round(sr), numberOfChannels: ch };
+      else if(/^A_AAC/.test(codec) && priv && priv.length >= 2) cfg = aacCfg(priv, Math.round(sr), ch);
+      if(cfg && cfg.sampleRate > 0){ track = { num, cfg }; return; }
+    }
+  };
+  const blockFrames = b => {
+    const tn = mVint(b, 0); if(tn.v !== track.num) return [];
+    let p = tn.n + 2; const flags = b[p++], lacing = (flags >> 1) & 3;
+    if(!lacing) return [b.subarray(p)];
+    const n = b[p++] + 1, sizes = [];
+    if(lacing === 1){
+      for(let i = 0; i < n - 1; i++){ let s = 0; while(b[p] === 255){ s += 255; p++; } s += b[p++]; sizes.push(s); }
+    } else if(lacing === 3){
+      let v = mVint(b, p); p += v.n; sizes.push(v.v);
+      for(let i = 1; i < n - 1; i++){
+        v = mVint(b, p); p += v.n;
+        sizes.push(sizes[i-1] + v.v - (Math.pow(2, 7 * v.n - 1) - 1));
+      }
+    } else {
+      const each = Math.floor((b.length - p) / n);
+      for(let i = 0; i < n - 1; i++) sizes.push(each);
+    }
+    const out = [];
+    for(const s of sizes){ out.push(b.subarray(p, p + s)); p += s; }
+    out.push(b.subarray(p));
+    return out;
+  };
+  /* 상자 하나를 지난다. 덩이가 나오면 그것을, 끝이면 null 을 돌려준다. */
+  const step = async () => {
+    const id = await rdId(); if(!id) return null;
+    const sz = await rdSize(id.n); if(!sz) return null;
+    const hdr = id.n + sz.n;
+    if(id.id === SEG || id.id === CLU || id.id === BGRP){ R.pos += hdr; return []; }   // 안으로
+    if(sz.v < 0) throw new Error("webm 상자 크기를 알 수 없습니다");
+    if(id.id === TRACKS || ((id.id === SBLK || id.id === BLK) && track)){
+      if(!(await R.ensure(hdr + sz.v))) return null;          // 끊긴 꼬리
+      const b = R.bytes(hdr, sz.v);
+      R.pos += hdr + sz.v;
+      if(id.id === TRACKS){ parseTracks(b); return []; }
+      return blockFrames(b);
+    }
+    R.pos += hdr + sz.v;
+    return [];
+  };
+  if(!(await R.ensure(4)) || R.u8(0) !== 0x1A || R.u8(1) !== 0x45 || R.u8(2) !== 0xDF || R.u8(3) !== 0xA3) return null;
+  while(!track){                        // 트랙 정보는 첫 덩이보다 앞에 있다
+    const r = await step(); if(r === null) return null;
+    if(R.pos > 64 * 1024 * 1024) return null;
+  }
+  const next = async () => {
+    const frames = [];
+    while(frames.length < 256){
+      const r = await step(); if(r === null) break;
+      for(const f of r) if(f.length) frames.push(f);
+    }
+    return frames.length ? frames : null;
+  };
+  return { cfg: track.cfg, next };
+}
+
+/* aac(ADTS): 머리(7·9바이트)를 떼고 AAC 덩이만 넘긴다. */
+async function adtsSource(file){
+  const R = byteReader(file);
+  if(await R.ensure(10) && R.u8(0) === 0x49 && R.u8(1) === 0x44 && R.u8(2) === 0x33)
+    R.pos = 10 + (((R.u8(6)&127)<<21) | ((R.u8(7)&127)<<14) | ((R.u8(8)&127)<<7) | (R.u8(9)&127));
+  const hdr = async () => {
+    for(let k = 0; k < (1 << 20); k++){
+      if(!(await R.ensure(7))) return null;
+      if(R.u8(0) === 0xFF && (R.u8(1) & 0xF6) === 0xF0){
+        const len = ((R.u8(3) & 3) << 11) | (R.u8(4) << 3) | (R.u8(5) >> 5);
+        const sri = (R.u8(2) >> 2) & 15;
+        if(len > 7 && sri < 13) return { len, hl: (R.u8(1) & 1) ? 7 : 9, aot: (R.u8(2) >> 6) + 1, sri,
+                                          ch: ((R.u8(2) & 1) << 2) | (R.u8(3) >> 6) };
+      }
+      R.pos++;                                                  // 어긋남 — 다시 맞춘다
+    }
+    return null;
+  };
+  const h0 = await hdr(); if(!h0) return null;
+  const ch = h0.ch || 1;
+  const asc = new Uint8Array([(h0.aot << 3) | (h0.sri >> 1), ((h0.sri & 1) << 7) | (ch << 3)]);
+  const next = async () => {
+    const frames = [];
+    while(frames.length < 256){
+      const h = await hdr(); if(!h) break;
+      if(!(await R.ensure(h.len))) break;
+      frames.push(R.bytes(h.hl, h.len - h.hl)); R.pos += h.len;
+    }
+    return frames.length ? frames : null;
+  };
+  return { cfg: aacCfg(asc, AAC_SR[h0.sri], ch), next };
+}
+
 /* wav: 디코더 없이 바로 읽는다. 지원 못 하는 꼴이면 false. */
 async function wavStream(file, push, onProg){
   let o = 12, fmt = null, data = null;
@@ -10542,7 +10848,13 @@ async function streamPcm16k(file, push, onProg){
   let src = null;
   try{
     if(s4(4) === "ftyp") src = await mp4Source(file);
-    else if((h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) || (h[0] === 0xFF && (h[1] & 0xE0) === 0xE0)) src = await mp3Source(file);
+    else if(s4(0) === "OggS") src = await oggSource(file);
+    else if(h[0] === 0x1A && h[1] === 0x45 && h[2] === 0xDF && h[3] === 0xA3) src = await webmSource(file);
+    else if(h[0] === 0xFF && (h[1] & 0xF6) === 0xF0) src = await adtsSource(file);   // mp3 보다 먼저 본다(머리가 닮았다)
+    else if((h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) || (h[0] === 0xFF && (h[1] & 0xE0) === 0xE0)){
+      src = await mp3Source(file);
+      if(!src && /\.aac$/i.test(file.name || "")) src = await adtsSource(file);      // ID3 를 단 aac
+    }
   }catch(e){ src = null; }
   if(!src) return false;
   try{
@@ -10629,7 +10941,7 @@ async function importNative(){
             + " · " + mmss(ev.ms) + " · " + ev.chunks + "구간", 60000);
     });
     toast("소리를 푸는 중…", 60000);
-    const r = await NativeDec.decode({ uris: files.map(f=>f.uri), chunkMs: +CFG.chunk || 30000 });
+    const r = await NativeDec.decode({ uris: files.map(f=>f.uri), chunkMs: importChunkMs() });
 
     // 떨어진 조각을 회의로 거둬들인다
     const pend = await Native.pending();
@@ -10651,8 +10963,9 @@ async function importNative(){
       acc += chunkSec(c) * 1000;
       await putRaw("chunks", c);
     }
-    note.duration = Math.round(acc) || (r && r.durationMs) || 0;
-    await put("notes", note);
+    const fresh = (await get("notes", note.id)) || note;   // 그사이 붙은 용어를 지우지 않게 다시 읽는다
+    fresh.duration = note.duration = Math.round(acc) || (r && r.durationMs) || 0;
+    await put("notes", fresh);
     renderIfOpen(note.id); refreshList(); drain();
     /* 몇 개를 만들었고 몇 개를 거뒀는지 함께 보인다. 어긋나면 어디가 샜는지 바로 안다. */
     const made = (r && r.chunks) || 0;
@@ -10680,10 +10993,14 @@ async function importFiles(files){
     attendees: pickedAttendees(), marks: [], seriesId: $("r-series").value || "",
     brief: $("r-brief").value.trim(), terms: [] };
   await put("notes", note);
-  primeTerms(note.id, note.brief);
+  /* 사전 자료의 고유명사를 다 뽑은 뒤에 첫 조각을 내놓는다. 파일은 기다려도 된다(몇 초).
+     11/3 TLB 현설: 뒤에서 돌게 두었더니 첫 조각들이 용어 없이 전사됐고, 끝에 아래 put 이 뽑아 둔
+     용어를 빈 목록으로 덮어써 81분 전체가 사전 자료 없이 전사됐다(톤키·텅키·턴키, BOP·BOM 이 오락가락). */
+  const primed = primeTerms(note.id, note.brief).catch(() => {});
   closeSheet(); openNote(note.id); refreshList();
+  if(note.brief){ toast("사전 자료에서 고유명사를 뽑는 중…", 15000); await primed; }
 
-  const per = Math.floor(RATE * (+CFG.chunk)/1000);
+  const per = Math.floor(RATE * importChunkMs()/1000);
   let seq = 0, offset = 0;                 // offset 은 지금까지 이어 붙인 초
 
   const failed = [];
@@ -10749,8 +11066,10 @@ async function importFiles(files){
     await new Promise(r => setTimeout(r, 200));
   }
 
-  note.duration = Math.round(offset*1000);
-  await put("notes", note);
+  /* 다시 읽어서 길이만 고친다 — 들고 있던 note 를 그대로 쓰면 그사이 붙은 용어(terms)가 지워진다. */
+  const fresh = (await get("notes", note.id)) || note;
+  fresh.duration = note.duration = Math.round(offset*1000);
+  await put("notes", fresh);
   renderIfOpen(note.id); refreshList();
   toast(files.length + "개 파일 · " + mmss(note.duration) + " · " + seq + "구간으로 나눴습니다. 순서대로 전사합니다."
         + (failed.length ? " (못 읽은 것: " + failed.join(", ") + ")" : ""), 10000);
