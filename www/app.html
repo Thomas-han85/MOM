@@ -1009,7 +1009,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.11.04-2";
+const APP_VERSION = "2026.11.09-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1470,6 +1470,9 @@ async function sttChunk(blob, prompt, terms, modelOverride, refNote){
   const t2 = two[CFG.lastTarget] || "";
   if(t2 && langs.indexOf(t2) < 0) langs.push(t2);
   if(langs.indexOf("en") < 0) langs.push("en");
+  /* 회의 모드는 langA·langB 가 비어 베트남어가 빠져 있었다(11/9 월간회의 「Tên gì để các bạn… về…」).
+     한동 회의에는 베트남 직원이 늘 있다. 대화 모드는 고른 두 언어를 그대로 쓴다. */
+  if(!(refNote && refNote.mode === "talk") && langs.indexOf("vi") < 0) langs.push("vi");
   /* 언어 목록을 따로 못 받는 모델에는 길잡이 글 머리에 말로 적어 준다. 안 적으면
      소리가 흐릿한 구간을 태국어·한자로 지어낸다. 목록을 받는 gpt-transcribe 가 더 확실하다. */
   const LNAME = { ko:"Korean", vi:"Vietnamese", en:"English", km:"Khmer", ja:"Japanese", zh:"Chinese", th:"Thai", id:"Indonesian" };
@@ -1754,6 +1757,26 @@ function echoOfPrompt(out, prompt){
   for(let i = 0; i + keep <= o.length; i++)
     if(p.includes(o.slice(i, i + keep))) return true;
   return false;
+}
+
+/* 용어집·고유명사 목록을 되뱉은 문장인지 본다 (11/9 월간 현장회의).
+   실시간 전사에 용어 목록(keywords)을 넘기면, 소리가 흐리거나 조용한 틈에 모델이 그 목록을
+   차례대로 읽어 낸다 — 「인계.」 한 낱말, 또는 「인계. bàn giao. handover. 검수. nghiệm thu …」.
+   14분 회의에서 자막 85줄 중 24줄이 이것이었다. echoOfPrompt 는 sttPrompt(뒤 40개)와만 견주고,
+   liveAbsorb 의 거름은 시리즈·회의 용어만 봐서 맨 앞에 붙는 용어집이 둘 다를 빠져나갔다.
+   낱말 하나씩 지우면 「cửa」「work」 같은 흔한 말이 걸린다. 그래서 용어를 통째로(긴 것부터)
+   덜어 내고, 남는 것이 없거나(긴 글이면) 거의 없으면 들은 말이 아니라 목록을 읽은 것으로 본다. */
+function termsNorm(note){
+  const set = new Set();
+  for(const t of sttTerms(note)){ const n = normText(t); if(n.length >= 2) set.add(n); }
+  return Array.from(set).sort((x, y) => y.length - x.length);
+}
+function termEcho(text, tn){
+  let o = normText(text);
+  if(!o || !tn || !tn.length) return false;
+  const L = o.length;
+  for(const t of tn){ if(o.indexOf(t) >= 0) o = o.split(t).join(""); if(!o) break; }
+  return o.length === 0 || (L >= 15 && o.length / L <= 0.2);
 }
 
 /* 두 글이 사실상 같은지 너그럽게 본다.
@@ -8209,6 +8232,7 @@ async function absorbText(c, note, raw, before, prompt){
   };
   sift(s => spokenLately(s), "tts");            // 우리가 읽어 준 소리가 되들어왔다
   if(prompt) sift(s => echoOfPrompt(s, prompt), "prompt");
+  { const tn = termsNorm(note); sift(s => termEcho(s, tn), "prompt"); }   // 용어집을 읽어 낸 문장
   sift(foreignScript, "foreign");               // 이 회의에 있을 수 없는 글자 (문장째)
   if(txt){ const st = stripForeign(txt); if(st !== txt){ txt = st; c.skip = st ? "trim" : "foreign"; } }  // 낱말째
   sift(junkLine, "junk");                       // 자막 뭉치에서 튀어나온 말
@@ -8667,6 +8691,7 @@ function liveSession(note){
   const langs = ["ko"];
   for(const l of [note.langA, note.langB, note.target]){ const c = two[l]; if(c && langs.indexOf(c) < 0) langs.push(c); }
   if(langs.indexOf("en") < 0) langs.push("en");
+  if(note.mode !== "talk" && langs.indexOf("vi") < 0) langs.push("vi");   // 회의 모드에 베트남어가 빠져 있었다(11/9)
   /* 회의 맥락(prompt)은 넣지 않는다. 100초 시험에서 "벤쩨 병원 현장 회의" 라는 맥락이 조용한 자리에서
      두 번 그대로 전사문으로 되뱉혔다. 파일 경로가 앞 구간 꼬리를 빼면서 배운 것과 같은 일이다.
      고유명사는 낱말 목록(keywords)으로만 준다. 낱말은 문장으로 되뱉히는 일이 드물고, 되뱉혀도 liveAbsorb 가 거른다. */
@@ -9332,7 +9357,7 @@ async function secondPassRun(noteId, onStep){
         const raw = await sttChunk(blob, prompt, terms, diar ? "gpt-4o-transcribe-diarize" : "gpt-transcribe", note);
         let txt = applyFixes(dedupeInside(raw)).trim();
         if(txt && prompt && echoOfPrompt(txt, prompt)) txt = "";
-        if(txt) txt = keepGood(txt, s => foreignScript(s) || junkLine(s));
+        if(txt){ const tn = termsNorm(note); txt = keepGood(txt, s => foreignScript(s) || junkLine(s) || termEcho(s, tn)); }
         if(txt){ const st = stripForeign(txt); txt = st; }
         if(normText(txt).length < normText(liveText).length * 0.5){
           // 2차가 훨씬 적게 적었다. 실시간을 남긴다
