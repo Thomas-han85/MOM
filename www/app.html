@@ -1009,7 +1009,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.11.09-1";
+const APP_VERSION = "2026.11.17-1";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1597,11 +1597,16 @@ function noteKeeps(n){
 /* 오래된 녹음부터 버린다. 전사가 끝났고 화자 분리도 마친 것이 먼저다.
    글자는 절대 건드리지 않는다. 그것이 회의록의 알맹이다.
    보관하기로 한 회의의 소리는 버리지 않는다 — 사람이 풀 때까지 둔다. */
-async function freeAudio(needBytes){
+async function freeAudio(needBytes, spareLive){
   const notes = await all("notes");
   const doneDiar = new Set(notes.filter(n=>n.script).map(n=>n.id));
   const kept = new Set(notes.filter(noteKeeps).map(n=>n.id));
-  const cs = (await all("chunks")).filter(c=>c.blob && !kept.has(c.noteId));
+  /* spareLive: 전사 전 소리는 아예 건드리지 않는다. 평소 정리(trimAudio)는 이것으로 부른다.
+     11/17: 녹음 7개(245분, 펼치면 약 470MB)를 불러오자 상한 350MB 를 넘어, 전사가 20구간 돌 때마다
+     부르는 정리가 아직 전사 안 한 9구간(약 10분)의 소리를 지웠다. 그 구간은 「전사 실패」로 남았다.
+     전사 전 소리를 버려도 되는 때는 저장이 실제로 자리 부족으로 실패했을 때(putSafe)뿐이다. */
+  const cs = (await all("chunks")).filter(c=>c.blob && !kept.has(c.noteId)
+                                         && !(spareLive && c.status !== "done"));
   /* 아직 전사하지 않은 조각의 소리는 맨 마지막에 버린다.
 
      예전에는 이 순서에 status 가 없었다. 그래서 저장공간이 모자라면 전사를 기다리던
@@ -1639,11 +1644,11 @@ async function trimAudio(){
   const cs = (await all("chunks")).filter(c=>c.blob && !kept.has(c.noteId));
   let total = 0;
   for(const c of cs) total += (c.blob.size||0);
-  if(total > AUDIO_BUDGET) await freeAudio(total - AUDIO_BUDGET);
+  if(total > AUDIO_BUDGET) await freeAudio(total - AUDIO_BUDGET, true);
 
   const s = await storageInfo();
   if(s && s.quota && s.used > s.quota * 0.75){
-    await freeAudio(s.used - s.quota * 0.5);
+    await freeAudio(s.used - s.quota * 0.5, true);
     toast("저장공간이 모자라 오래된 녹음을 지웠습니다. 회의록은 그대로입니다.", 5000);
   }
 }
@@ -8210,6 +8215,41 @@ function applyFixes(text){
   return fixDateOrder(s);
 }
 
+/* 빈 글 다시 받기 (11/17).
+   gpt-transcribe 는 말이 또렷한 1분짜리 구간에도 가끔 빈 글을 돌려준다. 11/16~17 녹음 7개에서
+   251구간 중 8구간(약 8분, 대부분 영어로 길게 말한 대목)이 통째로 비었다. 앱의 거름은 아무것도
+   건드리지 않았다 — skip 없이 echo 만 붙어 있었다. 같은 소리를 조건만 바꿔 다시 보내 보니
+     용어집(keywords) 빼고 3/8 · 앞 꼬리(prompt) 빼고 1/8 · 언어 목록 빼고 0/8,
+     남은 5개에 용어 다 빼고 2/5 · 반으로 잘라 4/5(반쪽만 오는 것 포함)
+   딱 하나의 까닭은 없고, 조건을 바꾸면 됐다 안 됐다 한다. 그래서 차례로 바꿔 가며 글이 올 때까지
+   다시 보낸다. 8개 중 7개를 되찾는 순서다. 언어 목록은 빼지 않는다 — 빼면 하나도 안 왔다.
+   돈은 빈 구간에서만 더 든다(구간당 최대 3번). */
+async function sttEmptyRetry(c, prompt, terms){
+  const tryOnce = async (blob, p, t) => {
+    try{ const t2 = await sttChunk(blob, p, t); return normText(t2) ? t2 : ""; }
+    catch(e){ console.warn("빈 글 다시 받기 실패", e); return ""; }
+  };
+  let r = await tryOnce(c.blob, prompt, []);             // ① 용어집 빼고
+  if(r){ c.emptyRetry = "noKw"; return r; }
+  r = await tryOnce(c.blob, "", []);                      // ② 용어 다 빼고
+  if(r){ c.emptyRetry = "bare"; return r; }
+  try{                                                    // ③ 반으로 잘라
+    const buf = await c.blob.arrayBuffer();
+    const pcm = new Int16Array(buf, 44, Math.floor((buf.byteLength - 44) / 2));
+    const f = new Float32Array(pcm.length);
+    for(let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 32768;
+    const h = findCut(f, 0, Math.floor(f.length / 2), 16000);   // 가운데 근처의 조용한 자리
+    const parts = [];
+    for(const part of [f.subarray(0, h), f.subarray(h)]){
+      const t = await tryOnce(encodeWAV(part, 16000), prompt, terms);
+      if(t) parts.push(t);
+    }
+    if(parts.length){ c.emptyRetry = "half"; return parts.join(" "); }
+  }catch(e){ console.warn("반으로 잘라 다시 받기 실패", e); }
+  c.emptyRetry = "none";
+  return "";
+}
+
 async function absorbText(c, note, raw, before, prompt){
   const recent = before.filter(s=>s.text).slice(-4);   // 최근에 말이 있던 네 구간
   const prev = recent.length ? recent[recent.length-1] : null;
@@ -8489,7 +8529,10 @@ async function drain(){
           workingAt = Date.now();
           /* 실시간 소켓이 받아 적은 구간은 소리가 없고 글만 있다. 통역이 실패해 큐로 되돌아온 것이다.
              그 글로 그 뒤만 다시 간다. 걸러 내기·통역·읽기는 파일 경로와 같은 absorbText 다. */
-          const raw = c.live ? c.text : await sttChunk(c.blob, prompt, terms);
+          let raw = c.live ? c.text : await sttChunk(c.blob, prompt, terms);
+          /* 소리가 또렷한데 빈 글이 왔으면 조건을 바꿔 다시 받는다 (11/17). */
+          if(!c.live && !normText(raw) && rms !== null && rms >= Math.max(floor * 2, 0.01))
+            raw = await sttEmptyRetry(c, prompt, terms);
           await absorbText(c, note, raw, before, prompt);
         }
         c.status = "done"; c.error = ""; c.nextAt = 0; c.slow = 0;
@@ -14159,7 +14202,7 @@ $("g-unlink").onclick = ()=>{
     "끊는다", ()=>{ gUnlink(); paintSync(""); toast("연결을 끊었습니다."); });
 };
 $("s-trim").onclick = async ()=>{
-  const n = await freeAudio(Number.MAX_SAFE_INTEGER);
+  const n = await freeAudio(Number.MAX_SAFE_INTEGER, true);   // 전사 전 소리는 남긴다
   toast("녹음 " + Math.round(n/1024/1024) + "MB 를 비웠습니다. 회의록은 그대로입니다.", 5000);
   paintStorage();
 };
@@ -14317,6 +14360,15 @@ function paintUpdBar(){
 (async ()=>{
   applyTheme();          // 첫 그림이 그려지기 전에 빛깔부터 맞춘다
   await openDB();
+  /* 저장소가 열렸으면 이 판은 돈다. 부트로더의 감시 플래그를 여기서 바로 푼다 (11/17).
+     예전에는 회의 목록까지 다 읽은 뒤(폰에서 약 3.6초, 조각 3만 5천 개)에야 풀었다. 그 사이에
+     앱이 끊기면(밀어 닫기·메모리 정리) 플래그가 남고, 다음 실행에서 부트로더가 APK 속 판으로
+     되돌린다. 그 판(9/17)은 9/30 에 2판으로 올린 저장소를 열지 못해 끝까지 못 뜨고, 그래서
+     플래그가 또 남는다 — 한 번 걸리면 스스로 못 빠져나오는 함정이었다. 11/16~17 폰에서
+     「녹음 시작이 안 눌린다」(저장소가 닫혀 회의를 못 써서 조용히 멈춤)의 뿌리가 이것이다.
+     로컬스토리지는 몇 초 뒤에 디스크에 쓰이므로 일찍 풀수록 함정에 빠질 틈이 줄어든다.
+     아래 끝의 호출은 그대로 둔다(두 번 불러도 해가 없다). */
+  if(window.__mnBootOK) window.__mnBootOK();
   /* 로컬스토리지가 사라졌으면 여기서 되살린다. 전사·통역이 열쇠를 찾기 전에 해야 한다. */
   let cfgBack = 0;
   try{ cfgBack = await cfgRecover(); }catch(e){}
