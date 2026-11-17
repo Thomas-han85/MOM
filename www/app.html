@@ -1009,7 +1009,7 @@ details.setgroup > .lead{margin:0 0 14px;font-size:12.5px;color:var(--muted);lin
 <script>
 "use strict";
 /* 부트로더가 이 값을 읽어 새 버전인지 판단한다. 배포할 때마다 올릴 것. */
-const APP_VERSION = "2026.11.17-1";
+const APP_VERSION = "2026.11.17-2";
 
 /* ---------- 부트 화면 걷어내기 ----------
    index.html 은 앱 본체를 받아 document.write 로 화면을 통째로 갈아 끼운다.
@@ -1414,8 +1414,11 @@ function timeLabel(ts){ const d=new Date(ts); return pad(d.getHours())+":"+pad(d
    sttPrompt 가 뒤에서 40개만 남기므로 방금 손으로 넣은 낱말이 가장 확실히 살아야 한다. */
 function sttTerms(note){
   const ser = note && note.seriesId ? findSeries(note.seriesId) : null;
-  return [...glossTerms(), ...((ser && ser.terms) || []), ...knownPrayerNames(note), ...((note && note.terms) || [])];
+  return [...glossTerms(), ...BUILTIN_TERMS, ...((ser && ser.terms) || []), ...knownPrayerNames(note), ...((note && note.terms) || [])];
 }
+/* 기기 설정(용어집)과 상관없이 늘 넘기는 이름. 용어집은 기기마다 따로라 폰·노트북에 같이 넣으려면 여기가 낫다.
+   11/17 귀 판정: 「NHO에서」를 트엠은 NH, Whisper 는 LH2 로 적었다(용어집에 없었음). */
+const BUILTIN_TERMS = ["NHO"];
 
 /* 용어집의 표기도 전사에 넘긴다. "적산 = bóc tách khối lượng = quantity takeoff" 의 세 쪽이 다 낱말이다 —
    한 회의에서 세 언어가 오가니 어느 쪽으로 말할지 모른다. 예전에는 통역에만 썼다.
@@ -1438,7 +1441,13 @@ function sttPrompt(ctxHint, terms){
      이제 맥락을 앞에 두고 앞에서부터 500자를 남긴다. 용어가 온전히 살아남는다. */
   const termLine = uniq.length ? uniq.slice(-40).join(", ") + "." : "";
   const ctx = String(ctxHint || "").trim().replace(/\s+/g," ").slice(0, 160);
-  return [ctx, termLine].filter(Boolean).join(" ").slice(0, 500);
+  /* 「빌」(billion 동). 11/17 귀 판정 23곳 중 5곳이 이것이었다 — 트엠은 「1빌밖에」를 「1 1밖에」,
+     「27빌이 페널티면」을 「27일」, 「30빌」을 「40일」로 적었다. 금액이 날짜가 되는 가장 위험한 틀림이다.
+     용어집(keywords)에는 넣지 않는다 — 오늘 빈 글의 가장 잦은 원인이 keywords 였다. 길잡이 글에
+     낱말 나열 꼴로 짧게만 둔다(문장이면 조용한 자리에서 되뱉힌다. 되뱉혀도 echoOfPrompt 가 거른다).
+     효과는 시험하지 않았다(실장님: 유료 시험 없이 다음 회의에서 본다). */
+  const money = "1빌, 3빌, 30빌.";
+  return [ctx, money, termLine].filter(Boolean).join(" ").slice(0, 500);
 }
 
 /* 모델마다 용어를 받는 길이 다르다.
